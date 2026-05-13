@@ -17,7 +17,7 @@ export class EmailService {
     resetLink: string,
   ): Promise<void> {
     await this.resend.emails.send({
-      from: 'SECTEC <onboarding@resend.dev>',
+      from: 'onboarding@resend.dev',  // ← usa esse para testes sem domínio verificado
       to: email,
       subject: 'SECTEC – Redefinição de senha',
       html: `

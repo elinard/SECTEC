@@ -17,22 +17,22 @@ export class UsersSeed {
 
     // Definimos os usuários em um array para evitar repetição de código
     const seedUsers = [
-      {
-        nome: 'Aluno Teste SECTEC',
-        email: 'aluno@sectec.com',
-        role: UserRole.ALUNO,
-      },
-      {
-        nome: 'Orientador Teste SECTEC',
-        email: 'orientador@sectec.com',
-        role: UserRole.ORIENTADOR,
-      },
-      {
-        nome: 'Coordenador Teste SECTEC',
-        email: 'coordenador@sectec.com',
-        role: UserRole.COORDENACAO, // 👈 Ajustado para COORDENACAO (conforme seu erro anterior)
-      },
-    ];
+  {
+    nome: 'Aluno Teste SECTEC',
+    email: 'aluno@sectec.com',
+    role: UserRole.ALUNO,
+  },
+  {
+    nome: 'Orientador Teste SECTEC',
+    email: 'orientador@sectec.com',
+    role: UserRole.ORIENTADOR,
+  },
+  {
+    nome: 'Coordenador Teste SECTEC',
+    email: 'coordenador@sectec.com',
+    role: UserRole.COORDENACAO,
+  },
+];
 
     for (const u of seedUsers) {
       // 1. Verifica se o usuário já existe
