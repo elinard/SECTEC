@@ -1,0 +1,407 @@
+import React, { useState, useRef, useEffect } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { AnimatePresence, motion } from "motion/react";
+import { clearSession } from "../lib/api";
+import {
+  ChevronLeft,
+  Menu,
+  X,
+  LayoutDashboard,
+  School,
+  FileSpreadsheet,
+  FileText,
+  BookOpen,
+  Settings,
+  ChevronDown,
+  CalendarDays,
+  ClipboardList,
+  LogOut,
+} from "lucide-react";
+
+import type { UserRole, NavItem } from "../helpes/InteligenciaSideBar";
+
+// ─────────────────────────────────────────────
+// Sidebar
+// ─────────────────────────────────────────────
+
+export type SidebarProps = {
+  items: NavItem[];
+  userRole: UserRole;
+  mobile?: boolean;
+  onClose?: () => void;
+  expanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
+};
+
+export function Sidebar({
+  items,
+  userRole,
+  mobile = false,
+  onClose,
+  expanded: expandedProp,
+  onExpandedChange,
+}: SidebarProps) {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const [internalExpanded, setInternalExpanded] = useState(true);
+  const controlledExpanded = expandedProp ?? internalExpanded;
+  const expanded = mobile ? true : controlledExpanded;
+
+  const isConfigActive = location.pathname.includes("/configuracoes");
+
+  function toggleExpanded() {
+    const next = !controlledExpanded;
+    setInternalExpanded(next);
+    onExpandedChange?.(next);
+  }
+
+  function handleLogout() {
+    clearSession();
+    navigate("/login", { replace: true });
+  }
+
+  const canAccess = (item: NavItem) => {
+    if (!item.roles) return true;
+    return item.roles.includes(userRole);
+  };
+
+  const filteredItems = items.filter(canAccess).map((item) => ({
+    ...item,
+    subItems: item.subItems?.filter(
+      (sub) => !sub.roles || sub.roles.includes(userRole)
+    ),
+  }));
+
+  const configPath =
+    userRole === "coordenador" || userRole === "comissao"
+      ? "/dashboard/coordenacao/configuracoes"
+      : userRole === "orientador"
+      ? "/dashboard/orientador/configuracoes"
+      : "/dashboard/aluno/configuracoes";
+
+  return (
+    <motion.aside
+      initial={mobile ? { x: -320 } : false}
+      animate={mobile ? { x: 0 } : { width: expanded ? 256 : 80 }}
+      exit={mobile ? { x: -320 } : undefined}
+      transition={{ type: "spring", stiffness: 260, damping: 28 }}
+      className={`${
+        mobile
+          ? "fixed inset-y-0 left-0 z-50 w-72 flex"
+          : "fixed inset-y-0 left-0 z-20 hidden h-dvh min-h-dvh shrink-0 lg:flex"
+      } bg-[#0b4d2c] text-white border-r border-white/5 flex-col shadow-2xl overflow-visible`}
+    >
+      {!mobile && (
+        <motion.button
+          whileHover={{ scale: 1.08 }}
+          whileTap={{ scale: 0.94 }}
+          onClick={toggleExpanded}
+          className="absolute -right-3 top-20 bg-white text-[#0b4d2c] rounded-full p-1 border border-slate-200 shadow-md z-30"
+          type="button"
+        >
+          {expanded ? <ChevronLeft size={14} /> : <Menu size={14} />}
+        </motion.button>
+      )}
+
+      {mobile && (
+        <motion.button
+          whileTap={{ scale: 0.92 }}
+          onClick={onClose}
+          className="absolute right-4 top-4 rounded-lg bg-white/10 p-2 text-white hover:bg-white/15 transition"
+          type="button"
+          aria-label="Fechar menu"
+        >
+          <X size={18} />
+        </motion.button>
+      )}
+
+      <div className="p-5 sm:p-6 border-b border-white/5 overflow-hidden">
+        <motion.div
+          layout
+          className={`flex items-center gap-3 ${expanded ? "justify-start" : "justify-center"}`}
+        >
+          <motion.div layout whileHover={{ rotate: 3, scale: 1.04 }} className="grid grid-cols-2 gap-1 shrink-0">
+            <span className="h-5 w-5 rounded-md bg-sectec-700" />
+            <span className="h-5 w-5 rounded-md bg-sectec-100" />
+            <span className="h-5 w-5 rounded-md bg-sectec-600" />
+            <span className="h-5 w-5 rounded-md bg-sectec-700" />
+          </motion.div>
+          <AnimatePresence>
+            {expanded && (
+              <motion.div
+                initial={{ opacity: 0, x: -8 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -8 }}
+                transition={{ duration: 0.18 }}
+                className="text-left"
+              >
+                <h1 className="text-xl font-black leading-none text-white tracking-tighter uppercase">SECTEC</h1>
+                <p className="text-[10px] font-bold text-white/40 tracking-widest uppercase mt-0.5">Projeto Escolar</p>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
+      </div>
+
+      <nav className="flex-1 px-3 sm:px-4 py-6 sm:py-8 overflow-y-auto space-y-1 overflow-x-hidden">
+        {filteredItems.map((item, index) => {
+          const hasSubItems = item.subItems && item.subItems.length > 0;
+          const isActive = !isConfigActive && Boolean(item.isActive);
+
+          if (hasSubItems && expanded) {
+            return (
+              <motion.div key={item.id} initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: index * 0.04, duration: 0.2 }}>
+                <details className="group" open={item.isActive}>
+                  <summary className={`flex items-center justify-between w-full px-4 py-3 rounded-xl text-sm font-semibold transition cursor-pointer list-none hover:bg-white/10 ${isActive ? "bg-white/15 text-white" : "text-white/70"}`}>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="opacity-80 shrink-0">{item.icon}</span>
+                      <span className="truncate">{item.label}</span>
+                    </div>
+                    <ChevronDown size={14} className="opacity-40 transition-transform group-open:rotate-180 shrink-0" />
+                  </summary>
+                  <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18 }} className="mt-1 ml-4 border-l border-white/10 pl-3 space-y-1">
+                    {item.subItems!.map((sub) => (
+                      <Link key={sub.id} to={sub.href || "#"} onClick={onClose} className="block py-2 px-3 text-xs font-medium text-white/55 hover:text-white hover:bg-white/5 rounded-lg transition">
+                        {sub.label}
+                      </Link>
+                    ))}
+                  </motion.div>
+                </details>
+              </motion.div>
+            );
+          }
+
+          return (
+            <motion.div key={item.id} initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: index * 0.04, duration: 0.2 }} whileTap={{ scale: 0.97 }}>
+              <Link to={item.href || "#"} onClick={onClose} className={`flex items-center gap-3 w-full px-4 py-3 rounded-xl text-sm font-semibold transition ${isActive ? "bg-white/15 text-white shadow-inner" : "text-white/70 hover:bg-white/10 hover:text-white"}`}>
+                <span className="opacity-80 shrink-0">{item.icon}</span>
+                <AnimatePresence>
+                  {expanded && (
+                    <motion.span initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -6 }} transition={{ duration: 0.16 }} className="whitespace-nowrap truncate">
+                      {item.label}
+                    </motion.span>
+                  )}
+                </AnimatePresence>
+              </Link>
+            </motion.div>
+          );
+        })}
+      </nav>
+
+      <div className="p-3 sm:p-4 border-t border-white/5 overflow-hidden space-y-1">
+        <motion.div whileTap={{ scale: 0.97 }}>
+          <Link
+            to={configPath}
+            onClick={onClose}
+            className={`flex items-center gap-3 w-full rounded-xl text-sm font-semibold transition ${!expanded ? "justify-center p-3" : "py-3 px-4"} ${isConfigActive ? "bg-white/15 text-white" : "text-white/70 hover:bg-white/10 hover:text-white"}`}
+          >
+            <span className="opacity-80 shrink-0"><Settings size={20} /></span>
+            <AnimatePresence>
+              {expanded && (
+                <motion.span initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -6 }} transition={{ duration: 0.16 }} className="whitespace-nowrap truncate">
+                  Configurações
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </Link>
+        </motion.div>
+
+        {false && (
+          <>
+        <motion.button
+          whileHover={{ scale: expanded ? 1.02 : 1.1 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={handleLogout}
+          className={`flex items-center gap-3 w-full rounded-xl text-sm font-semibold transition cursor-pointer text-rose-300 hover:bg-rose-500/20 hover:text-rose-200 ${!expanded ? "justify-center p-3" : "py-3 px-4"}`}
+          title="Sair do sistema"
+        >
+          <span className="shrink-0"><LogOut size={20} /></span>
+          <AnimatePresence>
+            {expanded && (
+              <motion.span initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -6 }} transition={{ duration: 0.16 }} className="whitespace-nowrap truncate">
+                Sair
+              </motion.span>
+            )}
+          </AnimatePresence>
+        </motion.button>
+
+        <motion.div whileHover={{ x: expanded ? 3 : 0 }} className={`flex items-center gap-3 px-2 py-1 text-white/65 transition ${!expanded && "justify-center"}`}>
+          <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-xs font-bold shrink-0 uppercase">
+            {userRole[0]}
+          </div>
+          <AnimatePresence>
+            {expanded && (
+              <motion.span initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -6 }} transition={{ duration: 0.16 }} className="min-w-0 flex-1">
+                <span className="block truncate text-xs font-bold text-white">Usuário conectado</span>
+                <span className="block truncate text-[10px] font-semibold uppercase tracking-wider text-white/45">{userRole}</span>
+              </motion.span>
+            )}
+          </AnimatePresence>
+        </motion.div>
+          </>
+        )}
+      </div>
+    </motion.aside>
+  );
+}
+
+// ─────────────────────────────────────────────
+// UserMenu
+// ─────────────────────────────────────────────
+
+function UserMenu({ nomeUsuario, userRole }: { nomeUsuario: string; userRole: UserRole }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const inicialNome = nomeUsuario[0]?.toUpperCase() ?? "U";
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  function handleLogout() {
+    clearSession();
+    window.location.href = "/login";
+  }
+
+  return (
+    <div className="relative flex items-center gap-4" ref={ref}>
+      <div className="text-right hidden sm:block">
+        <p className="text-[10px] font-black text-slate-400 uppercase">{userRole}</p>
+        <p className="text-xs font-bold text-slate-700">{nomeUsuario}</p>
+      </div>
+      <motion.button
+        whileHover={{ scale: 1.06 }}
+        whileTap={{ scale: 0.94 }}
+        onClick={() => setOpen((v) => !v)}
+        className="w-8 h-8 bg-[#15803d] rounded-lg flex items-center justify-center text-white text-xs font-bold hover:bg-[#166534] transition-colors focus:outline-none"
+        type="button"
+      >
+        {inicialNome}
+      </motion.button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: -6, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.97 }}
+            transition={{ duration: 0.15 }}
+            className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl border border-slate-200 shadow-lg z-50 overflow-hidden"
+          >
+            <div className="px-4 py-3 border-b border-slate-100">
+              <p className="text-xs font-semibold text-slate-800 truncate">{nomeUsuario}</p>
+              <p className="text-[11px] text-slate-400 uppercase mt-0.5">{userRole}</p>
+            </div>
+            <button onClick={handleLogout} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors">
+              <LogOut size={14} />
+              Sair da conta
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// MainLayout
+// ─────────────────────────────────────────────
+
+export function MainLayout({ children, userRole }: { children: React.ReactNode; userRole: UserRole }) {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [sidebarExpanded, setSidebarExpanded] = useState(true);
+  const location = useLocation();
+
+  const nomeUsuario = localStorage.getItem("nome") ?? "Usuário";
+
+  // ✅ Usa os valores reais do backend
+  const rolePath =
+    userRole === "coordenador" || userRole === "comissao"
+      ? "coordenacao"
+      : userRole === "orientador"
+      ? "orientador"
+      : "aluno";
+
+  const dashboardPrefix = `/dashboard/${rolePath}`;
+
+  const pageLabels: Record<string, string> = {
+    [dashboardPrefix]: "Painel",
+    [`${dashboardPrefix}/turmas`]: "Turmas",
+    [`${dashboardPrefix}/frequencia`]: "Frequência",
+    [`${dashboardPrefix}/entregas`]: "Entregas",
+    [`${dashboardPrefix}/agenda`]: "Agenda",
+    [`${dashboardPrefix}/notas`]: "Avaliações",
+    [`${dashboardPrefix}/relatorios`]: "Relatórios",
+    [`${dashboardPrefix}/configuracoes`]: "Configurações",
+  };
+
+  const currentPage =
+    pageLabels[location.pathname] ||
+    location.pathname.split("/").pop()?.replace(/-/g, " ") ||
+    "painel";
+
+  const orientadorMenu: NavItem[] = [
+    { id: "or-painel", label: "Painel", icon: <LayoutDashboard size={20} />, href: dashboardPrefix, isActive: location.pathname === dashboardPrefix, roles: ["orientador"] },
+    { id: "or-turmas", label: "Turmas", icon: <School size={20} />, href: `${dashboardPrefix}/turmas`, isActive: location.pathname.startsWith(`${dashboardPrefix}/turmas`), roles: ["orientador"], subItems: [{ id: "or-turmas-lista", label: "Minhas Turmas", href: `${dashboardPrefix}/turmas` }] },
+    { id: "or-entregas", label: "Entregas", icon: <ClipboardList size={20} />, href: `${dashboardPrefix}/entregas`, isActive: location.pathname === `${dashboardPrefix}/entregas`, roles: ["orientador"] },
+    { id: "or-agenda", label: "Agenda", icon: <CalendarDays size={20} />, href: `${dashboardPrefix}/agenda`, isActive: location.pathname === `${dashboardPrefix}/agenda`, roles: ["orientador"] },
+    { id: "or-notas", label: "Avaliações", icon: <FileSpreadsheet size={20} />, href: `${dashboardPrefix}/notas`, isActive: location.pathname === `${dashboardPrefix}/notas`, roles: ["orientador"] },
+  ];
+
+  const coordenadorMenu: NavItem[] = [
+    { id: "co-painel", label: "Painel", icon: <LayoutDashboard size={20} />, href: dashboardPrefix, isActive: location.pathname === dashboardPrefix, roles: ["coordenador", "comissao"] },
+    { id: "co-turmas", label: "Turmas", icon: <School size={20} />, href: `${dashboardPrefix}/turmas`, isActive: location.pathname.startsWith(`${dashboardPrefix}/turmas`), roles: ["coordenador", "comissao"], subItems: [{ id: "co-turmas-lista", label: "Todas as Turmas", href: `${dashboardPrefix}/turmas` }, { id: "co-freq", label: "Frequência", href: `${dashboardPrefix}/frequencia`, roles: ["coordenador"] }] },
+    { id: "co-notas", label: "Notas", icon: <FileText size={20} />, href: `${dashboardPrefix}/notas`, isActive: location.pathname === `${dashboardPrefix}/notas`, roles: ["coordenador", "comissao"] },
+  ];
+
+  const alunoMenu: NavItem[] = [
+    { id: "al-painel", label: "Painel", icon: <LayoutDashboard size={20} />, href: dashboardPrefix, isActive: location.pathname === dashboardPrefix, roles: ["aluno"] },
+    { id: "al-notas", label: "Notas", icon: <FileText size={20} />, href: `${dashboardPrefix}/notas`, isActive: location.pathname === `${dashboardPrefix}/notas`, roles: ["aluno"] },
+    { id: "al-relatorios", label: "Relatórios", icon: <BookOpen size={20} />, href: `${dashboardPrefix}/relatorios`, isActive: location.pathname === `${dashboardPrefix}/relatorios`, roles: ["aluno"] },
+  ];
+
+  const menuConfig =
+    userRole === "orientador" ? orientadorMenu
+    : userRole === "coordenador" || userRole === "comissao" ? coordenadorMenu
+    : alunoMenu;
+
+  return (
+    <div className="flex min-h-screen bg-[#f4f9f6] w-full font-sans antialiased overflow-x-hidden">
+      <Sidebar items={menuConfig} userRole={userRole} expanded={sidebarExpanded} onExpandedChange={setSidebarExpanded} />
+
+      <AnimatePresence>
+        {mobileMenuOpen && (
+          <>
+            <motion.button type="button" aria-label="Fechar menu" onClick={() => setMobileMenuOpen(false)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18 }} className="fixed inset-0 z-40 bg-black/40 lg:hidden" />
+            <Sidebar items={menuConfig} userRole={userRole} mobile onClose={() => setMobileMenuOpen(false)} />
+          </>
+        )}
+      </AnimatePresence>
+
+      <main className={`flex-1 flex flex-col min-h-screen min-w-0 transition-[padding] duration-300 ${sidebarExpanded ? "lg:pl-64" : "lg:pl-20"}`}>
+        <motion.header
+          initial={{ y: -18, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ duration: 0.25, ease: "easeOut" }}
+          className="h-16 border-b border-slate-200 bg-white/70 backdrop-blur-md flex items-center justify-between px-4 sm:px-6 lg:px-10 shrink-0 sticky top-0 z-30"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <motion.button type="button" whileTap={{ scale: 0.92 }} onClick={() => setMobileMenuOpen(true)} className="lg:hidden w-9 h-9 rounded-xl border border-slate-200 bg-white flex items-center justify-center text-[#0b4d2c] shadow-sm" aria-label="Abrir menu">
+              <Menu size={18} />
+            </motion.button>
+            <div className="text-xs font-bold text-slate-400 uppercase tracking-widest truncate">{currentPage}</div>
+          </div>
+          <UserMenu nomeUsuario={nomeUsuario} userRole={userRole} />
+        </motion.header>
+
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }} className="flex-1 overflow-y-auto min-w-0">
+          {children}
+        </motion.div>
+      </main>
+    </div>
+  );
+}
