@@ -334,6 +334,7 @@ export function MainLayout({
     [`${dashboardPrefix}/agenda`]: "Agenda",
     [`${dashboardPrefix}/relatorios`]: "Relatórios",
     [`${dashboardPrefix}/notas`]: "Avaliações",
+    [`${dashboardPrefix}/usuarios`]: "Usuários",
     [`${dashboardPrefix}/configuracoes`]: "Configurações",
   };
 
@@ -465,8 +466,8 @@ export function MainLayout({
       id: "coordenacao-usuarios",
       label: "Usuários",
       icon: <Users size={20} />,
-      href: `${dashboardPrefix}#coord-usuarios`,
-      isActive: location.hash === "#coord-usuarios",
+      href: `${dashboardPrefix}/usuarios`,
+      isActive: location.pathname === `${dashboardPrefix}/usuarios`,
       roles: ["coordenador", "comissao"],
     },
     {
