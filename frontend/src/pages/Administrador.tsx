@@ -416,6 +416,9 @@ function EventosCoordenacao() {
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
   const [temaInputs, setTemaInputs] = useState<Record<number, string>>({});
+  
+  const [step, setStep] = useState(1);
+  const [isEditing, setIsEditing] = useState<number | null>(null);
   const [formData, setFormData] = useState({
     titulo: "",
     descricao: "",
@@ -426,7 +429,6 @@ function EventosCoordenacao() {
   async function carregarEventos() {
     setCarregando(true);
     setErro("");
-
     try {
       const dados = await apiRequest<EventoApi[]>("/evento");
       setEventos(dados);
@@ -439,17 +441,12 @@ function EventosCoordenacao() {
 
   useEffect(() => {
     let ativo = true;
-
     async function carregar() {
       if (!ativo) return;
       await carregarEventos();
     }
-
     carregar();
-
-    return () => {
-      ativo = false;
-    };
+    return () => { ativo = false; };
   }, []);
 
   function atualizarForm(campo: keyof typeof formData, valor: string) {
@@ -460,74 +457,95 @@ function EventosCoordenacao() {
     const data = new Date(iso);
     if (Number.isNaN(data.getTime())) return "-";
     return data.toLocaleString("pt-BR", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
+      day: "2-digit", month: "2-digit", year: "numeric",
+      hour: "2-digit", minute: "2-digit",
     });
   }
 
-  async function handleCriarEvento(event: React.FormEvent) {
-    event.preventDefault();
+  function handleEdit(evento: EventoApi) {
+    setIsEditing(evento.id);
+    setFormData({
+      titulo: evento.titulo,
+      descricao: evento.descricao || "",
+      prazoInicial: evento.prazoInicial ? new Date(evento.prazoInicial).toISOString().slice(0, 16) : "",
+      prazoFinal: evento.prazoFinal ? new Date(evento.prazoFinal).toISOString().slice(0, 16) : "",
+    });
+    setStep(1);
+  }
 
-    if (!formData.titulo.trim() || !formData.prazoInicial || !formData.prazoFinal) {
-      Swal.fire({
-        icon: "warning",
-        title: "Preencha os campos obrigatorios",
-        text: "Titulo, prazo inicial e prazo final sao obrigatorios.",
-        confirmButtonColor: "#15803d",
-      });
-      return;
+  function handleCancelEdit() {
+    setIsEditing(null);
+    setFormData({ titulo: "", descricao: "", prazoInicial: "", prazoFinal: "" });
+    setStep(1);
+  }
+
+  const dataInicialDate = new Date(formData.prazoInicial);
+  const anoSelecionado = !Number.isNaN(dataInicialDate.getTime()) ? dataInicialDate.getFullYear() : null;
+  const temConflitoAno = anoSelecionado
+    ? eventos.some((e) => {
+        if (isEditing === e.id) return false;
+        return new Date(e.prazoInicial).getFullYear() === anoSelecionado;
+      })
+    : false;
+
+  function nextStep() {
+    if (step === 1) {
+      if (!formData.titulo.trim()) {
+        Swal.fire({ icon: "warning", title: "O titulo e obrigatorio", confirmButtonColor: "#15803d" });
+        return;
+      }
+      setStep(2);
+    } else if (step === 2) {
+      if (!formData.prazoInicial || !formData.prazoFinal) {
+        Swal.fire({ icon: "warning", title: "Preencha os prazos", confirmButtonColor: "#15803d" });
+        return;
+      }
+      const inicio = new Date(formData.prazoInicial);
+      const fim = new Date(formData.prazoFinal);
+      if (fim <= inicio) {
+        Swal.fire({ icon: "warning", title: "Prazo invalido", text: "O prazo final deve ser maior que o inicial.", confirmButtonColor: "#15803d" });
+        return;
+      }
+      if (temConflitoAno) {
+        Swal.fire({ icon: "warning", title: `Já existe um evento cadastrado para o ano de ${anoSelecionado}.`, confirmButtonColor: "#15803d" });
+        return;
+      }
+      setStep(3);
     }
+  }
 
-    const inicio = new Date(formData.prazoInicial);
-    const fim = new Date(formData.prazoFinal);
+  function prevStep() {
+    setStep((s) => Math.max(1, s - 1));
+  }
 
-    if (Number.isNaN(inicio.getTime()) || Number.isNaN(fim.getTime())) {
-      Swal.fire({
-        icon: "warning",
-        title: "Datas invalidas",
-        text: "Informe datas validas para os prazos.",
-        confirmButtonColor: "#15803d",
-      });
-      return;
-    }
-
-    if (fim <= inicio) {
-      Swal.fire({
-        icon: "warning",
-        title: "Prazo final invalido",
-        text: "O prazo final precisa ser maior que o prazo inicial.",
-        confirmButtonColor: "#15803d",
-      });
-      return;
-    }
-
+  async function handleGravarEvento() {
     try {
-      await apiRequest<EventoApi>("/evento", {
-        method: "POST",
-        body: {
-          titulo: formData.titulo.trim(),
-          descricao: formData.descricao?.trim() || undefined,
-          prazoInicial: inicio.toISOString(),
-          prazoFinal: fim.toISOString(),
-        },
-      });
+      const payload = {
+        titulo: formData.titulo.trim(),
+        descricao: formData.descricao?.trim() || undefined,
+        prazoInicial: new Date(formData.prazoInicial).toISOString(),
+        prazoFinal: new Date(formData.prazoFinal).toISOString(),
+      };
+
+      if (isEditing) {
+        await apiRequest(`/evento/${isEditing}`, { method: "PATCH", body: payload });
+      } else {
+        await apiRequest<EventoApi>("/evento", { method: "POST", body: payload });
+      }
 
       Swal.fire({
         icon: "success",
-        title: "Evento criado!",
+        title: isEditing ? "Evento atualizado!" : "Evento criado!",
         showConfirmButton: false,
         timer: 1300,
         timerProgressBar: true,
       });
-      setFormData({ titulo: "", descricao: "", prazoInicial: "", prazoFinal: "" });
+      handleCancelEdit();
       await carregarEventos();
     } catch (error) {
       Swal.fire({
         icon: "error",
-        title: "Erro ao criar evento",
+        title: "Erro ao salvar evento",
         text: error instanceof Error ? error.message : "Tente novamente.",
         confirmButtonColor: "#15803d",
       });
@@ -537,196 +555,194 @@ function EventosCoordenacao() {
   async function handleAdicionarTema(eventoId: number) {
     const nome = (temaInputs[eventoId] || "").trim();
     if (!nome) {
-      Swal.fire({
-        icon: "warning",
-        title: "Informe o nome do tema",
-        confirmButtonColor: "#15803d",
-      });
+      Swal.fire({ icon: "warning", title: "Informe o nome do tema", confirmButtonColor: "#15803d" });
       return;
     }
-
     try {
-      await apiRequest(`/evento/${eventoId}/temas`, {
-        method: "POST",
-        body: { nome },
-      });
-      Swal.fire({
-        icon: "success",
-        title: "Tema adicionado!",
-        showConfirmButton: false,
-        timer: 1200,
-        timerProgressBar: true,
-      });
+      await apiRequest(`/evento/${eventoId}/temas`, { method: "POST", body: { nome } });
+      Swal.fire({ icon: "success", title: "Tema adicionado!", showConfirmButton: false, timer: 1200, timerProgressBar: true });
       setTemaInputs((prev) => ({ ...prev, [eventoId]: "" }));
       await carregarEventos();
     } catch (error) {
-      Swal.fire({
-        icon: "error",
-        title: "Erro ao adicionar tema",
-        text: error instanceof Error ? error.message : "Tente novamente.",
-        confirmButtonColor: "#15803d",
-      });
+      Swal.fire({ icon: "error", title: "Erro ao adicionar tema", text: error instanceof Error ? error.message : "Tente novamente.", confirmButtonColor: "#15803d" });
     }
   }
 
   async function handleExcluirEvento(eventoId: number) {
     const result = await Swal.fire({
-      icon: "warning",
-      title: "Excluir evento?",
-      text: "Essa acao nao pode ser desfeita.",
-      showCancelButton: true,
-      confirmButtonColor: "#15803d",
-      cancelButtonColor: "#e2e8f0",
-      confirmButtonText: "Excluir",
-      cancelButtonText: "Cancelar",
+      icon: "warning", title: "Excluir evento?", text: "Essa acao nao pode ser desfeita.",
+      showCancelButton: true, confirmButtonColor: "#15803d", cancelButtonColor: "#e2e8f0",
+      confirmButtonText: "Excluir", cancelButtonText: "Cancelar",
     });
-
     if (!result.isConfirmed) return;
 
     try {
       await apiRequest(`/evento/${eventoId}`, { method: "DELETE" });
-      Swal.fire({
-        icon: "success",
-        title: "Evento removido",
-        showConfirmButton: false,
-        timer: 1200,
-        timerProgressBar: true,
-      });
+      Swal.fire({ icon: "success", title: "Evento removido", showConfirmButton: false, timer: 1200, timerProgressBar: true });
       await carregarEventos();
     } catch (error) {
-      Swal.fire({
-        icon: "error",
-        title: "Erro ao excluir",
-        text: error instanceof Error ? error.message : "Tente novamente.",
-        confirmButtonColor: "#15803d",
-      });
+      Swal.fire({ icon: "error", title: "Erro ao excluir", text: error instanceof Error ? error.message : "Tente novamente.", confirmButtonColor: "#15803d" });
     }
   }
 
+  const anoAtual = new Date().getFullYear();
+  const eventoAtual = eventos.find((e) => new Date(e.prazoInicial).getFullYear() === anoAtual);
+
   return (
     <AdminPageShell>
-      <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
-        <PanelTitle icon={<PiCalendarBlank size={20} />} title="Eventos" subtitle="Crie e gerencie eventos e eixos tematicos." />
-
-        <form onSubmit={handleCriarEvento} className="mt-5 grid gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-          <div className="grid gap-3 lg:grid-cols-2">
-            <label className="text-xs font-black text-slate-500">
-              Titulo
-              <input
-                value={formData.titulo}
-                onChange={(event) => atualizarForm("titulo", event.target.value)}
-                className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:ring-2 focus:ring-sectec-100"
-                placeholder="Nome do evento"
-              />
-            </label>
-            <label className="text-xs font-black text-slate-500">
-              Descricao
-              <input
-                value={formData.descricao}
-                onChange={(event) => atualizarForm("descricao", event.target.value)}
-                className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:ring-2 focus:ring-sectec-100"
-                placeholder="Resumo do evento (opcional)"
-              />
-            </label>
-          </div>
-          <div className="grid gap-3 lg:grid-cols-2">
-            <label className="text-xs font-black text-slate-500">
-              Prazo inicial
-              <input
-                type="datetime-local"
-                value={formData.prazoInicial}
-                onChange={(event) => atualizarForm("prazoInicial", event.target.value)}
-                className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:ring-2 focus:ring-sectec-100"
-              />
-            </label>
-            <label className="text-xs font-black text-slate-500">
-              Prazo final
-              <input
-                type="datetime-local"
-                value={formData.prazoFinal}
-                onChange={(event) => atualizarForm("prazoFinal", event.target.value)}
-                className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:ring-2 focus:ring-sectec-100"
-              />
-            </label>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="submit"
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-sectec-700 px-4 text-sm font-black text-white transition hover:bg-sectec-800"
-            >
-              <PiPlus size={17} /> Criar evento
-            </button>
-          </div>
-        </form>
-
-        <div className="mt-6 space-y-4">
-          {carregando && (
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-6 text-sm font-semibold text-slate-500">
-              Carregando eventos...
-            </div>
-          )}
-          {!carregando && erro && (
-            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-6 text-sm font-semibold text-red-600">
-              {erro}
-            </div>
-          )}
-          {!carregando && !erro && eventos.length === 0 && (
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-6 text-sm font-semibold text-slate-500">
-              Nenhum evento cadastrado.
-            </div>
-          )}
-          {!carregando && !erro && eventos.map((evento) => (
-            <article key={evento.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <h3 className="text-lg font-black text-slate-900">{evento.titulo}</h3>
-                  {evento.descricao && (
-                    <p className="mt-1 text-sm font-semibold text-slate-500">{evento.descricao}</p>
-                  )}
-                  <p className="mt-2 text-xs font-semibold text-slate-400">
-                    {formatarData(evento.prazoInicial)} - {formatarData(evento.prazoFinal)}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleExcluirEvento(evento.id)}
-                  className="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 px-3 text-xs font-black text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700"
-                >
-                  Excluir
-                </button>
-              </div>
-
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                {(evento.temas || []).length === 0 && (
-                  <span className="text-xs font-semibold text-slate-400">Sem temas cadastrados.</span>
-                )}
-                {(evento.temas || []).map((tema) => (
-                  <AdminChip key={tema.id} className="bg-slate-100 text-slate-600 ring-slate-200">
-                    {tema.nome}
-                  </AdminChip>
+      <section className="grid gap-5 lg:grid-cols-[1fr_300px] xl:grid-cols-[1fr_350px]">
+        <div className="flex flex-col gap-6">
+          <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+            <PanelTitle icon={<PiCalendarBlank size={20} />} title="Novo Evento / Etapas" subtitle={isEditing ? "Editando evento existente" : "Fluxo para criar o evento anual."} />
+            <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <div className="mb-6 flex items-center justify-between">
+                {[1, 2, 3].map((s) => (
+                  <div key={s} className="flex flex-col items-center gap-2">
+                    <span className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-black ${step === s ? "bg-sectec-600 text-white" : step > s ? "bg-sectec-200 text-sectec-800" : "bg-white border border-slate-300 text-slate-400"}`}>
+                      {s}
+                    </span>
+                    <span className="text-[10px] font-black uppercase text-slate-500">
+                      {s === 1 ? "Basico" : s === 2 ? "Prazos" : "Revisao"}
+                    </span>
+                  </div>
                 ))}
               </div>
 
-              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                <input
-                  value={temaInputs[evento.id] || ""}
-                  onChange={(event) =>
-                    setTemaInputs((prev) => ({ ...prev, [evento.id]: event.target.value }))
-                  }
-                  placeholder="Novo tema"
-                  className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100 sm:w-64"
-                />
-                <button
-                  type="button"
-                  onClick={() => handleAdicionarTema(evento.id)}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-sectec-200 bg-sectec-50 px-4 text-sm font-black text-sectec-700 transition hover:bg-sectec-100"
-                >
-                  <PiPlus size={16} /> Adicionar tema
-                </button>
+              {step === 1 && (
+                <div className="grid gap-4">
+                  <label className="text-xs font-black text-slate-500">
+                    Titulo
+                    <input value={formData.titulo} onChange={(e) => atualizarForm("titulo", e.target.value)} placeholder="Ex: SECTEC 2026" className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:ring-2 focus:ring-sectec-100" />
+                  </label>
+                  <label className="text-xs font-black text-slate-500">
+                    Descricao (opicional)
+                    <textarea value={formData.descricao} onChange={(e) => atualizarForm("descricao", e.target.value)} placeholder="Detalhes ou tema geral do evento" className="mt-2 h-20 w-full resize-none rounded-xl border border-slate-200 bg-white p-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:ring-2 focus:ring-sectec-100" />
+                  </label>
+                </div>
+              )}
+
+              {step === 2 && (
+                <div className="grid gap-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="text-xs font-black text-slate-500">
+                      Prazo inicial
+                      <input type="datetime-local" value={formData.prazoInicial} onChange={(e) => atualizarForm("prazoInicial", e.target.value)} className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:ring-2 focus:ring-sectec-100" />
+                    </label>
+                    <label className="text-xs font-black text-slate-500">
+                      Prazo final
+                      <input type="datetime-local" value={formData.prazoFinal} onChange={(e) => atualizarForm("prazoFinal", e.target.value)} className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:ring-2 focus:ring-sectec-100" />
+                    </label>
+                  </div>
+                  {temConflitoAno && (
+                    <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">
+                      <PiWarningCircle className="mb-1 inline-block" size={18} /> Ja existe um evento cadastrado para o ano de {anoSelecionado}.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {step === 3 && (
+                <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-600">
+                  <p className="mb-2 uppercase text-[10px] font-black text-slate-400">Revisao dos dados</p>
+                  <p><strong className="text-slate-900">Titulo:</strong> {formData.titulo}</p>
+                  <p><strong className="text-slate-900">Descricao:</strong> {formData.descricao || "Nenhum"}</p>
+                  <p><strong className="text-slate-900">Inicio:</strong> {formatarData(new Date(formData.prazoInicial).toISOString())}</p>
+                  <p><strong className="text-slate-900">Fim:</strong> {formatarData(new Date(formData.prazoFinal).toISOString())}</p>
+                </div>
+              )}
+
+              <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-4">
+                {isEditing ? (
+                  <button type="button" onClick={handleCancelEdit} className="text-sm font-bold text-slate-500 transition hover:text-slate-700">Cancelar edicao</button>
+                ) : <span />}
+                
+                <div className="flex gap-2">
+                  {step > 1 && (
+                    <button type="button" onClick={prevStep} className="inline-flex h-10 items-center justify-center rounded-xl bg-white border border-slate-200 px-4 text-sm font-black text-slate-700 transition hover:bg-slate-100">
+                      Voltar
+                    </button>
+                  )}
+                  {step < 3 ? (
+                    <button type="button" onClick={nextStep} disabled={step === 2 && temConflitoAno} className="inline-flex h-10 items-center justify-center rounded-xl bg-sectec-700 px-4 text-sm font-black text-white transition hover:bg-sectec-800 disabled:opacity-50 disabled:cursor-not-allowed">
+                      Proximo
+                    </button>
+                  ) : (
+                    <button type="button" onClick={handleGravarEvento} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-black text-white transition hover:bg-emerald-700">
+                      <PiCheckCircle size={18} /> {isEditing ? "Salvar alteracoes" : "Confirmar criacao"}
+                    </button>
+                  )}
+                </div>
               </div>
-            </article>
-          ))}
+            </div>
+          </div>
+
+          <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+            <h2 className="text-sm font-black uppercase text-slate-800 mb-4">Eventos cadastrados</h2>
+            <div className="space-y-4">
+              {carregando && <div className="text-sm font-medium text-slate-500">Carregando...</div>}
+              {!carregando && erro && <div className="text-sm font-medium text-red-600">{erro}</div>}
+              {!carregando && !erro && eventos.length === 0 && <div className="text-sm font-medium text-slate-500">Nenhum evento listado.</div>}
+              
+              {!carregando && !erro && eventos.map((evento) => (
+                <article key={evento.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                         <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-slate-500">{new Date(evento.prazoInicial).getFullYear()}</span>
+                         <h3 className="text-sm font-black text-slate-900">{evento.titulo}</h3>
+                      </div>
+                      {evento.descricao && <p className="mt-1 text-xs font-semibold text-slate-500 line-clamp-2">{evento.descricao}</p>}
+                      <p className="mt-2 text-[11px] font-semibold text-slate-400">
+                        {formatarData(evento.prazoInicial)} <br className="sm:hidden" /> ate {formatarData(evento.prazoFinal)}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <button type="button" onClick={() => handleEdit(evento)} className="inline-flex h-8 items-center justify-center rounded-xl bg-slate-50 border border-slate-200 px-3 text-xs font-black text-slate-600 transition hover:border-sectec-200 hover:bg-sectec-50 hover:text-sectec-700">Editar</button>
+                      <button type="button" onClick={() => handleExcluirEvento(evento.id)} className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-400 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"><PiXCircle size={16} /></button>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    {(evento.temas || []).length === 0 && <span className="text-[10px] uppercase font-bold text-slate-300">Sem temas</span>}
+                    {(evento.temas || []).map((tema) => (
+                      <AdminChip key={tema.id} className="bg-slate-100 text-slate-600 ring-slate-200">{tema.nome}</AdminChip>
+                    ))}
+                  </div>
+
+                  <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                    <input value={temaInputs[evento.id] || ""} onChange={(e) => setTemaInputs((prev) => ({ ...prev, [evento.id]: e.target.value }))} placeholder="Novo tema" className="h-9 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100 sm:max-w-48" />
+                    <button type="button" onClick={() => handleAdicionarTema(evento.id)} className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl border border-sectec-200 bg-sectec-50 px-3 text-xs font-black text-sectec-700 transition hover:bg-sectec-100"><PiPlus size={14} /> Adicionar termo</button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
         </div>
+
+        <aside className="grid gap-5 content-start">
+          <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-sectec-50 text-sectec-700 border border-sectec-100 mb-4">
+              <PiCalendarBlank size={28} />
+            </div>
+            <h3 className="text-sm font-black text-slate-900">Resumo Anual</h3>
+            <p className="mt-2 text-xs font-medium text-slate-500 leading-relaxed">
+              O backend suporta um unico evento dominante por ano. <br/>
+              Ano atual: <b>{anoAtual}</b>
+            </p>
+            {eventoAtual ? (
+               <div className="mt-5 rounded-2xl bg-emerald-50 border border-emerald-100 p-4">
+                 <p className="text-[10px] uppercase tracking-widest font-black text-emerald-800 mb-1">Evento ativo</p>
+                 <strong className="block text-emerald-900 font-black text-sm">{eventoAtual.titulo}</strong>
+                 <p className="text-xs text-emerald-700 mt-1 font-semibold">{eventoAtual.temas?.length || 0} temas cadastrados</p>
+               </div>
+            ) : (
+               <div className="mt-5 rounded-2xl bg-amber-50 border border-amber-100 p-4">
+                 <p className="text-[10px] uppercase tracking-widest font-black text-amber-800 mb-1">Aviso</p>
+                 <strong className="block text-amber-900 font-bold text-xs mt-1">Nenhum evento criado para esse ano.</strong>
+               </div>
+            )}
+          </div>
+        </aside>
       </section>
     </AdminPageShell>
   );
