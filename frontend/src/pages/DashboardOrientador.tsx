@@ -128,6 +128,15 @@ type MaterialApi = {
   criadoEm?: string;
 };
 
+type PdfApi = {
+  fileId: number;
+  materialId?: number;
+  projetoId: number;
+  originalName?: string;
+  status?: string;
+  enviadoEm?: string;
+};
+
 const rubrica = [
   ["Pesquisa", "Problema, objetivo, justificativa, fontes e metodologia."],
   ["Protótipo", "Funcionamento, teste, aplicação prática e evidências."],
@@ -225,6 +234,16 @@ function mapOrientacaoToProjeto(orientacao: OrientacaoApi): Projeto {
   };
 }
 
+function mapProjetoToOrientacao(projeto: ProjetoApi): OrientacaoApi {
+  return {
+    id: projeto.id,
+    status: "aceito",
+    criadoEm: projeto.criadoEm,
+    respondidoEm: null,
+    projeto,
+  };
+}
+
 function mapOrientacaoToEquipe(orientacao: OrientacaoApi): Equipe {
   const projeto = orientacao.projeto;
   const eixoSlug = eixoFromTemaId(projeto?.temaId);
@@ -281,6 +300,24 @@ function mapMaterialToEntrega(material: MaterialApi, orientacao: OrientacaoApi):
   };
 }
 
+function mapPdfToEntrega(pdf: PdfApi, orientacao: OrientacaoApi): Entrega {
+  const projeto = orientacao.projeto;
+  const eixoSlug = eixoFromTemaId(projeto?.temaId);
+
+  return {
+    id: `pdf-${pdf.fileId}`,
+    materialId: pdf.materialId,
+    arquivo: pdf.originalName ?? `PDF #${pdf.fileId}`,
+    equipe: projeto?.titulo ?? "Projeto sem título",
+    turma: turmaFromProjeto(projeto),
+    aluno: liderFromProjeto(projeto),
+    etapa: "PDF do projeto",
+    data: formatBackendDate(pdf.enviadoEm),
+    status: pdf.status === "VALID" || pdf.status === "aprovado" ? "revisada" : "pendente",
+    eixoSlug,
+  };
+}
+
 function useOrientadorBackendData() {
   const [orientacoes, setOrientacoes] = useState<OrientacaoApi[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -298,9 +335,22 @@ function useOrientadorBackendData() {
         setOrientacoes(data);
         setErro("");
       } catch (error) {
-        if (!active) return;
-        setOrientacoes([]);
-        setErro(error instanceof Error ? error.message : "Não foi possível carregar as orientações do backend.");
+        try {
+          const projetos = await apiRequest<ProjetoApi[]>("/projetos");
+          if (!active) return;
+          setOrientacoes(projetos.map(mapProjetoToOrientacao));
+          setErro("O servidor publicado não tem /orientacoes; usando /projetos. Aceitar/recusar orientação fica sem backend.");
+        } catch (fallbackError) {
+          if (!active) return;
+          setOrientacoes([]);
+          setErro(
+            fallbackError instanceof Error
+              ? fallbackError.message
+              : error instanceof Error
+                ? error.message
+                : "Não foi possível carregar dados do orientador no backend."
+          );
+        }
       } finally {
         if (active) setCarregando(false);
       }
@@ -317,7 +367,9 @@ function useOrientadorBackendData() {
   const projetos = useMemo(() => orientacoes.map(mapOrientacaoToProjeto), [orientacoes]);
 
   async function responderProjeto(projeto: Projeto, status: StatusProjeto) {
-    if (!projeto.orientacaoId) return false;
+    if (!projeto.orientacaoId) {
+      throw new Error("Sem endpoint no backend publicado para aceitar ou recusar orientações.");
+    }
 
     const action = status === "aprovado" ? "aceito" : "recusado";
     const orientacaoAtualizada = await apiRequest<OrientacaoApi>(`/orientacoes/${projeto.orientacaoId}/responder`, {
@@ -363,8 +415,13 @@ function useEntregasBackendData(orientacoes: OrientacaoApi[], orientacoesCarrega
 
       const respostas = await Promise.allSettled(
         orientacoesAceitas.map(async (orientacao) => {
-          const materiais = await apiRequest<MaterialApi[]>(`/materiais/projeto/${orientacao.projeto?.id}`);
-          return materiais.map((material) => mapMaterialToEntrega(material, orientacao));
+          try {
+            const materiais = await apiRequest<MaterialApi[]>(`/materiais/projeto/${orientacao.projeto?.id}`);
+            return materiais.map((material) => mapMaterialToEntrega(material, orientacao));
+          } catch {
+            const pdf = await apiRequest<PdfApi>(`/pdf/projeto/${orientacao.projeto?.id}`);
+            return [mapPdfToEntrega(pdf, orientacao)];
+          }
         })
       );
 
@@ -374,7 +431,7 @@ function useEntregasBackendData(orientacoes: OrientacaoApi[], orientacoesCarrega
       const falhas = respostas.filter((resposta) => resposta.status === "rejected").length;
 
       setEntregas(entregasCarregadas);
-      setErro(falhas ? "Alguns materiais não puderam ser carregados pelo backend." : "");
+      setErro(falhas ? "Algumas entregas não puderam ser carregadas. O servidor publicado não tem /materiais para todos os projetos." : "");
       setCarregando(false);
     }
 
@@ -386,7 +443,9 @@ function useEntregasBackendData(orientacoes: OrientacaoApi[], orientacoesCarrega
   }, [orientacoes, orientacoesCarregando]);
 
   async function revisarEntrega(entrega: Entrega, status: "aprovado" | "recusado" = "aprovado") {
-    if (!entrega.materialId) return;
+    if (!entrega.materialId) {
+      throw new Error("Sem endpoint no backend publicado para revisar esta entrega.");
+    }
 
     const atualizado = await apiRequest<MaterialApi>(`/materiais/${entrega.materialId}/revisar`, {
       method: "PATCH",
