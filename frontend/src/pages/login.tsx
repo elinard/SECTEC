@@ -16,71 +16,44 @@ function Login() {
   const [showPassword, setShowPassword] = useState(false);
 
   async function handleForgotPassword() {
-    const { value: emailValue } = await Swal.fire({
-      title: "Recuperar senha",
-      html: `
-        <div style="display:flex; flex-direction:column; align-items:center; gap:10px;">
-          <div style="width:64px;height:64px;border-radius:20px;background:#f0fdf4;border:1px solid #dcfce7;display:flex;align-items:center;justify-content:center;margin-bottom:6px;">
-            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M7 10V7a5 5 0 0110 0v3" stroke="#15803d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              <rect x="5" y="10" width="14" height="10" rx="3" stroke="#15803d" stroke-width="2"/>
-              <circle cx="12" cy="15" r="1.5" fill="#15803d"/>
-            </svg>
-          </div>
-          <p style="margin:0;color:#64748b;font-size:15px;line-height:1.5;">
-            Informe seu e-mail institucional para receber as instruções de recuperação.
-          </p>
-        </div>
-      `,
-      input: "email",
-      inputPlaceholder: "seu@aluno.ce.gov.br",
-      showCancelButton: true,
-      confirmButtonText: "Enviar instruções",
-      cancelButtonText: "Cancelar",
-      confirmButtonColor: "#15803d",
-      cancelButtonColor: "#64748b",
-      background: "#ffffff",
-      color: "#0f172a",
-      width: 460,
-      padding: "2.2rem",
-      customClass: {
-        popup: "sectec-modal",
-        title: "sectec-modal-title",
-        input: "sectec-modal-input",
-        confirmButton: "sectec-modal-confirm",
-        cancelButton: "sectec-modal-cancel",
+  const { value: emailValue } = await Swal.fire({
+    title: "Recuperar senha",
+    input: "email",
+    inputPlaceholder: "seu@aluno.ce.gov.br",
+    showCancelButton: true,
+    confirmButtonText: "Enviar instruções",
+    cancelButtonText: "Cancelar",
+    confirmButtonColor: "#15803d",
+  });
+
+  if (!emailValue) return;
+
+  try {
+    await apiRequest("/auth/forgot-password", {
+      method: "POST",
+      auth: false,
+      body: {
+        email: emailValue,
       },
     });
-
-    if (!emailValue) return;
 
     Swal.fire({
+      icon: "success",
       title: "Instruções enviadas",
-      html: `
-        <div style="display:flex; flex-direction:column; align-items:center; gap:10px;">
-          <div style="width:64px;height:64px;border-radius:20px;background:#f0fdf4;border:1px solid #dcfce7;display:flex;align-items:center;justify-content:center;margin-bottom:6px;">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M20 6L9 17L4 12" stroke="#15803d" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </div>
-          <p style="margin:0;color:#64748b;font-size:15px;line-height:1.5;">
-            Verifique sua caixa de entrada para redefinir sua senha.
-          </p>
-        </div>
-      `,
-      confirmButtonText: "Entendi",
+      text: "Verifique seu email para redefinir sua senha.",
       confirmButtonColor: "#15803d",
-      background: "#ffffff",
-      color: "#0f172a",
-      width: 430,
-      padding: "2rem",
-      customClass: {
-        popup: "sectec-modal",
-        title: "sectec-modal-title",
-        confirmButton: "sectec-modal-confirm",
-      },
+    });
+  } catch (error) {
+    Swal.fire({
+      icon: "error",
+      title: "Erro",
+      text:
+        error instanceof Error
+          ? error.message
+          : "Não foi possível enviar o email.",
     });
   }
+}
 
   async function handleLogin(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
