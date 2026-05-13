@@ -92,6 +92,10 @@ export async function apiRequest<T>(
   }
 
   if (response.status === 204) return undefined as T;
+  if (!response.headers.get("content-type")?.includes("application/json")) {
+    throw new ApiError("Este endpoint não retornou JSON. Verifique se a rota existe no backend publicado.", response.status);
+  }
+
   return response.json() as Promise<T>;
 }
 
