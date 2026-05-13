@@ -1,11 +1,18 @@
-export const API_BASE = "http://localhost:3000/api";
+const LOCAL_API_BASE = "http://localhost:3000/api";
 
 function normalizeApiBaseUrl(rawUrl?: string) {
-  const baseUrl = (rawUrl?.trim() || API_BASE).replace(/\/+$/, "");
+  const configuredUrl = rawUrl?.trim();
+
+  if (!configuredUrl && import.meta.env.PROD) {
+    throw new Error("VITE_API_URL não configurada no frontend.");
+  }
+
+  const baseUrl = (configuredUrl || LOCAL_API_BASE).replace(/\/+$/, "");
   return baseUrl.endsWith("/api") ? baseUrl : `${baseUrl}/api`;
 }
 
 export const API_BASE_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_URL);
+export const API_BASE = API_BASE_URL;
 
 type ApiRequestOptions = Omit<RequestInit, "body"> & {
   body?: unknown;

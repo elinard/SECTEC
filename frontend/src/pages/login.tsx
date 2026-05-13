@@ -3,7 +3,12 @@ import type { FormEvent } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import loginImg from "../assets/img/Login.png";
 import Swal from "sweetalert2";
-import { API_BASE } from "../lib/api";
+import {
+  apiRequest,
+  getRoleRedirect,
+  saveSession,
+  type LoginResponse,
+} from "../lib/api";
 
 function Login() {
   const [email, setEmail] = useState("");
@@ -80,15 +85,15 @@ function Login() {
   async function handleLogin(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
-      const response = await fetch(`${API_BASE}/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    });
+    let data: LoginResponse;
 
-    const data = await response.json();
-
-    if (!response.ok) {
+    try {
+      data = await apiRequest<LoginResponse>("/auth/login", {
+        method: "POST",
+        auth: false,
+        body: { email, password },
+      });
+    } catch (error) {
       Swal.fire({
         title: "Não foi possível entrar",
         html: `
@@ -101,7 +106,11 @@ function Login() {
               </svg>
             </div>
             <p style="margin:0;color:#64748b;font-size:15px;line-height:1.5;">
-              Verifique seu e-mail e senha e tente novamente.
+              ${
+                error instanceof Error
+                  ? error.message
+                  : "Verifique seu e-mail e senha e tente novamente."
+              }
             </p>
           </div>
         `,
@@ -120,11 +129,8 @@ function Login() {
       return;
     }
 
-    localStorage.setItem("token", data.access_token);
-    localStorage.setItem("role", data.role);
-    localStorage.setItem("nome", data.user.nome);
+    saveSession(data);
     localStorage.setItem("email", data.user.email ?? email);
-    localStorage.setItem("userId", String(data.user.id));
 
     await Swal.fire({
       title: "Login realizado",
@@ -156,23 +162,7 @@ function Login() {
       },
     });
 
-    // ✅ Valores corretos espelhando o enum UserRole do backend:
-    // "aluno" | "orientador" | "coordenador" | "comissao"
-    const redirectMap: Record<string, string> = {
-      aluno:       "/dashboard/aluno",
-      orientador:  "/dashboard/orientador",
-      coordenador: "/dashboard/coordenacao", // ← era o bug principal
-      comissao:    "/dashboard/coordenacao", // comissao usa o mesmo painel por ora
-    };
-
-    const dest = redirectMap[data.role];
-    if (dest) {
-      window.location.href = dest;
-    } else {
-      // Role desconhecido — evita ficar preso na tela de login
-      console.error("Role desconhecido:", data.role);
-      window.location.href = "/dashboard/aluno";
-    }
+    window.location.href = getRoleRedirect(data.role);
   }
 
   return (
