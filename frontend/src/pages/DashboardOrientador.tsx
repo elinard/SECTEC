@@ -437,7 +437,7 @@ function PageShell({
   children: React.ReactNode;
 }) {
   return (
-    <MainLayout userRole="Professor">
+    <MainLayout userRole="orientador">
       <motion.div
         initial="hidden"
         animate="visible"

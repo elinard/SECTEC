@@ -22,14 +22,26 @@ export class OrientacoesService {
   async findMinhasPendentes(orientadorId: number): Promise<ProjetoOrientador[]> {
     return this.orientacoesRepository.find({
       where: { orientador: { id: orientadorId }, status: StatusOrientacao.PENDENTE },
-      relations: ['projeto', 'orientador'],
+      relations: [
+        'projeto',
+        'orientador',
+        'projeto.alunoAutor',
+        'projeto.projetoAlunos',
+        'projeto.projetoAlunos.aluno',
+      ],
     });
   }
 
   async findMinhasOrientacoes(orientadorId: number): Promise<ProjetoOrientador[]> {
     return this.orientacoesRepository.find({
       where: { orientador: { id: orientadorId } },
-      relations: ['projeto', 'orientador'],
+      relations: [
+        'projeto',
+        'orientador',
+        'projeto.alunoAutor',
+        'projeto.projetoAlunos',
+        'projeto.projetoAlunos.aluno',
+      ],
       order: { criadoEm: 'DESC' },
     });
   }
