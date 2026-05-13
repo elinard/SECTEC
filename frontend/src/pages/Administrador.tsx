@@ -506,10 +506,6 @@ function EventosCoordenacao() {
         Swal.fire({ icon: "warning", title: "Prazo invalido", text: "O prazo final deve ser maior que o inicial.", confirmButtonColor: "#15803d" });
         return;
       }
-      if (temConflitoAno) {
-        Swal.fire({ icon: "warning", title: `Já existe um evento cadastrado para o ano de ${anoSelecionado}.`, confirmButtonColor: "#15803d" });
-        return;
-      }
       setStep(3);
     }
   }
@@ -588,87 +584,117 @@ function EventosCoordenacao() {
   const anoAtual = new Date().getFullYear();
   const eventoAtual = eventos.find((e) => new Date(e.prazoInicial).getFullYear() === anoAtual);
 
+  const etapas = [
+    { id: 1, label: "Básico" },
+    { id: 2, label: "Prazos" },
+    { id: 3, label: "Revisão" },
+  ];
+  const progresso = ((step - 1) / (etapas.length - 1)) * 100;
+
   return (
     <AdminPageShell>
-      <section className="grid gap-5 lg:grid-cols-[1fr_300px] xl:grid-cols-[1fr_350px]">
-        <div className="flex flex-col gap-6">
-          <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+        <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
+          
+          <div className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm flex flex-col">
             <PanelTitle icon={<PiCalendarBlank size={20} />} title="Novo Evento / Etapas" subtitle={isEditing ? "Editando evento existente" : "Fluxo para criar o evento anual."} />
-            <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-5">
-              <div className="mb-6 flex items-center justify-between">
-                {[1, 2, 3].map((s) => (
-                  <div key={s} className="flex flex-col items-center gap-2">
-                    <span className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-black ${step === s ? "bg-sectec-600 text-white" : step > s ? "bg-sectec-200 text-sectec-800" : "bg-white border border-slate-300 text-slate-400"}`}>
-                      {s}
-                    </span>
-                    <span className="text-[10px] font-black uppercase text-slate-500">
-                      {s === 1 ? "Basico" : s === 2 ? "Prazos" : "Revisao"}
-                    </span>
+            
+            <div className="mt-6 flex-1 flex flex-col justify-between">
+              <div>
+                <div className="relative mb-8 pt-4">
+                  <div className="absolute top-8 left-0 h-1 w-full bg-slate-100 rounded-full"></div>
+                  <div className="absolute top-8 left-0 h-1 bg-sectec-500 rounded-full transition-all duration-500 ease-out" style={{ width: `${progresso}%` }}></div>
+                  
+                  <div className="relative flex justify-between">
+                    {etapas.map((etapa) => {
+                      const ativa = step === etapa.id;
+                      const concluida = step > etapa.id;
+                      return (
+                        <div key={etapa.id} className="flex flex-col items-center gap-2">
+                          <span className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-black transition-all duration-300 ${
+                            ativa ? "scale-110 border-sectec-600 bg-sectec-600 text-white shadow-lg shadow-sectec-200"
+                            : concluida ? "border-sectec-600 bg-sectec-600 text-white" : "border border-slate-300 bg-white text-slate-400"
+                          }`}>
+                            {concluida ? <PiCheckCircle size={16} /> : etapa.id}
+                          </span>
+                          <span className={`text-[10px] uppercase font-black transition-colors ${ativa || concluida ? "text-sectec-700" : "text-slate-400"}`}>
+                            {etapa.label}
+                          </span>
+                        </div>
+                      )
+                    })}
                   </div>
-                ))}
-              </div>
-
-              {step === 1 && (
-                <div className="grid gap-4">
-                  <label className="text-xs font-black text-slate-500">
-                    Titulo
-                    <input value={formData.titulo} onChange={(e) => atualizarForm("titulo", e.target.value)} placeholder="Ex: SECTEC 2026" className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:ring-2 focus:ring-sectec-100" />
-                  </label>
-                  <label className="text-xs font-black text-slate-500">
-                    Descricao (opicional)
-                    <textarea value={formData.descricao} onChange={(e) => atualizarForm("descricao", e.target.value)} placeholder="Detalhes ou tema geral do evento" className="mt-2 h-20 w-full resize-none rounded-xl border border-slate-200 bg-white p-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:ring-2 focus:ring-sectec-100" />
-                  </label>
                 </div>
-              )}
 
-              {step === 2 && (
-                <div className="grid gap-4">
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <label className="text-xs font-black text-slate-500">
-                      Prazo inicial
-                      <input type="datetime-local" value={formData.prazoInicial} onChange={(e) => atualizarForm("prazoInicial", e.target.value)} className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:ring-2 focus:ring-sectec-100" />
-                    </label>
-                    <label className="text-xs font-black text-slate-500">
-                      Prazo final
-                      <input type="datetime-local" value={formData.prazoFinal} onChange={(e) => atualizarForm("prazoFinal", e.target.value)} className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:ring-2 focus:ring-sectec-100" />
-                    </label>
-                  </div>
-                  {temConflitoAno && (
-                    <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">
-                      <PiWarningCircle className="mb-1 inline-block" size={18} /> Ja existe um evento cadastrado para o ano de {anoSelecionado}.
+                <div className="relative min-h-[160px]">
+                  {step === 1 && (
+                    <div className="grid gap-4 animate-in fade-in slide-in-from-right-4 duration-300">
+                      <label className="text-xs font-black text-slate-500">
+                        Título
+                        <input value={formData.titulo} onChange={(e) => atualizarForm("titulo", e.target.value)} placeholder="Ex: SECTEC 2026" className="mt-2 h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100" />
+                      </label>
+                      <label className="text-xs font-black text-slate-500">
+                        Descrição (opcional)
+                        <textarea value={formData.descricao} onChange={(e) => atualizarForm("descricao", e.target.value)} placeholder="Detalhes ou tema geral do evento" className="mt-2 h-24 w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100" />
+                      </label>
+                    </div>
+                  )}
+
+                  {step === 2 && (
+                    <div className="grid gap-4 animate-in fade-in slide-in-from-right-4 duration-300">
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <label className="text-xs font-black text-slate-500">
+                          Prazo inicial
+                          <input type="datetime-local" value={formData.prazoInicial} onChange={(e) => atualizarForm("prazoInicial", e.target.value)} className="mt-2 h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100" />
+                        </label>
+                        <label className="text-xs font-black text-slate-500">
+                          Prazo final
+                          <input type="datetime-local" value={formData.prazoFinal} onChange={(e) => atualizarForm("prazoFinal", e.target.value)} className="mt-2 h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100" />
+                        </label>
+                      </div>
+                      {temConflitoAno && (
+                        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700 flex items-start gap-3">
+                          <PiWarningCircle className="mt-0.5 shrink-0" size={18} /> 
+                          <div>Já existe um evento cadastrado para {anoSelecionado}. Edite o existente ou escolha outro ano.</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {step === 3 && (
+                    <div className="animate-in fade-in slide-in-from-right-4 duration-300 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm font-semibold text-slate-600">
+                      <p className="mb-3 uppercase text-[10px] font-black text-slate-400">Revisão dos dados</p>
+                      <ul className="space-y-2">
+                        <li><strong className="text-slate-900">Título:</strong> {formData.titulo}</li>
+                        <li><strong className="text-slate-900">Descrição:</strong> {formData.descricao || "Nenhum"}</li>
+                        <li><strong className="text-slate-900">Início:</strong> {formatarData(new Date(formData.prazoInicial).toISOString())}</li>
+                        <li><strong className="text-slate-900">Fim:</strong> {formatarData(new Date(formData.prazoFinal).toISOString())}</li>
+                      </ul>
                     </div>
                   )}
                 </div>
-              )}
+              </div>
 
-              {step === 3 && (
-                <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-600">
-                  <p className="mb-2 uppercase text-[10px] font-black text-slate-400">Revisao dos dados</p>
-                  <p><strong className="text-slate-900">Titulo:</strong> {formData.titulo}</p>
-                  <p><strong className="text-slate-900">Descricao:</strong> {formData.descricao || "Nenhum"}</p>
-                  <p><strong className="text-slate-900">Inicio:</strong> {formatarData(new Date(formData.prazoInicial).toISOString())}</p>
-                  <p><strong className="text-slate-900">Fim:</strong> {formatarData(new Date(formData.prazoFinal).toISOString())}</p>
+              <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-5">
+                <div className="flex gap-2">
+                   {isEditing ? (
+                     <button type="button" onClick={handleCancelEdit} className="h-11 px-4 text-sm font-bold text-slate-400 transition hover:text-slate-600">Cancelar edição</button>
+                   ) : <span />}
                 </div>
-              )}
-
-              <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-4">
-                {isEditing ? (
-                  <button type="button" onClick={handleCancelEdit} className="text-sm font-bold text-slate-500 transition hover:text-slate-700">Cancelar edicao</button>
-                ) : <span />}
                 
                 <div className="flex gap-2">
                   {step > 1 && (
-                    <button type="button" onClick={prevStep} className="inline-flex h-10 items-center justify-center rounded-xl bg-white border border-slate-200 px-4 text-sm font-black text-slate-700 transition hover:bg-slate-100">
+                    <button type="button" onClick={prevStep} className="inline-flex h-11 items-center justify-center rounded-2xl bg-white border border-slate-200 px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50">
                       Voltar
                     </button>
                   )}
                   {step < 3 ? (
-                    <button type="button" onClick={nextStep} disabled={step === 2 && temConflitoAno} className="inline-flex h-10 items-center justify-center rounded-xl bg-sectec-700 px-4 text-sm font-black text-white transition hover:bg-sectec-800 disabled:opacity-50 disabled:cursor-not-allowed">
-                      Proximo
+                    <button type="button" onClick={nextStep} disabled={step === 2 && temConflitoAno} className="inline-flex h-11 items-center justify-center rounded-2xl bg-sectec-600 px-5 text-sm font-black text-white transition hover:bg-sectec-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                      Próximo
                     </button>
                   ) : (
-                    <button type="button" onClick={handleGravarEvento} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-black text-white transition hover:bg-emerald-700">
-                      <PiCheckCircle size={18} /> {isEditing ? "Salvar alteracoes" : "Confirmar criacao"}
+                    <button type="button" onClick={handleGravarEvento} className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-700">
+                      <PiCheckCircle size={18} /> {isEditing ? "Salvar alterações" : "Criar evento"}
                     </button>
                   )}
                 </div>
@@ -676,77 +702,87 @@ function EventosCoordenacao() {
             </div>
           </div>
 
-          <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-black uppercase text-slate-800 mb-4">Eventos cadastrados</h2>
-            <div className="space-y-4">
-              {carregando && <div className="text-sm font-medium text-slate-500">Carregando...</div>}
-              {!carregando && erro && <div className="text-sm font-medium text-red-600">{erro}</div>}
-              {!carregando && !erro && eventos.length === 0 && <div className="text-sm font-medium text-slate-500">Nenhum evento listado.</div>}
-              
-              {!carregando && !erro && eventos.map((evento) => (
-                <article key={evento.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                         <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-slate-500">{new Date(evento.prazoInicial).getFullYear()}</span>
-                         <h3 className="text-sm font-black text-slate-900">{evento.titulo}</h3>
-                      </div>
-                      {evento.descricao && <p className="mt-1 text-xs font-semibold text-slate-500 line-clamp-2">{evento.descricao}</p>}
-                      <p className="mt-2 text-[11px] font-semibold text-slate-400">
-                        {formatarData(evento.prazoInicial)} <br className="sm:hidden" /> ate {formatarData(evento.prazoFinal)}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <button type="button" onClick={() => handleEdit(evento)} className="inline-flex h-8 items-center justify-center rounded-xl bg-slate-50 border border-slate-200 px-3 text-xs font-black text-slate-600 transition hover:border-sectec-200 hover:bg-sectec-50 hover:text-sectec-700">Editar</button>
-                      <button type="button" onClick={() => handleExcluirEvento(evento.id)} className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-400 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"><PiXCircle size={16} /></button>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 flex flex-wrap items-center gap-2">
-                    {(evento.temas || []).length === 0 && <span className="text-[10px] uppercase font-bold text-slate-300">Sem temas</span>}
-                    {(evento.temas || []).map((tema) => (
-                      <AdminChip key={tema.id} className="bg-slate-100 text-slate-600 ring-slate-200">{tema.nome}</AdminChip>
-                    ))}
-                  </div>
-
-                  <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                    <input value={temaInputs[evento.id] || ""} onChange={(e) => setTemaInputs((prev) => ({ ...prev, [evento.id]: e.target.value }))} placeholder="Novo tema" className="h-9 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100 sm:max-w-48" />
-                    <button type="button" onClick={() => handleAdicionarTema(evento.id)} className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl border border-sectec-200 bg-sectec-50 px-3 text-xs font-black text-sectec-700 transition hover:bg-sectec-100"><PiPlus size={14} /> Adicionar termo</button>
-                  </div>
-                </article>
-              ))}
+          <aside className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm text-center flex flex-col">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-50 text-slate-500 border border-slate-100 mb-4">
+              <PiCalendarBlank size={24} />
             </div>
-          </div>
-        </div>
-
-        <aside className="grid gap-5 content-start">
-          <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm text-center">
-            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-sectec-50 text-sectec-700 border border-sectec-100 mb-4">
-              <PiCalendarBlank size={28} />
-            </div>
-            <h3 className="text-sm font-black text-slate-900">Resumo Anual</h3>
-            <p className="mt-2 text-xs font-medium text-slate-500 leading-relaxed">
-              O backend suporta um unico evento dominante por ano. <br/>
-              Ano atual: <b>{anoAtual}</b>
-            </p>
+            <h3 className="text-sm font-black text-slate-900">Resumo {anoAtual}</h3>
             {eventoAtual ? (
-               <div className="mt-5 rounded-2xl bg-emerald-50 border border-emerald-100 p-4">
-                 <p className="text-[10px] uppercase tracking-widest font-black text-emerald-800 mb-1">Evento ativo</p>
+               <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4">
                  <strong className="block text-emerald-900 font-black text-sm">{eventoAtual.titulo}</strong>
                  <p className="text-xs text-emerald-700 mt-1 font-semibold">{eventoAtual.temas?.length || 0} temas cadastrados</p>
                </div>
             ) : (
-               <div className="mt-5 rounded-2xl bg-amber-50 border border-amber-100 p-4">
-                 <p className="text-[10px] uppercase tracking-widest font-black text-amber-800 mb-1">Aviso</p>
-                 <strong className="block text-amber-900 font-bold text-xs mt-1">Nenhum evento criado para esse ano.</strong>
+               <div className="mt-4 rounded-2xl border border-amber-100 bg-amber-50/50 p-4">
+                 <strong className="block text-amber-900 font-bold text-xs">Nenhum evento cadastrado para {anoAtual}.</strong>
                </div>
             )}
-          </div>
-        </aside>
-      </section>
+          </aside>
+        </section>
+
+        <section className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm">
+          <h2 className="text-sm font-black uppercase text-slate-800 mb-5">Eventos cadastrados</h2>
+          
+          {carregando && <div className="text-sm font-medium text-slate-500">Carregando...</div>}
+          {!carregando && erro && <div className="text-sm font-medium text-red-600">{erro}</div>}
+          
+          {!carregando && !erro && eventos.length === 0 && (
+             <div className="flex flex-col items-center justify-center py-12 text-center">
+               <div className="flex h-16 w-16 items-center justify-center rounded-full bg-slate-50 text-slate-400 mb-4">
+                 <PiCalendarBlank size={28} />
+               </div>
+               <h3 className="text-sm font-black text-slate-900">Nenhum evento cadastrado</h3>
+               <p className="mt-1 text-sm font-medium text-slate-500">Crie o evento anual para liberar os temas e prazos da SECTEC.</p>
+             </div>
+          )}
+          
+          {!carregando && !erro && eventos.length > 0 && (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {eventos.map((evento) => (
+                <article key={evento.id} className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-slate-300">
+                  <div className="flex justify-between items-start gap-2 mb-3">
+                    <div className="flex items-center gap-2">
+                       <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-600">{new Date(evento.prazoInicial).getFullYear()}</span>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button type="button" onClick={() => handleEdit(evento)} className="flex h-8 items-center justify-center rounded-xl bg-slate-50 px-3 text-xs font-black text-slate-600 transition hover:bg-sectec-50 hover:text-sectec-700">Editar</button>
+                      <button type="button" onClick={() => handleExcluirEvento(evento.id)} className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-50 text-slate-400 transition hover:bg-red-50 hover:text-red-600"><PiXCircle size={16} /></button>
+                    </div>
+                  </div>
+                  
+                  <h3 className="text-base font-black text-slate-900 leading-tight">{evento.titulo}</h3>
+                  {evento.descricao && <p className="mt-1 text-xs font-semibold text-slate-500 line-clamp-2">{evento.descricao}</p>}
+                  
+                  <div className="mt-3 text-[11px] font-semibold text-slate-400 bg-slate-50 rounded-xl p-2.5">
+                    De: <span className="text-slate-600">{formatarData(evento.prazoInicial)}</span> <br/>
+                    Até: <span className="text-slate-600">{formatarData(evento.prazoFinal)}</span>
+                  </div>
+
+                  <div className="mt-4 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5 mb-3">
+                      {(evento.temas || []).length === 0 && <span className="text-[10px] uppercase font-bold text-slate-300">Sem temas</span>}
+                      {(evento.temas || []).map((tema) => (
+                        <span key={tema.id} className="inline-flex items-center rounded-lg bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
+                          {tema.nome}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  <div className="mt-auto pt-3 border-t border-slate-100 flex gap-2">
+                    <input value={temaInputs[evento.id] || ""} onChange={(e) => setTemaInputs((prev) => ({ ...prev, [evento.id]: e.target.value }))} placeholder="Novo tema..." className="h-9 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100" />
+                    <button type="button" onClick={() => handleAdicionarTema(evento.id)} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-800 text-white transition hover:bg-slate-700"><PiPlus size={14} /></button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
     </AdminPageShell>
   );
 }
+
 
 type UsuarioCoordenacao = {
   id: string;
