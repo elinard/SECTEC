@@ -102,6 +102,20 @@ type LogAuditoria = {
   quando: string;
 };
 
+type TemaEventoApi = {
+  id: number;
+  nome: string;
+};
+
+type EventoApi = {
+  id: number;
+  titulo: string;
+  descricao?: string;
+  prazoInicial: string;
+  prazoFinal: string;
+  temas?: TemaEventoApi[];
+};
+
 const faseAtual: FaseEvento = "Submissão";
 const prazoEncerrado = false;
 
@@ -391,6 +405,327 @@ function NotasCoordenacao() {
               </article>
             ))}
           </div>
+        </div>
+      </section>
+    </AdminPageShell>
+  );
+}
+
+function EventosCoordenacao() {
+  const [eventos, setEventos] = useState<EventoApi[]>([]);
+  const [carregando, setCarregando] = useState(false);
+  const [erro, setErro] = useState("");
+  const [temaInputs, setTemaInputs] = useState<Record<number, string>>({});
+  const [formData, setFormData] = useState({
+    titulo: "",
+    descricao: "",
+    prazoInicial: "",
+    prazoFinal: "",
+  });
+
+  async function carregarEventos() {
+    setCarregando(true);
+    setErro("");
+
+    try {
+      const dados = await apiRequest<EventoApi[]>("/evento");
+      setEventos(dados);
+    } catch (error) {
+      setErro(error instanceof Error ? error.message : "Nao foi possivel carregar eventos.");
+    } finally {
+      setCarregando(false);
+    }
+  }
+
+  useEffect(() => {
+    let ativo = true;
+
+    async function carregar() {
+      if (!ativo) return;
+      await carregarEventos();
+    }
+
+    carregar();
+
+    return () => {
+      ativo = false;
+    };
+  }, []);
+
+  function atualizarForm(campo: keyof typeof formData, valor: string) {
+    setFormData((prev) => ({ ...prev, [campo]: valor }));
+  }
+
+  function formatarData(iso: string) {
+    const data = new Date(iso);
+    if (Number.isNaN(data.getTime())) return "-";
+    return data.toLocaleString("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  async function handleCriarEvento(event: React.FormEvent) {
+    event.preventDefault();
+
+    if (!formData.titulo.trim() || !formData.prazoInicial || !formData.prazoFinal) {
+      Swal.fire({
+        icon: "warning",
+        title: "Preencha os campos obrigatorios",
+        text: "Titulo, prazo inicial e prazo final sao obrigatorios.",
+        confirmButtonColor: "#15803d",
+      });
+      return;
+    }
+
+    const inicio = new Date(formData.prazoInicial);
+    const fim = new Date(formData.prazoFinal);
+
+    if (Number.isNaN(inicio.getTime()) || Number.isNaN(fim.getTime())) {
+      Swal.fire({
+        icon: "warning",
+        title: "Datas invalidas",
+        text: "Informe datas validas para os prazos.",
+        confirmButtonColor: "#15803d",
+      });
+      return;
+    }
+
+    if (fim <= inicio) {
+      Swal.fire({
+        icon: "warning",
+        title: "Prazo final invalido",
+        text: "O prazo final precisa ser maior que o prazo inicial.",
+        confirmButtonColor: "#15803d",
+      });
+      return;
+    }
+
+    try {
+      await apiRequest<EventoApi>("/evento", {
+        method: "POST",
+        body: {
+          titulo: formData.titulo.trim(),
+          descricao: formData.descricao?.trim() || undefined,
+          prazoInicial: inicio.toISOString(),
+          prazoFinal: fim.toISOString(),
+        },
+      });
+
+      Swal.fire({
+        icon: "success",
+        title: "Evento criado!",
+        showConfirmButton: false,
+        timer: 1300,
+        timerProgressBar: true,
+      });
+      setFormData({ titulo: "", descricao: "", prazoInicial: "", prazoFinal: "" });
+      await carregarEventos();
+    } catch (error) {
+      Swal.fire({
+        icon: "error",
+        title: "Erro ao criar evento",
+        text: error instanceof Error ? error.message : "Tente novamente.",
+        confirmButtonColor: "#15803d",
+      });
+    }
+  }
+
+  async function handleAdicionarTema(eventoId: number) {
+    const nome = (temaInputs[eventoId] || "").trim();
+    if (!nome) {
+      Swal.fire({
+        icon: "warning",
+        title: "Informe o nome do tema",
+        confirmButtonColor: "#15803d",
+      });
+      return;
+    }
+
+    try {
+      await apiRequest(`/evento/${eventoId}/temas`, {
+        method: "POST",
+        body: { nome },
+      });
+      Swal.fire({
+        icon: "success",
+        title: "Tema adicionado!",
+        showConfirmButton: false,
+        timer: 1200,
+        timerProgressBar: true,
+      });
+      setTemaInputs((prev) => ({ ...prev, [eventoId]: "" }));
+      await carregarEventos();
+    } catch (error) {
+      Swal.fire({
+        icon: "error",
+        title: "Erro ao adicionar tema",
+        text: error instanceof Error ? error.message : "Tente novamente.",
+        confirmButtonColor: "#15803d",
+      });
+    }
+  }
+
+  async function handleExcluirEvento(eventoId: number) {
+    const result = await Swal.fire({
+      icon: "warning",
+      title: "Excluir evento?",
+      text: "Essa acao nao pode ser desfeita.",
+      showCancelButton: true,
+      confirmButtonColor: "#15803d",
+      cancelButtonColor: "#e2e8f0",
+      confirmButtonText: "Excluir",
+      cancelButtonText: "Cancelar",
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+      await apiRequest(`/evento/${eventoId}`, { method: "DELETE" });
+      Swal.fire({
+        icon: "success",
+        title: "Evento removido",
+        showConfirmButton: false,
+        timer: 1200,
+        timerProgressBar: true,
+      });
+      await carregarEventos();
+    } catch (error) {
+      Swal.fire({
+        icon: "error",
+        title: "Erro ao excluir",
+        text: error instanceof Error ? error.message : "Tente novamente.",
+        confirmButtonColor: "#15803d",
+      });
+    }
+  }
+
+  return (
+    <AdminPageShell>
+      <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+        <PanelTitle icon={<PiCalendarBlank size={20} />} title="Eventos" subtitle="Crie e gerencie eventos e eixos tematicos." />
+
+        <form onSubmit={handleCriarEvento} className="mt-5 grid gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <div className="grid gap-3 lg:grid-cols-2">
+            <label className="text-xs font-black text-slate-500">
+              Titulo
+              <input
+                value={formData.titulo}
+                onChange={(event) => atualizarForm("titulo", event.target.value)}
+                className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:ring-2 focus:ring-sectec-100"
+                placeholder="Nome do evento"
+              />
+            </label>
+            <label className="text-xs font-black text-slate-500">
+              Descricao
+              <input
+                value={formData.descricao}
+                onChange={(event) => atualizarForm("descricao", event.target.value)}
+                className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:ring-2 focus:ring-sectec-100"
+                placeholder="Resumo do evento (opcional)"
+              />
+            </label>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-2">
+            <label className="text-xs font-black text-slate-500">
+              Prazo inicial
+              <input
+                type="datetime-local"
+                value={formData.prazoInicial}
+                onChange={(event) => atualizarForm("prazoInicial", event.target.value)}
+                className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:ring-2 focus:ring-sectec-100"
+              />
+            </label>
+            <label className="text-xs font-black text-slate-500">
+              Prazo final
+              <input
+                type="datetime-local"
+                value={formData.prazoFinal}
+                onChange={(event) => atualizarForm("prazoFinal", event.target.value)}
+                className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:ring-2 focus:ring-sectec-100"
+              />
+            </label>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="submit"
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-sectec-700 px-4 text-sm font-black text-white transition hover:bg-sectec-800"
+            >
+              <PiPlus size={17} /> Criar evento
+            </button>
+          </div>
+        </form>
+
+        <div className="mt-6 space-y-4">
+          {carregando && (
+            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-6 text-sm font-semibold text-slate-500">
+              Carregando eventos...
+            </div>
+          )}
+          {!carregando && erro && (
+            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-6 text-sm font-semibold text-red-600">
+              {erro}
+            </div>
+          )}
+          {!carregando && !erro && eventos.length === 0 && (
+            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-6 text-sm font-semibold text-slate-500">
+              Nenhum evento cadastrado.
+            </div>
+          )}
+          {!carregando && !erro && eventos.map((evento) => (
+            <article key={evento.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <h3 className="text-lg font-black text-slate-900">{evento.titulo}</h3>
+                  {evento.descricao && (
+                    <p className="mt-1 text-sm font-semibold text-slate-500">{evento.descricao}</p>
+                  )}
+                  <p className="mt-2 text-xs font-semibold text-slate-400">
+                    {formatarData(evento.prazoInicial)} - {formatarData(evento.prazoFinal)}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleExcluirEvento(evento.id)}
+                  className="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 px-3 text-xs font-black text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+                >
+                  Excluir
+                </button>
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                {(evento.temas || []).length === 0 && (
+                  <span className="text-xs font-semibold text-slate-400">Sem temas cadastrados.</span>
+                )}
+                {(evento.temas || []).map((tema) => (
+                  <AdminChip key={tema.id} className="bg-slate-100 text-slate-600 ring-slate-200">
+                    {tema.nome}
+                  </AdminChip>
+                ))}
+              </div>
+
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                <input
+                  value={temaInputs[evento.id] || ""}
+                  onChange={(event) =>
+                    setTemaInputs((prev) => ({ ...prev, [evento.id]: event.target.value }))
+                  }
+                  placeholder="Novo tema"
+                  className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100 sm:w-64"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleAdicionarTema(evento.id)}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-sectec-200 bg-sectec-50 px-4 text-sm font-black text-sectec-700 transition hover:bg-sectec-100"
+                >
+                  <PiPlus size={16} /> Adicionar tema
+                </button>
+              </div>
+            </article>
+          ))}
         </div>
       </section>
     </AdminPageShell>
@@ -749,6 +1084,7 @@ function Administrador() {
   if (pathname.endsWith("/frequencia")) return <FrequenciaCoordenacao />;
   if (pathname.endsWith("/notas")) return <NotasCoordenacao />;
   if (pathname.endsWith("/usuarios")) return <UsuariosCoordenacao />;
+  if (pathname.endsWith("/eventos")) return <EventosCoordenacao />;
 
   return (
     <MainLayout userRole="coordenador">

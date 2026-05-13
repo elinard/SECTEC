@@ -335,6 +335,7 @@ export function MainLayout({
     [`${dashboardPrefix}/relatorios`]: "Relatórios",
     [`${dashboardPrefix}/notas`]: "Avaliações",
     [`${dashboardPrefix}/usuarios`]: "Usuários",
+    [`${dashboardPrefix}/eventos`]: "Eventos",
     [`${dashboardPrefix}/configuracoes`]: "Configurações",
   };
 
@@ -436,6 +437,14 @@ export function MainLayout({
       icon: <LayoutDashboard size={20} />,
       href: dashboardPrefix,
       isActive: location.pathname === dashboardPrefix,
+      roles: ["coordenador", "comissao"],
+    },
+    {
+      id: "coordenacao-eventos",
+      label: "Eventos",
+      icon: <CalendarDays size={20} />,
+      href: `${dashboardPrefix}/eventos`,
+      isActive: location.pathname === `${dashboardPrefix}/eventos`,
       roles: ["coordenador", "comissao"],
     },
     {
