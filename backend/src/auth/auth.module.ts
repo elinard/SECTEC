@@ -7,14 +7,12 @@ import { AuthController } from './auth.controller';
 import { UsersModule } from '../users/users.module';
 import { LocalStrategy } from './strategies/local.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
-import { EmailModule } from '../email/email.module'; // 👈 adicionar
 
 @Module({
   imports: [
     UsersModule,
     PassportModule,
-    ConfigModule,
-    EmailModule, // 👈 adicionar
+    ConfigModule, // 👈 adiciona aqui
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
