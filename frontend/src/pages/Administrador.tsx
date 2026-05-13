@@ -506,6 +506,15 @@ function EventosCoordenacao() {
         Swal.fire({ icon: "warning", title: "Prazo invalido", text: "O prazo final deve ser maior que o inicial.", confirmButtonColor: "#15803d" });
         return;
       }
+      if (temConflitoAno) {
+        Swal.fire({
+          icon: "warning",
+          title: "Evento ja cadastrado",
+          text: `Ja existe um evento cadastrado para ${anoSelecionado}.`,
+          confirmButtonColor: "#15803d",
+        });
+        return;
+      }
       setStep(3);
     }
   }
@@ -515,6 +524,16 @@ function EventosCoordenacao() {
   }
 
   async function handleGravarEvento() {
+    if (temConflitoAno) {
+      await Swal.fire({
+        icon: "warning",
+        title: "Evento ja cadastrado",
+        text: `Ja existe um evento cadastrado para ${anoSelecionado}.`,
+        confirmButtonColor: "#15803d",
+      });
+      return;
+    }
+
     try {
       const payload = {
         titulo: formData.titulo.trim(),
@@ -918,13 +937,16 @@ function UsuariosCoordenacao() {
   ] as string[];
 
   const listaFiltrada = listaAtual.filter((usuario) => {
-    if (!termo) return true;
     const bateBusca =
+      !termo ||
       usuario.nome.toLowerCase().includes(termo) ||
       usuario.email.toLowerCase().includes(termo);
+
     const bateTurma =
+      abaAtiva !== "alunos" ||
       turmaFiltro === "todas" ||
       (usuario.turma?.toLowerCase() ?? "") === turmaFiltro.toLowerCase();
+
     return bateBusca && bateTurma;
   });
 

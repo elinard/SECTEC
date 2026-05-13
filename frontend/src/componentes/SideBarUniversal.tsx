@@ -17,6 +17,7 @@ import {
   Users,
   FileText,
   ShieldCheck,
+  GraduationCap,
 } from "lucide-react";
 
 import type { UserRole, NavItem } from "../helpes/InteligenciaSideBar";
@@ -336,6 +337,7 @@ export function MainLayout({
     [`${dashboardPrefix}/notas`]: "Avaliações",
     [`${dashboardPrefix}/usuarios`]: "Usuários",
     [`${dashboardPrefix}/eventos`]: "Eventos",
+    [`${dashboardPrefix}/relatorio-alunos`]: "Status dos Alunos",
     [`${dashboardPrefix}/configuracoes`]: "Configurações",
   };
 
@@ -493,6 +495,14 @@ export function MainLayout({
       icon: <FileSpreadsheet size={20} />,
       href: `${dashboardPrefix}#coord-pdfs`,
       isActive: location.hash === "#coord-pdfs",
+      roles: ["coordenador", "comissao"],
+    },
+    {
+      id: "coordenacao-relatorio-alunos",
+      label: "Status dos Alunos",
+      icon: <GraduationCap size={20} />,
+      href: `${dashboardPrefix}/relatorio-alunos`,
+      isActive: location.pathname === `${dashboardPrefix}/relatorio-alunos`,
       roles: ["coordenador", "comissao"],
     },
     {

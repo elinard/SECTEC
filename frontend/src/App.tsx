@@ -5,6 +5,7 @@ import Dashboard from './pages/DashboardAluno';
 import Administrador from './pages/Administrador';
 import NotasAluno from './pages/Notas';
 import RelatoriosAluno from './pages/Relatoriosaluno';
+import RelatorioStatusAlunos from './pages/RelatorioStatusAlunos';
 import ConfigAluno from './componentes/configurações/config';
 import ProtectedRoute from './componentes/ProtectedRoute';
 import { getRoleRedirect, type BackendRole } from './lib/api';
@@ -192,6 +193,14 @@ function App() {
           element={
             <ProtectedRoute allowedRoles={["coordenador", "comissao"]}>
               <ConfigAluno userRole={backendRole === "comissao" ? "comissao" : "coordenador"} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/dashboard/coordenacao/relatorio-alunos"
+          element={
+            <ProtectedRoute allowedRoles={["coordenador", "comissao"]}>
+              <RelatorioStatusAlunos />
             </ProtectedRoute>
           }
         />
