@@ -62,7 +62,7 @@ export class AuthService {
     const frontendUrl = this.config.get<string>('VITE_API_URL');
     const resetLink = `${frontendUrl}/reset-password?token=${token}`;
 
-    await this.emailService.sendPasswordReset('alewesley1234@gmail.com', resetLink);
+    await this.emailService.sendPasswordReset(email, resetLink);
   }
 
   async resetPassword(token: string, novaSenha: string): Promise<void> {
