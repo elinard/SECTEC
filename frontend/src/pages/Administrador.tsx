@@ -108,12 +108,32 @@ type TemaEventoApi = {
   nome: string;
 };
 
-type EventoApi = {
-  id: number;
+type PeriodoEventoApi = {
+  inicio?: string | null;
+  fim?: string | null;
+};
+
+type CreateEventoPayload = {
   titulo: string;
   descricao?: string;
   prazoInicial: string;
   prazoFinal: string;
+  inscricao?: PeriodoEventoApi;
+  aceitacao?: PeriodoEventoApi;
+  submissao?: PeriodoEventoApi;
+  avaliacao?: PeriodoEventoApi;
+};
+
+type EventoApi = {
+  id: number;
+  titulo: string;
+  descricao?: string | null;
+  prazoInicial: string;
+  prazoFinal: string;
+  inscricao?: PeriodoEventoApi | null;
+  aceitacao?: PeriodoEventoApi | null;
+  submissao?: PeriodoEventoApi | null;
+  avaliacao?: PeriodoEventoApi | null;
   temas?: TemaEventoApi[];
 };
 
@@ -430,8 +450,36 @@ function temasRestantes(temas?: TemaEventoApi[]) {
   return Math.max(0, (temas?.length ?? 0) - 3);
 }
 
+function toDatetimeLocal(value?: string | null) {
+  if (!value) return "";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const offset = date.getTimezoneOffset();
+  const localDate = new Date(date.getTime() - offset * 60 * 1000);
+
+  return localDate.toISOString().slice(0, 16);
+}
+
+function periodoValido(inicio: string, fim: string) {
+  if (!inicio || !fim) return true;
+  return new Date(fim) > new Date(inicio);
+}
+
+function formatarPeriodo(periodo?: PeriodoEventoApi | null) {
+  if (!periodo?.inicio || !periodo?.fim) return "Não definido";
+
+  const inicio = new Date(periodo.inicio);
+  const fim = new Date(periodo.fim);
+  if (Number.isNaN(inicio.getTime()) || Number.isNaN(fim.getTime())) return "Não definido";
+
+  return `${inicio.toLocaleDateString("pt-BR")} - ${fim.toLocaleDateString("pt-BR")}`;
+}
+
 function EventosCoordenacao() {
   const [eventos, setEventos] = useState<EventoApi[]>([]);
+  const [eventoAtual, setEventoAtual] = useState<EventoApi | null>(null);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
   const [temaInputs, setTemaInputs] = useState<Record<number, string>>({});
@@ -444,6 +492,14 @@ function EventosCoordenacao() {
     descricao: "",
     prazoInicial: "",
     prazoFinal: "",
+    inscricaoInicio: "",
+    inscricaoFim: "",
+    aceitacaoInicio: "",
+    aceitacaoFim: "",
+    submissaoInicio: "",
+    submissaoFim: "",
+    avaliacaoInicio: "",
+    avaliacaoFim: "",
   });
 
   async function carregarEventos() {
@@ -452,6 +508,20 @@ function EventosCoordenacao() {
     try {
       const dados = await apiRequest<EventoApi[]>("/evento");
       setEventos(dados);
+
+      let vigente: EventoApi | null = null;
+      try {
+        vigente = await apiRequest<EventoApi>("/evento/atual/vigente");
+      } catch {
+        vigente = null;
+      }
+
+      if (!vigente) {
+        const anoAtualBusca = new Date().getFullYear();
+        vigente = dados.find((evento) => new Date(evento.prazoInicial).getFullYear() === anoAtualBusca) ?? null;
+      }
+
+      setEventoAtual(vigente);
     } catch (error) {
       setErro(error instanceof Error ? error.message : "Nao foi possivel carregar eventos.");
     } finally {
@@ -473,6 +543,15 @@ function EventosCoordenacao() {
     setFormData((prev) => ({ ...prev, [campo]: valor }));
   }
 
+  function montarPeriodo(inicio: string, fim: string): PeriodoEventoApi | undefined {
+    if (!inicio && !fim) return undefined;
+
+    return {
+      inicio: inicio ? new Date(inicio).toISOString() : undefined,
+      fim: fim ? new Date(fim).toISOString() : undefined,
+    };
+  }
+
   function formatarData(iso: string) {
     const data = new Date(iso);
     if (Number.isNaN(data.getTime())) return "-";
@@ -485,12 +564,27 @@ function EventosCoordenacao() {
   function handleEdit(evento: EventoApi) {
     setIsEditing(evento.id);
     setFormData({
-      titulo: evento.titulo,
+      titulo: evento.titulo || "",
       descricao: evento.descricao || "",
-      prazoInicial: evento.prazoInicial ? new Date(evento.prazoInicial).toISOString().slice(0, 16) : "",
-      prazoFinal: evento.prazoFinal ? new Date(evento.prazoFinal).toISOString().slice(0, 16) : "",
+      prazoInicial: toDatetimeLocal(evento.prazoInicial),
+      prazoFinal: toDatetimeLocal(evento.prazoFinal),
+      inscricaoInicio: toDatetimeLocal(evento.inscricao?.inicio),
+      inscricaoFim: toDatetimeLocal(evento.inscricao?.fim),
+      aceitacaoInicio: toDatetimeLocal(evento.aceitacao?.inicio),
+      aceitacaoFim: toDatetimeLocal(evento.aceitacao?.fim),
+      submissaoInicio: toDatetimeLocal(evento.submissao?.inicio),
+      submissaoFim: toDatetimeLocal(evento.submissao?.fim),
+      avaliacaoInicio: toDatetimeLocal(evento.avaliacao?.inicio),
+      avaliacaoFim: toDatetimeLocal(evento.avaliacao?.fim),
     });
     setStep(1);
+
+    setTimeout(() => {
+      formularioEventoRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 50);
   }
 
   
@@ -523,7 +617,20 @@ function EventosCoordenacao() {
 
   function handleCancelEdit() {
     setIsEditing(null);
-    setFormData({ titulo: "", descricao: "", prazoInicial: "", prazoFinal: "" });
+    setFormData({
+      titulo: "",
+      descricao: "",
+      prazoInicial: "",
+      prazoFinal: "",
+      inscricaoInicio: "",
+      inscricaoFim: "",
+      aceitacaoInicio: "",
+      aceitacaoFim: "",
+      submissaoInicio: "",
+      submissaoFim: "",
+      avaliacaoInicio: "",
+      avaliacaoFim: "",
+    });
     setStep(1);
   }
 
@@ -564,6 +671,27 @@ function EventosCoordenacao() {
         return;
       }
       setStep(3);
+    } else if (step === 3) {
+      const fases = [
+        { label: "Inscrição", inicio: formData.inscricaoInicio, fim: formData.inscricaoFim },
+        { label: "Aceitação", inicio: formData.aceitacaoInicio, fim: formData.aceitacaoFim },
+        { label: "Submissão", inicio: formData.submissaoInicio, fim: formData.submissaoFim },
+        { label: "Avaliação", inicio: formData.avaliacaoInicio, fim: formData.avaliacaoFim },
+      ];
+
+      for (const fase of fases) {
+        if (!periodoValido(fase.inicio, fase.fim)) {
+          Swal.fire({
+            icon: "warning",
+            title: `Período inválido em ${fase.label}`,
+            text: "O fim da fase deve ser maior que o início.",
+            confirmButtonColor: "#15803d",
+          });
+          return;
+        }
+      }
+
+      setStep(4);
     }
   }
 
@@ -583,11 +711,15 @@ function EventosCoordenacao() {
     }
 
     try {
-      const payload = {
+      const payload: CreateEventoPayload = {
         titulo: formData.titulo.trim(),
-        descricao: formData.descricao?.trim() || undefined,
+        descricao: formData.descricao.trim() || undefined,
         prazoInicial: new Date(formData.prazoInicial).toISOString(),
         prazoFinal: new Date(formData.prazoFinal).toISOString(),
+        inscricao: montarPeriodo(formData.inscricaoInicio, formData.inscricaoFim),
+        aceitacao: montarPeriodo(formData.aceitacaoInicio, formData.aceitacaoFim),
+        submissao: montarPeriodo(formData.submissaoInicio, formData.submissaoFim),
+        avaliacao: montarPeriodo(formData.avaliacaoInicio, formData.avaliacaoFim),
       };
 
       if (isEditing) {
@@ -622,7 +754,7 @@ function EventosCoordenacao() {
       return;
     }
     try {
-      await apiRequest(`/evento/${eventoId}/temas`, { method: "POST", body: { nome } });
+      await apiRequest(`/evento/${eventoId}/temas`, { method: "POST", body: { nomes: [nome] } });
       Swal.fire({ icon: "success", title: "Tema adicionado!", showConfirmButton: false, timer: 1200, timerProgressBar: true });
       setTemaInputs((prev) => ({ ...prev, [eventoId]: "" }));
       await carregarEventos();
@@ -649,14 +781,21 @@ function EventosCoordenacao() {
   }
 
   const anoAtual = new Date().getFullYear();
-  const eventoAtual = eventos.find((e) => new Date(e.prazoInicial).getFullYear() === anoAtual);
+  const eventoVigente = eventoAtual ?? eventos.find((e) => new Date(e.prazoInicial).getFullYear() === anoAtual) ?? null;
 
   const etapas = [
     { id: 1, label: "Básico" },
-    { id: 2, label: "Prazos" },
-    { id: 3, label: "Revisão" },
+    { id: 2, label: "Período geral" },
+    { id: 3, label: "Fases" },
+    { id: 4, label: "Revisão" },
   ];
   const progresso = ((step - 1) / (etapas.length - 1)) * 100;
+  const fasesFormulario = [
+    { label: "Inscrição", inicio: "inscricaoInicio", fim: "inscricaoFim" },
+    { label: "Aceitação", inicio: "aceitacaoInicio", fim: "aceitacaoFim" },
+    { label: "Submissão", inicio: "submissaoInicio", fim: "submissaoFim" },
+    { label: "Avaliação", inicio: "avaliacaoInicio", fim: "avaliacaoFim" },
+  ] as const;
 
   return (
     <AdminPageShell>
@@ -729,13 +868,47 @@ function EventosCoordenacao() {
                   )}
 
                   {step === 3 && (
+                    <div className="grid gap-4 animate-in fade-in slide-in-from-right-4 duration-300">
+                      {fasesFormulario.map((fase) => (
+                        <div key={fase.label} className="rounded-2xl border border-slate-200 bg-white p-4">
+                          <p className="text-xs font-black uppercase tracking-wider text-slate-500">{fase.label}</p>
+                          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                            <label className="text-xs font-black text-slate-500">
+                              Início
+                              <input
+                                type="datetime-local"
+                                value={formData[fase.inicio]}
+                                onChange={(e) => atualizarForm(fase.inicio, e.target.value)}
+                                className="mt-2 h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100"
+                              />
+                            </label>
+                            <label className="text-xs font-black text-slate-500">
+                              Fim
+                              <input
+                                type="datetime-local"
+                                value={formData[fase.fim]}
+                                onChange={(e) => atualizarForm(fase.fim, e.target.value)}
+                                className="mt-2 h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100"
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {step === 4 && (
                     <div className="animate-in fade-in slide-in-from-right-4 duration-300 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm font-semibold text-slate-600">
                       <p className="mb-3 uppercase text-[10px] font-black text-slate-400">Revisão dos dados</p>
                       <ul className="space-y-2">
                         <li><strong className="text-slate-900">Título:</strong> {formData.titulo}</li>
                         <li><strong className="text-slate-900">Descrição:</strong> {formData.descricao || "Nenhum"}</li>
-                        <li><strong className="text-slate-900">Início:</strong> {formatarData(new Date(formData.prazoInicial).toISOString())}</li>
-                        <li><strong className="text-slate-900">Fim:</strong> {formatarData(new Date(formData.prazoFinal).toISOString())}</li>
+                        <li><strong className="text-slate-900">Início geral:</strong> {formatarData(new Date(formData.prazoInicial).toISOString())}</li>
+                        <li><strong className="text-slate-900">Fim geral:</strong> {formatarData(new Date(formData.prazoFinal).toISOString())}</li>
+                        <li><strong className="text-slate-900">Inscrição:</strong> {formatarPeriodo(montarPeriodo(formData.inscricaoInicio, formData.inscricaoFim))}</li>
+                        <li><strong className="text-slate-900">Aceitação:</strong> {formatarPeriodo(montarPeriodo(formData.aceitacaoInicio, formData.aceitacaoFim))}</li>
+                        <li><strong className="text-slate-900">Submissão:</strong> {formatarPeriodo(montarPeriodo(formData.submissaoInicio, formData.submissaoFim))}</li>
+                        <li><strong className="text-slate-900">Avaliação:</strong> {formatarPeriodo(montarPeriodo(formData.avaliacaoInicio, formData.avaliacaoFim))}</li>
                       </ul>
                     </div>
                   )}
@@ -755,7 +928,7 @@ function EventosCoordenacao() {
                       Voltar
                     </button>
                   )}
-                  {step < 3 ? (
+                  {step < 4 ? (
                     <button type="button" onClick={nextStep} disabled={step === 2 && temConflitoAno} className="inline-flex h-11 items-center justify-center rounded-2xl bg-sectec-600 px-5 text-sm font-black text-white transition hover:bg-sectec-700 disabled:opacity-50 disabled:cursor-not-allowed">
                       Próximo
                     </button>
@@ -774,10 +947,10 @@ function EventosCoordenacao() {
               <PiCalendarBlank size={24} />
             </div>
             <h3 className="text-sm font-black text-slate-900">Resumo {anoAtual}</h3>
-            {eventoAtual ? (
+            {eventoVigente ? (
                <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4">
-                 <strong className="block text-emerald-900 font-black text-sm">{eventoAtual.titulo}</strong>
-                 <p className="text-xs text-emerald-700 mt-1 font-semibold">{eventoAtual.temas?.length || 0} temas cadastrados</p>
+                 <strong className="block text-emerald-900 font-black text-sm">{eventoVigente.titulo}</strong>
+                 <p className="text-xs text-emerald-700 mt-1 font-semibold">{eventoVigente.temas?.length || 0} temas cadastrados</p>
                </div>
             ) : (
                <div className="mt-4 rounded-2xl border border-amber-100 bg-amber-50/50 p-4">
@@ -825,6 +998,23 @@ function EventosCoordenacao() {
                     Até: <span className="text-slate-600">{formatarData(evento.prazoFinal)}</span>
                   </div>
 
+                  <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-3">
+                    <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Cronograma</p>
+                    <div className="grid gap-2">
+                      {[
+                        { label: "Inscrição", periodo: evento.inscricao },
+                        { label: "Aceitação", periodo: evento.aceitacao },
+                        { label: "Submissão", periodo: evento.submissao },
+                        { label: "Avaliação", periodo: evento.avaliacao },
+                      ].map((fase) => (
+                        <div key={fase.label} className="flex items-center justify-between gap-3 text-xs">
+                          <span className="font-black text-slate-700">{fase.label}</span>
+                          <span className="font-semibold text-slate-500">{formatarPeriodo(fase.periodo)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
                   <div className="mt-4 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5 mb-3">
                       {(evento.temas || []).length === 0 && <span className="text-[10px] uppercase font-bold text-slate-300">Sem temas</span>}
@@ -869,17 +1059,19 @@ type UsuarioCoordenacao = {
   id: string;
   nome: string;
   email: string;
-  perfil: "Aluno" | "Orientador";
+  perfil: "Aluno" | "Orientador" | "Comissão";
   turma?: string;
+  ano?: number;
 };
 
 function UsuariosCoordenacao() {
-  const [abaAtiva, setAbaAtiva] = useState<"alunos" | "orientadores">("alunos");
+  const [abaAtiva, setAbaAtiva] = useState<"alunos" | "orientadores" | "comissao">("alunos");
   const [busca, setBusca] = useState("");
   const [turmaFiltro, setTurmaFiltro] = useState("todas");
   const [paginaAtual, setPaginaAtual] = useState(1);
   const [alunos, setAlunos] = useState<UsuarioCoordenacao[]>([]);
   const [orientadores, setOrientadores] = useState<UsuarioCoordenacao[]>([]);
+  const [comissao, setComissao] = useState<UsuarioCoordenacao[]>([]);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
   const [uploadando, setUploadando] = useState(false);
@@ -889,9 +1081,10 @@ function UsuariosCoordenacao() {
 
   const totalAlunos = alunos.length;
   const totalOrientadores = orientadores.length;
-  const totalGeral = totalAlunos + totalOrientadores;
+  const totalComissao = comissao.length;
+  const totalGeral = totalAlunos + totalOrientadores + totalComissao;
 
-  function normalizarUsuarios(lista: UsuarioApi[], perfil: "Aluno" | "Orientador") {
+  function normalizarUsuarios(lista: UsuarioApi[], perfil: UsuarioCoordenacao["perfil"]) {
     return lista.map((usuario) => ({
       id: String(usuario.id),
       nome: usuario.nome,
@@ -906,13 +1099,15 @@ function UsuariosCoordenacao() {
     setErro("");
 
     try {
-      const [alunosResponse, orientadoresResponse] = await Promise.all([
+      const [alunosResponse, orientadoresResponse, comissaoResponse] = await Promise.all([
         apiRequest<UsuarioApi[]>("/users/alunos"),
         apiRequest<UsuarioApi[]>("/users/orientadores"),
+        apiRequest<UsuarioApi[]>("/users/comissao"),
       ]);
 
       setAlunos(normalizarUsuarios(alunosResponse, "Aluno"));
       setOrientadores(normalizarUsuarios(orientadoresResponse, "Orientador"));
+      setComissao(normalizarUsuarios(comissaoResponse, "Comissão"));
     } catch (error) {
       setErro(error instanceof Error ? error.message : "Nao foi possivel carregar os usuarios.");
     } finally {
@@ -1036,7 +1231,7 @@ function UsuariosCoordenacao() {
     };
   }, []);
 
-  const listaAtual = abaAtiva === "alunos" ? alunos : orientadores;
+  const listaAtual = abaAtiva === "alunos" ? alunos : abaAtiva === "orientadores" ? orientadores : comissao;
   const termo = busca.trim().toLowerCase();
   const turmasDisponiveis = [
     "todas",
@@ -1112,6 +1307,7 @@ function UsuariosCoordenacao() {
             {[
             { label: "Total de alunos", value: totalAlunos },
             { label: "Total de orientadores", value: totalOrientadores },
+            { label: "Total de comissão", value: totalComissao },
             { label: "Total geral", value: totalGeral },
           ].map((card) => (
             <article key={card.label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -1126,13 +1322,14 @@ function UsuariosCoordenacao() {
             {[
               { id: "alunos", label: "Alunos" },
               { id: "orientadores", label: "Orientadores" },
+              { id: "comissao", label: "Comissão" },
             ].map((aba) => {
               const ativa = abaAtiva === aba.id;
               return (
                 <button
                   key={aba.id}
                   type="button"
-                  onClick={() => setAbaAtiva(aba.id as "alunos" | "orientadores")}
+                  onClick={() => setAbaAtiva(aba.id as "alunos" | "orientadores" | "comissao")}
                   className={`cursor-pointer px-4 py-2 text-sm font-black transition ${
                     ativa
                       ? "rounded-xl bg-white text-sectec-700 shadow-sm"
@@ -1210,7 +1407,7 @@ function UsuariosCoordenacao() {
                       <p className="text-sm font-black text-slate-700">{usuario.perfil}</p>
                       <AdminChip className="bg-emerald-50 text-emerald-700 ring-emerald-200">Ativo</AdminChip>
                       <div className="flex justify-end">
-                        {usuario.perfil === "Aluno" ? (
+                        {abaAtiva === "alunos" && usuario.perfil === "Aluno" ? (
                           <button
                             type="button"
                             onClick={() => promoverAlunoParaComissao(usuario)}
