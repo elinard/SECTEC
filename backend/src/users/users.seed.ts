@@ -32,6 +32,11 @@ export class UsersSeed {
         email: 'coordenador@sectec.com',
         role: UserRole.COORDENACAO, // 👈 Ajustado para COORDENACAO (conforme seu erro anterior)
       },
+       {
+    nome: 'Golden Nascimento',
+    email: 'goldennascimento@gmail.com',
+    role: UserRole.ALUNO,
+  },
     ];
 
     for (const u of seedUsers) {
