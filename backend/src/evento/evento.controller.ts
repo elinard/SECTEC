@@ -11,7 +11,22 @@ import { ApiOperation, ApiResponse, ApiTags, ApiBody } from '@nestjs/swagger';
 @Controller('evento')
 export class EventoController {
   constructor(private readonly eventoService: EventoService) {}
+  
+  @Get()
+  findAll() {
+    return this.eventoService.findAll();
+  }
+  
+    @Get('/atual')
+      async getEventoAtual() { // Adicione o async aqui também para boa prática
+        return await this.eventoService.eventoAtual();
+      }
 
+      @Get(':id')
+      findOne(@Param('id', ParseIntPipe) id: number) {
+        return this.eventoService.findOne(id);
+      }
+      
   @Post()
   create(@Body() createEventoDto: CreateEventoDto) {
     return this.eventoService.create(createEventoDto);
@@ -31,15 +46,11 @@ addTemas(
 }
 
 
-  @Get()
-  findAll() {
-    return this.eventoService.findAll();
-  }
+  
 
-  @Get(':id')
-  findOne(@Param('id', ParseIntPipe) id: number) {
-    return this.eventoService.findOne(id);
-  }
+
+
+
 
   @Patch(':id')
   update(

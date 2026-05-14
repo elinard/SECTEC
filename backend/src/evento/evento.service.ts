@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common'; // 1. Adicionado BadRequestException
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, Between } from 'typeorm';
 import { CreateEventoDto } from './dto/create-evento.dto';
 import { UpdateEventoDto } from './dto/update-evento.dto';
 import { CreateTemasDto } from './dto/create-tema.dto';
@@ -73,7 +73,22 @@ export class EventoService {
   return await this.temaRepository.save(novosTemas);
 }
 
+async eventoAtual() {
+    const anoAtual = new Date().getFullYear();
 
+    return await this.eventoRepository.findOne({
+      where: {
+        // Use criadoEm ou criado_em conforme definido na sua classe Entity
+        prazoInicial: Between(
+          new Date(`${anoAtual}-01-01T00:00:00.000Z`),
+          new Date(`${anoAtual}-12-31T23:59:59.999Z`),
+        ),
+      },
+      order: {
+        criadoEm: 'DESC',
+      },
+    });
+  }
 
 async sincronizarTemas(professorId: number, temasIds: number[]) {
   // 1. Buscamos o professor carregando a relação da tabela pivot
