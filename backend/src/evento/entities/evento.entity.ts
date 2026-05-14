@@ -49,11 +49,11 @@ export class Evento {
   @Column({ name: 'coordenador_id', nullable: true })
   coordenadorId?: number;
 
-  @Column({ name: 'prazo_inicial', type: 'date' }) // Mudança para 'date'
-  prazoInicial!: Date;
+@Column({ name: 'prazo_inicial', type: 'date', nullable: true }) // Adicione o nullable aqui
+prazoInicial!: Date;
 
-  @Column({ name: 'prazo_final', type: 'date' }) // Mudança para 'date'
-  prazoFinal!: Date;
+@Column({ name: 'prazo_final', type: 'date', nullable: true }) // Adicione o nullable aqui
+prazoFinal!: Date;
 
   // Mantemos datetime para auditoria (saber o segundo exato da criação)
   @CreateDateColumn({ name: 'criado_em' })
