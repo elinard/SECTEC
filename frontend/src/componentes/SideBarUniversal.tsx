@@ -15,7 +15,6 @@ import {
   ClipboardList,
   LogOut,
   Users,
-  FileText,
   GraduationCap,
 } from "lucide-react";
 
@@ -291,12 +290,6 @@ export function Sidebar({
                 className="whitespace-nowrap truncate"
               >
                 {settingsItem?.label || "Configurações"}
-                {false && <span className="hidden">
-                  Usuário conectado
-                </span>}
-                {false && <span className="hidden">
-                  {userRole}
-                </span>}
               </motion.span>
             )}
           </AnimatePresence>
@@ -346,7 +339,7 @@ export function MainLayout({
   const dashboardPrefix = `/dashboard/${rolePath}`;
 
   const pageLabels: Record<string, string> = {
-    [dashboardPrefix]: "Painel",
+    [dashboardPrefix]: userRole === "aluno" ? "Projeto" : "Painel",
     [`${dashboardPrefix}/turmas`]: "Turmas",
     [`${dashboardPrefix}/entregas`]: "Entregas",
     [`${dashboardPrefix}/agenda`]: "Agenda",
@@ -418,26 +411,10 @@ export function MainLayout({
   const alunoMenu: NavItem[] = [
     {
       id: "painel",
-      label: "Painel",
+      label: "Projeto",
       icon: <LayoutDashboard size={20} />,
       href: dashboardPrefix,
       isActive: location.pathname === dashboardPrefix,
-      roles: ["aluno"],
-    },
-    {
-      id: "aluno-relatorios",
-      label: "Relatórios",
-      icon: <FileText size={20} />,
-      href: `${dashboardPrefix}/relatorios`,
-      isActive: location.pathname === `${dashboardPrefix}/relatorios`,
-      roles: ["aluno"],
-    },
-    {
-      id: "aluno-notas",
-      label: "Notas",
-      icon: <FileSpreadsheet size={20} />,
-      href: `${dashboardPrefix}/notas`,
-      isActive: location.pathname === `${dashboardPrefix}/notas`,
       roles: ["aluno"],
     },
     {

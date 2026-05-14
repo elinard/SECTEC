@@ -18,12 +18,45 @@ function Login() {
   async function handleForgotPassword() {
   const { value: emailValue } = await Swal.fire({
     title: "Recuperar senha",
+    html: `
+      <div class="sectec-forgot-content">
+          <div class="sectec-forgot-icon" aria-hidden="true">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
+              <path d="M4.5 7.5A2.5 2.5 0 0 1 7 5h10a2.5 2.5 0 0 1 2.5 2.5v6A2.5 2.5 0 0 1 17 16H7a2.5 2.5 0 0 1-2.5-2.5v-6Z" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/>
+              <path d="m6 8 5.05 3.55a1.65 1.65 0 0 0 1.9 0L18 8" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="m14.8 18.1 1.55 1.55 3.15-3.3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+        <p class="sectec-forgot-copy">
+          Informe seu e-mail institucional para receber as instruções de redefinição.
+        </p>
+      </div>
+    `,
     input: "email",
     inputPlaceholder: "seu@aluno.ce.gov.br",
     showCancelButton: true,
     confirmButtonText: "Enviar instruções",
     cancelButtonText: "Cancelar",
     confirmButtonColor: "#15803d",
+    cancelButtonColor: "#64748b",
+    background: "#ffffff",
+    color: "#0f172a",
+    width: 480,
+    padding: "2rem",
+    buttonsStyling: false,
+    customClass: {
+      popup: "sectec-modal sectec-forgot-modal",
+      title: "sectec-modal-title sectec-forgot-title",
+      htmlContainer: "sectec-forgot-html",
+      input: "sectec-modal-input sectec-forgot-input",
+      actions: "sectec-forgot-actions",
+      confirmButton: "sectec-modal-confirm sectec-forgot-confirm",
+      cancelButton: "sectec-modal-cancel sectec-forgot-cancel",
+    },
+    inputValidator: (value) => {
+      if (!value) return "Digite seu e-mail institucional.";
+      return null;
+    },
   });
 
   if (!emailValue) return;
