@@ -11,9 +11,12 @@ export class Projeto {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  @ManyToOne(() => Evento)
-  @JoinColumn({ name: 'evento_id' })
-  evento!: Evento;
+// projeto.entity.ts
+
+@ManyToOne(() => Evento, (evento) => evento.projetos, { onDelete: 'CASCADE' }) // 👈 Adicionado aqui
+@JoinColumn({ name: 'evento_id' })
+evento!: Evento;
+
 
   @ManyToOne(() => User) // 👈 Corrigido: era Usuario
   @JoinColumn({ name: 'aluno_autor_id' })

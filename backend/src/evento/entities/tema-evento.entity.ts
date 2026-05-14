@@ -13,10 +13,12 @@ export class TemaEvento {
   @Column()
   nome: string;
 
-  // Muitos temas para um Evento
-  @ManyToOne(() => Evento, (evento) => evento.temas) // 👈 Referência ao campo 'temas'
-  @JoinColumn({ name: 'evento_id' })
-  evento: Evento;
+// modulos/eventos/entities/tema-evento.entity.ts
+
+@ManyToOne(() => Evento, (evento) => evento.temas, { onDelete: 'CASCADE' }) // 👈 Adicionado aqui
+@JoinColumn({ name: 'evento_id' })
+evento: Evento;
+
   
   // tema-evento.entity.ts
 @ManyToMany(() => User, (user) => user.temasSelecionados)
