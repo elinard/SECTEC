@@ -43,6 +43,12 @@ export class UsersController {
   getAlunos() {
     return this.usersService.findAllAlunos();
   }
+  
+  @Get('comissao')
+  @ApiOperation({ summary: 'Listar todos os alunos ativos' })
+  getComissao() {
+    return this.usersService.findAllComissao();
+  }
 
   @Get('orientadores')
   @ApiOperation({ summary: 'Listar todos os orientadores ativos' })

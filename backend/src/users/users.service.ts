@@ -38,6 +38,12 @@ export class UsersService {
       select: ['id', 'nome', 'email_institucional', 'turma', 'ano'],
     });
   }
+  async findAllComissao() {
+    return this.usersRepository.find({
+      where: { role_cargo: UserRole.COMISSAO, ativo: true },
+      select: ['id', 'nome', 'email_institucional', 'turma', 'ano'],
+    });
+  }
 
   async findAllOrientadores() {
     return this.usersRepository.find({
