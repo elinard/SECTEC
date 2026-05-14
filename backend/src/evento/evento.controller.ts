@@ -15,8 +15,7 @@ import { UpdateEventoDto } from './dto/update-evento.dto';
 import { CreateTemasDto } from './dto/create-tema.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard'; 
 import { GetUser } from '../auth/decorators/get-user.decorator';
-import { User } from '../users/entities/user.entity';
-import { ApiOperation, ApiResponse, ApiTags, ApiBody, ApiParam } from '@nestjs/swagger';
+import { ApiOperation, ApiResponse, ApiTags, ApiBody } from '@nestjs/swagger';
 // Remova o "Param as ApiParam" que estava dando erro
 
 @ApiTags('evento')
@@ -93,14 +92,11 @@ export class EventoController {
       }
     }
   })
-  // @UseGuards(JwtAuthGuard) // Comentado para testes iniciais
+  @UseGuards(JwtAuthGuard)
   async sincronizar(
     @Body('temasIds') temasIds: number[],
-    @GetUser() user: User // O decorator GetUser retornará undefined enquanto o Guard estiver OFF
+    @GetUser('userId') orientadorId: number
   ) {
-    // Usando ID fixo para teste como solicitado, 
-    // Futuramente substituir 51 por user.id
-    const orientadorId = user.id; 
     return await this.eventoService.sincronizarTemas(orientadorId, temasIds);
   }
 }
