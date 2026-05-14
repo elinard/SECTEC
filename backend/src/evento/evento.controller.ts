@@ -1,58 +1,65 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, ParseIntPipe, UseGuards} from '@nestjs/common';
+import { 
+  Controller, 
+  Get, 
+  Post, 
+  Body, 
+  Patch, 
+  Param, 
+  Delete, 
+  ParseIntPipe, 
+  UseGuards 
+} from '@nestjs/common';
 import { EventoService } from './evento.service';
 import { CreateEventoDto } from './dto/create-evento.dto';
 import { UpdateEventoDto } from './dto/update-evento.dto';
-import { CreateTemasDto } from './dto/create-tema.dto'; // Certifique-se de ter criado este DTO
+import { CreateTemasDto } from './dto/create-tema.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard'; 
 import { GetUser } from '../auth/decorators/get-user.decorator';
-import { User } from '../users/entities/user.entity'; // 👈 ADICIONE ESTA LINHA
-import { ApiOperation, ApiResponse, ApiTags, ApiBody } from '@nestjs/swagger';
+import { User } from '../users/entities/user.entity';
+import { ApiOperation, ApiResponse, ApiTags, ApiBody, ApiParam } from '@nestjs/swagger';
+// Remova o "Param as ApiParam" que estava dando erro
+
 @ApiTags('evento')
 @Controller('evento')
 export class EventoController {
   constructor(private readonly eventoService: EventoService) {}
-  
-  @Get()
-  findAll() {
-    return this.eventoService.findAll();
-  }
-  
-    @Get('/atual')
-      async getEventoAtual() { // Adicione o async aqui também para boa prática
-        return await this.eventoService.eventoAtual();
-      }
 
-      @Get(':id')
-      findOne(@Param('id', ParseIntPipe) id: number) {
-        return this.eventoService.findOne(id);
-      }
-      
   @Post()
+  @ApiOperation({ summary: 'Cria um novo evento com cronograma completo' })
+  @ApiResponse({ status: 201, description: 'Evento criado com sucesso.' })
   create(@Body() createEventoDto: CreateEventoDto) {
     return this.eventoService.create(createEventoDto);
   }
 
-  /**
-   * Adiciona um novo eixo temático a um evento específico via formulário
-   * Rota: POST /evento/:id/temas
-   */
-@Post(':id/temas')
-addTemas(
-  @Param('id', ParseIntPipe) id: number, 
-  @Body() createTemasDto: CreateTemasDto
-) {
-  // Agora passamos o plural para o service
-  return this.eventoService.addTemas(id, createTemasDto);
-}
+  @Post(':id/temas')
+  @ApiOperation({ summary: 'Adiciona eixos temáticos ao evento' })
+  addTemas(
+    @Param('id', ParseIntPipe) id: number, 
+    @Body() createTemasDto: CreateTemasDto
+  ) {
+    return this.eventoService.addTemas(id, createTemasDto);
+  }
 
+  @Get()
+  @ApiOperation({ summary: 'Lista todos os eventos cadastrados' })
+  findAll() {
+    return this.eventoService.findAll();
+  }
 
-  
+  @Get('atual/vigente')
+  @ApiOperation({ summary: 'Busca o evento mais recente do ano atual' })
+  findAtual() {
+    return this.eventoService.eventoAtual();
+  }
 
-
-
-
+  @Get(':id')
+  @ApiOperation({ summary: 'Busca detalhes de um evento específico' })
+  findOne(@Param('id', ParseIntPipe) id: number) {
+    return this.eventoService.findOne(id);
+  }
 
   @Patch(':id')
+  @ApiOperation({ summary: 'Atualiza dados e prazos de um evento' })
   update(
     @Param('id', ParseIntPipe) id: number, 
     @Body() updateEventoDto: UpdateEventoDto
@@ -61,46 +68,37 @@ addTemas(
   }
 
   @Delete(':id')
+  @ApiOperation({ summary: 'Remove um evento' })
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.eventoService.remove(id);
   }
-  
-  
-  
-  
-  
-  
-  
-  // POST /evento/temas/:temaId/selecionar
-@Post('temas/sincronizar')
-@ApiOperation({ 
-  summary: 'Sincroniza os temas do orientador', 
-  description: 'Envia uma lista completa de IDs. Os temas que não estiverem na lista serão removidos e os novos serão adicionados.' 
-})
-@ApiResponse({ status: 201, description: 'Temas sincronizados com sucesso.' })
-@ApiResponse({ status: 400, description: 'Dados inválidos ou usuário não é orientador.' })
-// Aqui você define o corpo manualmente para o Swagger
-@ApiBody({
-  schema: {
-    type: 'object',
-    properties: {
-      temasIds: {
-        type: 'array',
-        items: { type: 'number' },
-        description: 'Lista de IDs dos temas selecionados',
-        example: [1, 2, 3]
+
+  @Post('temas/sincronizar')
+  @ApiOperation({ 
+    summary: 'Sincroniza os temas do orientador', 
+    description: 'Envia uma lista completa de IDs de temas para o orientador.' 
+  })
+  @ApiResponse({ status: 201, description: 'Temas sincronizados com sucesso.' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        temasIds: {
+          type: 'array',
+          items: { type: 'number' },
+          example: [1, 2, 3]
+        }
       }
     }
+  })
+  // @UseGuards(JwtAuthGuard) // Comentado para testes iniciais
+  async sincronizar(
+    @Body('temasIds') temasIds: number[],
+    @GetUser() user: User // O decorator GetUser retornará undefined enquanto o Guard estiver OFF
+  ) {
+    // Usando ID fixo para teste como solicitado, 
+    // Futuramente substituir 51 por user.id
+    const orientadorId = user?.id || 51; 
+    return await this.eventoService.sincronizarTemas(orientadorId, temasIds);
   }
-})
-//@UseGuards(JwtAuthGuard)
-async sincronizar(
-  @Body('temasIds') temasIds: number[], // Espera um array: [1, 2, 3]
-  @GetUser() user: User
-) {
-  // Usamos o ID do orientador logado para garantir que ele só mexa nos temas dele
-  return await this.eventoService.sincronizarTemas(51, temasIds);
-}
-
-
 }

@@ -8,9 +8,18 @@ import {
   OneToMany,
   JoinColumn,
 } from 'typeorm';
-import { Projeto } from 'src/projetos/entities/projeto.entity'; // Usando padrão src/
+import { Projeto } from 'src/projetos/entities/projeto.entity';
 import { TemaEvento } from 'src/evento/entities/tema-evento.entity';
-import { User } from 'src/users/entities/user.entity'; // 👈 Nome correto da classe é 'User'
+import { User } from 'src/users/entities/user.entity';
+
+// Value Object ajustado para apenas DATA
+export class Periodo {
+  @Column({ type: 'date', nullable: true }) // Mudança para 'date'
+  inicio?: Date;
+
+  @Column({ type: 'date', nullable: true }) // Mudança para 'date'
+  fim?: Date;
+}
 
 @Entity('eventos')
 export class Evento {
@@ -23,15 +32,30 @@ export class Evento {
   @Column({ type: 'text', nullable: true })
   descricao?: string;
 
+  // --- Prazos de Ciclo de Vida ---
+  @Column(() => Periodo)
+  inscricao!: Periodo;
+
+  @Column(() => Periodo)
+  submissao!: Periodo;
+
+  @Column(() => Periodo)
+  avaliacao!: Periodo;
+
+  @Column(() => Periodo)
+  aceitacao!: Periodo;
+
+  // --- Configurações Gerais ---
   @Column({ name: 'coordenador_id', nullable: true })
   coordenadorId?: number;
 
-  @Column({ name: 'prazo_inicial', type: 'datetime' })
+  @Column({ name: 'prazo_inicial', type: 'date' }) // Mudança para 'date'
   prazoInicial!: Date;
 
-  @Column({ name: 'prazo_final', type: 'datetime' })
+  @Column({ name: 'prazo_final', type: 'date' }) // Mudança para 'date'
   prazoFinal!: Date;
 
+  // Mantemos datetime para auditoria (saber o segundo exato da criação)
   @CreateDateColumn({ name: 'criado_em' })
   criadoEm!: Date;
 
@@ -39,8 +63,6 @@ export class Evento {
   atualizadoEm!: Date;
 
   // --- Relacionamentos ---
-
-  // Agora usando a classe 'User' que você definiu
   @ManyToOne(() => User) 
   @JoinColumn({ name: 'coordenador_id' })
   coordenador!: User;
