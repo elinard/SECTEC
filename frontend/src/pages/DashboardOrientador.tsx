@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   AlertTriangle,
-  ArrowUpRight,
   BarChart3,
   CalendarDays,
   Check,
@@ -15,7 +14,6 @@ import {
   Plus,
   Save,
   Search,
-  Send,
   Settings2,
   SlidersHorizontal,
   Trash2,
@@ -33,6 +31,7 @@ type EixoProjeto = Exclude<EixoTematico, "todos">;
 type Risco = "alto" | "medio" | "baixo";
 type StatusEntrega = "pendente" | "revisada" | "recusada";
 type StatusProjeto = "aguardando" | "aprovado" | "ajustes";
+type FiltroSolicitacao = "pendentes" | "reprovadas" | "todas";
 
 type RegistroComEixo = {
   eixoSlug: EixoProjeto;
@@ -689,7 +688,7 @@ function projetoTone(status: StatusProjeto) {
 
 function projetoLabel(status: StatusProjeto) {
   if (status === "aguardando") return "analisar";
-  if (status === "ajustes") return "ajustes";
+  if (status === "ajustes") return "reprovado";
   return "aprovado";
 }
 
@@ -828,38 +827,43 @@ function EquipeRow({
 
 function DashboardOrientador() {
   const backend = useOrientadorBackendData();
-  const entregasBackend = useEntregasBackendData(backend.orientacoes, backend.carregando);
   const [eixoAtivo, setEixoAtivo] = useState<EixoTematico>("todos");
+  const [turmaFiltro, setTurmaFiltro] = useState("todas");
+  const [filtroSolicitacao, setFiltroSolicitacao] = useState<FiltroSolicitacao>("pendentes");
   const [aviso, setAviso] = useState("");
   const [equipeAberta, setEquipeAberta] = useState<Equipe | null>(null);
   const equipesData = backend.equipes;
-  const entregasData = entregasBackend.entregas;
   const projetosData = backend.projetos;
   const agendaData = agendaSemBackend;
 
   const equipesFiltradas = useMemo(() => filterByEixo(equipesData, eixoAtivo), [equipesData, eixoAtivo]);
-  const entregasFiltradas = useMemo(() => filterByEixo(entregasData, eixoAtivo), [entregasData, eixoAtivo]);
-  const projetosFiltrados = useMemo(() => filterByEixo(projetosData, eixoAtivo), [projetosData, eixoAtivo]);
+  const projetosPorEixo = useMemo(() => filterByEixo(projetosData, eixoAtivo), [projetosData, eixoAtivo]);
+  const turmasSolicitacoes = useMemo(
+    () => Array.from(new Set(projetosPorEixo.map((projeto) => projeto.turma))).sort(),
+    [projetosPorEixo]
+  );
   const projetosParaAnalise = useMemo(
-    () => projetosFiltrados.filter((projeto) => projeto.status !== "aprovado"),
-    [projetosFiltrados]
+    () =>
+      projetosPorEixo.filter((projeto) => {
+        const bateTurma = turmaFiltro === "todas" || projeto.turma === turmaFiltro;
+        const bateStatus =
+          filtroSolicitacao === "todas" ||
+          (filtroSolicitacao === "pendentes" && projeto.status === "aguardando") ||
+          (filtroSolicitacao === "reprovadas" && projeto.status === "ajustes");
+
+        return bateTurma && bateStatus;
+      }),
+    [filtroSolicitacao, projetosPorEixo, turmaFiltro]
   );
   const agendaFiltrada = useMemo(() => filterByEixo(agendaData, eixoAtivo), [agendaData, eixoAtivo]);
 
   const riscosAltos = equipesFiltradas.filter((equipe) => equipe.risco === "alto").length;
-  const pendentes = entregasFiltradas.filter((entrega) => entrega.status === "pendente" || entrega.status === "recusada").length;
+  const solicitacoesPendentes = projetosPorEixo.filter((projeto) => projeto.status === "aguardando").length;
+  const solicitacoesReprovadas = projetosPorEixo.filter((projeto) => projeto.status === "ajustes").length;
   const aguardandoAprovacao = projetosParaAnalise.filter((projeto) => projeto.status === "aguardando").length;
 
   function mostrarAviso(mensagem: string) {
     setAviso(mensagem);
-  }
-
-  function agendarOrientacao() {
-    mostrarAviso("Agenda ainda não tem endpoint no backend para criar horários.");
-  }
-
-  function registrarReuniao() {
-    mostrarAviso("Registro de reunião/último contato ainda não tem endpoint no backend.");
   }
 
   async function atualizarProjeto(id: string, status: StatusProjeto) {
@@ -879,16 +883,16 @@ function DashboardOrientador() {
     <PageShell
       eyebrow="Orientação SECTEC"
       title="Painel do orientador"
-      description="Acompanhe equipes, aprove projetos, revise entregas e organize as orientações da feira científica."
+      description="Veja solicitações pendentes, filtre por turma ou eixo, aprove ou reprove pedidos e acompanhe as equipes que você orienta."
       actions={
         <>
-          <Button variant="secondary" onClick={agendarOrientacao}>
-            <CalendarDays size={16} />
-            Agendar orientação
+          <Button variant="secondary" onClick={() => setTurmaFiltro("todas")}>
+            <SlidersHorizontal size={16} />
+            Limpar turma
           </Button>
-          <Button onClick={registrarReuniao}>
-            Registrar reunião
-            <ArrowUpRight size={16} />
+          <Button onClick={() => setFiltroSolicitacao("pendentes")}>
+            <Search size={16} />
+            Ver pendentes
           </Button>
         </>
       }
@@ -896,45 +900,89 @@ function DashboardOrientador() {
       <Notice
         message={
           aviso ||
-          (backend.carregando || entregasBackend.carregando
+          (backend.carregando
             ? "Carregando dados do backend..."
-            : backend.erro || entregasBackend.erro || "Agenda e registro de reunião ainda não têm endpoints no backend.")
+            : backend.erro || "Solicitações carregadas do backend; agenda e reunião ainda não têm endpoints.")
         }
       />
 
       <FiltroEixoBox
         eixoAtivo={eixoAtivo}
         onChange={setEixoAtivo}
-        contagemPorEixo={(eixo) => countByEixo(equipesData, eixo)}
-        description="O filtro altera estatísticas, equipes, aprovações e agenda deste painel."
+        contagemPorEixo={(eixo) => countByEixo(projetosData, eixo)}
+        title="Filtros de solicitações"
+        description="Filtre solicitações pendentes por eixo, turma e situação."
       />
+
+      <Card>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(180px,0.8fr)_minmax(0,1.2fr)] lg:items-end">
+          <label className="min-w-0 space-y-2">
+            <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">Turma</span>
+            <select
+              value={turmaFiltro}
+              onChange={(event) => setTurmaFiltro(event.target.value)}
+              className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-600 focus:ring-2 focus:ring-sectec-100"
+            >
+              <option value="todas">Todas as turmas</option>
+              {turmasSolicitacoes.map((turma) => (
+                <option key={turma} value={turma}>
+                  {turma}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="flex flex-wrap gap-2">
+            {([
+              ["pendentes", "Pendentes"],
+              ["reprovadas", "Reprovadas"],
+              ["todas", "Todas"],
+            ] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setFiltroSolicitacao(value)}
+                className={cx(
+                  "h-10 rounded-lg px-4 text-sm font-semibold transition",
+                  filtroSolicitacao === value
+                    ? "bg-sectec-700 text-white"
+                    : "border border-slate-200 bg-white text-slate-600 hover:border-sectec-200 hover:bg-sectec-50 hover:text-sectec-700"
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </Card>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          label="Turmas"
-          value={String(new Set(equipesFiltradas.map((equipe) => equipe.turma)).size)}
-          detail="turmas no filtro"
-          icon={<Users size={18} />}
+          label="Pendentes"
+          value={String(solicitacoesPendentes)}
+          detail="solicitações para analisar"
+          icon={<Clock3 size={18} />}
+          tone="yellow"
         />
         <StatCard
-          label="Equipes"
+          label="Orientando"
           value={String(equipesFiltradas.length)}
-          detail="com orientação ativa"
+          detail="equipes aprovadas"
           icon={<FolderOpen size={18} />}
           tone="blue"
         />
         <StatCard
-          label="Entregas"
-          value={String(pendentes)}
-          detail="aguardando revisão"
-          icon={<FileText size={18} />}
-          tone="yellow"
+          label="Reprovadas"
+          value={String(solicitacoesReprovadas)}
+          detail="solicitações recusadas"
+          icon={<AlertTriangle size={18} />}
+          tone="red"
         />
         <StatCard
-          label="Riscos"
+          label="Atenção"
           value={String(riscosAltos)}
           detail="equipe precisa de ação"
-          icon={<AlertTriangle size={18} />}
+          icon={<Users size={18} />}
           tone="red"
         />
       </div>
@@ -944,7 +992,7 @@ function DashboardOrientador() {
           <div className="mb-5 flex items-center justify-between gap-3">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Equipes orientadas</p>
-              <h2 className="mt-1 text-lg font-bold text-slate-900">Andamento e risco</h2>
+              <h2 className="mt-1 text-lg font-bold text-slate-900">Equipes que estou orientando</h2>
             </div>
             <SlidersHorizontal className="text-slate-300" />
           </div>
@@ -982,8 +1030,8 @@ function DashboardOrientador() {
           <Card>
             <div className="mb-5 flex items-center justify-between">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Aprovação</p>
-                <h2 className="mt-1 text-lg font-bold text-slate-900">Projetos enviados</h2>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Solicitações</p>
+                <h2 className="mt-1 text-lg font-bold text-slate-900">Pendentes para aprovar</h2>
               </div>
               <Badge tone="blue">{aguardandoAprovacao} novo</Badge>
             </div>
@@ -1004,8 +1052,8 @@ function DashboardOrientador() {
                     <p className="mt-3 text-xs font-semibold text-slate-400">enviado em {projeto.enviadoEm}</p>
                     <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                       <Button variant="secondary" onClick={() => atualizarProjeto(projeto.id, "ajustes")}>
-                        <Send size={15} />
-                        Ajustes
+                        <Trash2 size={15} />
+                        Reprovar
                       </Button>
                       <Button onClick={() => atualizarProjeto(projeto.id, "aprovado")}>
                         <Check size={15} />
