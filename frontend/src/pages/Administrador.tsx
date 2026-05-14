@@ -411,12 +411,31 @@ function NotasCoordenacao() {
   );
 }
 
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function temasVisiveis(temas?: TemaEventoApi[]) {
+  return (temas ?? []).slice(0, 3);
+}
+
+function temasRestantes(temas?: TemaEventoApi[]) {
+  return Math.max(0, (temas?.length ?? 0) - 3);
+}
+
 function EventosCoordenacao() {
   const [eventos, setEventos] = useState<EventoApi[]>([]);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
   const [temaInputs, setTemaInputs] = useState<Record<number, string>>({});
   
+  const formularioEventoRef = useRef<HTMLDivElement | null>(null);
   const [step, setStep] = useState(1);
   const [isEditing, setIsEditing] = useState<number | null>(null);
   const [formData, setFormData] = useState({
@@ -471,6 +490,34 @@ function EventosCoordenacao() {
       prazoFinal: evento.prazoFinal ? new Date(evento.prazoFinal).toISOString().slice(0, 16) : "",
     });
     setStep(1);
+  }
+
+  
+  function handleVerDetalhesTema(evento: EventoApi, tema?: TemaEventoApi) {
+    const temas = evento.temas ?? [];
+
+    Swal.fire({
+      title: tema ? escapeHtml(tema.nome) : "Temas do evento",
+      html: `
+        <div style="text-align:left">
+          <p><strong>Evento:</strong> ${escapeHtml(evento.titulo)}</p>
+          <p><strong>Ano:</strong> ${new Date(evento.prazoInicial).getFullYear()}</p>
+          <p><strong>Início:</strong> ${formatarData(evento.prazoInicial)}</p>
+          <p><strong>Fim:</strong> ${formatarData(evento.prazoFinal)}</p>
+          <p><strong>Total de temas:</strong> ${temas.length}</p>
+          <hr style="margin:12px 0" />
+          <p><strong>Temas:</strong></p>
+          <ul style="padding-left:18px">
+            ${
+              temas.length
+                ? temas.map((item) => `<li>${escapeHtml(item.nome)}</li>`).join("")
+                : "<li>Nenhum tema cadastrado</li>"
+            }
+          </ul>
+        </div>
+      `,
+      confirmButtonColor: "#15803d",
+    });
   }
 
   function handleCancelEdit() {
@@ -615,7 +662,7 @@ function EventosCoordenacao() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
           
-          <div className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm flex flex-col">
+          <div ref={formularioEventoRef} className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm flex flex-col">
             <PanelTitle icon={<PiCalendarBlank size={20} />} title="Novo Evento / Etapas" subtitle={isEditing ? "Editando evento existente" : "Fluxo para criar o evento anual."} />
             
             <div className="mt-6 flex-1 flex flex-col justify-between">
@@ -780,11 +827,25 @@ function EventosCoordenacao() {
                   <div className="mt-4 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5 mb-3">
                       {(evento.temas || []).length === 0 && <span className="text-[10px] uppercase font-bold text-slate-300">Sem temas</span>}
-                      {(evento.temas || []).map((tema) => (
-                        <span key={tema.id} className="inline-flex items-center rounded-lg bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
+                      {temasVisiveis(evento.temas).map((tema) => (
+                        <button
+                          key={tema.id}
+                          type="button"
+                          onClick={() => handleVerDetalhesTema(evento, tema)}
+                          className="inline-flex items-center rounded-full border border-sectec-100 bg-sectec-50 px-3 py-1 text-xs font-bold text-sectec-700 transition hover:bg-sectec-100"
+                        >
                           {tema.nome}
-                        </span>
+                        </button>
                       ))}
+                      {temasRestantes(evento.temas) > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => handleVerDetalhesTema(evento)}
+                          className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-600 transition hover:bg-slate-100"
+                        >
+                          +{temasRestantes(evento.temas)} temas
+                        </button>
+                      )}
                     </div>
                   </div>
                   

@@ -16,7 +16,6 @@ import {
   LogOut,
   Users,
   FileText,
-  ShieldCheck,
   GraduationCap,
 } from "lucide-react";
 
@@ -452,87 +451,39 @@ export function MainLayout({
   ];
 
   const coordenadorMenu: NavItem[] = [
-    {
-      id: "coordenacao-painel",
-      label: "Painel",
-      icon: <LayoutDashboard size={20} />,
-      href: dashboardPrefix,
-      isActive: location.pathname === dashboardPrefix,
-      roles: ["coordenador", "comissao"],
-    },
-    {
-      id: "coordenacao-eventos",
-      label: "Eventos",
-      icon: <CalendarDays size={20} />,
-      href: `${dashboardPrefix}/eventos`,
-      isActive: location.pathname === `${dashboardPrefix}/eventos`,
-      roles: ["coordenador", "comissao"],
-    },
-    {
-      id: "coordenacao-projetos",
-      label: "Projetos",
-      icon: <FileText size={20} />,
-      href: `${dashboardPrefix}#coord-projetos`,
-      isActive: location.hash === "#coord-projetos",
-      roles: ["coordenador", "comissao"],
-    },
-    {
-      id: "coordenacao-turmas",
-      label: "Turmas",
-      icon: <School size={20} />,
-      href: `${dashboardPrefix}#coord-turmas`,
-      isActive: location.hash === "#coord-turmas",
-      roles: ["coordenador", "comissao"],
-    },
-    {
-      id: "coordenacao-orientacoes",
-      label: "Orientações",
-      icon: <ClipboardList size={20} />,
-      href: `${dashboardPrefix}#coord-orientacoes`,
-      isActive: location.hash === "#coord-orientacoes",
-      roles: ["coordenador", "comissao"],
-    },
-    {
-      id: "coordenacao-usuarios",
-      label: "Usuários",
-      icon: <Users size={20} />,
-      href: `${dashboardPrefix}/usuarios`,
-      isActive: location.pathname === `${dashboardPrefix}/usuarios`,
-      roles: ["coordenador", "comissao"],
-    },
-    {
-      id: "coordenacao-prazos",
-      label: "Prazos",
-      icon: <CalendarDays size={20} />,
-      href: `${dashboardPrefix}#coord-prazos`,
-      isActive: location.hash === "#coord-prazos",
-      roles: ["coordenador", "comissao"],
-    },
-    {
-      id: "coordenacao-pdfs",
-      label: "Relatórios & PDFs",
-      icon: <FileSpreadsheet size={20} />,
-      href: `${dashboardPrefix}#coord-pdfs`,
-      isActive: location.hash === "#coord-pdfs",
-      roles: ["coordenador", "comissao"],
-    },
-    {
-      id: "coordenacao-relatorio-alunos",
-      label: "Status dos Alunos",
-      icon: <GraduationCap size={20} />,
-      href: `${dashboardPrefix}/relatorio-alunos`,
-      isActive: location.pathname === `${dashboardPrefix}/relatorio-alunos`,
-      roles: ["coordenador", "comissao"],
-    },
-    {
-      id: "coordenacao-auditoria",
-      label: "Auditoria",
-      icon: <ShieldCheck size={20} />,
-      href: `${dashboardPrefix}#coord-auditoria`,
-      isActive: location.hash === "#coord-auditoria",
-      roles: ["coordenador", "comissao"],
-    },
-  ];
+  {
+    id: "coordenacao-painel",
+    label: "Painel",
+    icon: <LayoutDashboard size={20} />,
+    href: dashboardPrefix,
+    isActive: location.pathname === dashboardPrefix,
+    roles: ["coordenador", "comissao"],
+  },
+  {
+    id: "coordenacao-eventos",
+    label: "Eventos",
+    icon: <CalendarDays size={20} />,
+    href: `${dashboardPrefix}/eventos`,
+    isActive: location.pathname === `${dashboardPrefix}/eventos`,
+    roles: ["coordenador", "comissao"],
+  },
+  {
+    id: "coordenacao-usuarios",
+    label: "Usuários",
+    icon: <Users size={20} />,
+    href: `${dashboardPrefix}/usuarios`,
+    isActive: location.pathname === `${dashboardPrefix}/usuarios`,
+    roles: ["coordenador", "comissao"],
+  },
+  {
+    id: "coordenacao-relatorio-alunos",
+    label: "Status dos Alunos",
+    icon: <GraduationCap size={20} />,
+    href: `${dashboardPrefix}/relatorio-alunos`,
+    isActive: location.pathname === `${dashboardPrefix}/relatorio-alunos`,
+    roles: ["coordenador", "comissao"],
+  },
+];
 
   const menuConfig =
     userRole === "orientador"

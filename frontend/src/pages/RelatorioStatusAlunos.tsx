@@ -637,8 +637,8 @@ function RelatorioStatusAlunos() {
 
   return (
     <MainLayout userRole="coordenador">
-      <main className="min-h-screen bg-[#f4f9f6] px-4 py-5 font-sans sm:px-7 sm:py-7">
-        <div className="mx-auto grid max-w-[1500px] gap-5">
+      <main className="min-h-screen bg-[#f4f9f6] px-3 py-4 font-sans sm:px-6 sm:py-6 lg:px-8">
+        <div className="mx-auto w-full max-w-7xl space-y-5">
           <header className="overflow-hidden rounded-2xl border border-[#0b4d2c]/10 bg-[#0b4d2c] shadow-sm">
             <div className="flex flex-col gap-5 p-6 text-white sm:p-8 lg:flex-row lg:items-center lg:justify-between">
               <div>
