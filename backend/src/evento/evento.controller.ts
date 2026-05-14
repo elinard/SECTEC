@@ -98,7 +98,7 @@ export class EventoController {
   ) {
     // Usando ID fixo para teste como solicitado, 
     // Futuramente substituir 51 por user.id
-    const orientadorId = user?.id || 51; 
+    const orientadorId = user.id; 
     return await this.eventoService.sincronizarTemas(orientadorId, temasIds);
   }
 }

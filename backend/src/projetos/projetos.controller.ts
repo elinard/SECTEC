@@ -41,10 +41,10 @@ export class ProjetosController {
     @GetUser('userId') userId: number,
     @GetUser('role') role: string
   ) {
-    // if (role !== 'aluno') {
-    //   throw new ForbiddenException('Apenas alunos podem criar projetos.');
-    // }
-    return this.projetosService.create(createProjetoDto, 425);
+     if (role !== 'aluno') {
+       throw new ForbiddenException('Apenas alunos podem criar projetos.');
+     }
+    return this.projetosService.create(createProjetoDto, userId);
   }
 
   /**
@@ -65,13 +65,13 @@ export class ProjetosController {
     @Body() dto: EnviarSolicitacaoDto
   ) {
     // Validação de acesso
-   // if (role !== 'aluno') {
-     // throw new ForbiddenException('Apenas alunos autores podem solicitar orientação.');
- //   }
+   if (role !== 'aluno') {
+     throw new ForbiddenException('Apenas alunos autores podem solicitar orientação.');
+  }
 
     // Chamada para o novo método que criamos no Service
     // Passamos o userId dinâmico do token e o array de IDs do Body
-    return this.projetosService.enviarMultiplasSolicitacoes(109, dto.orientadoresIds);
+    return this.projetosService.enviarMultiplasSolicitacoes(userId, dto.orientadoresIds);
   }
 
 
