@@ -7,14 +7,18 @@ import { AuthController } from './auth.controller';
 import { UsersModule } from '../users/users.module';
 import { LocalStrategy } from './strategies/local.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
-import { EmailModule } from '../email/email.module'; // 👈 adicionar
+import { EmailModule } from '../email/email.module';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { PasswordResetToken } from './entities/password-reset-token.entity';
 
 @Module({
   imports: [
     UsersModule,
     PassportModule,
     ConfigModule,
-    EmailModule, // 👈 adicionar
+    EmailModule,
+    // 👈 Registrar a entidade para o repositório funcionar no Service
+    TypeOrmModule.forFeature([PasswordResetToken]), 
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
@@ -26,5 +30,6 @@ import { EmailModule } from '../email/email.module'; // 👈 adicionar
   ],
   providers: [AuthService, LocalStrategy, JwtStrategy],
   controllers: [AuthController],
+  exports: [AuthService], // Exportar caso outros módulos precisem
 })
 export class AuthModule {}
