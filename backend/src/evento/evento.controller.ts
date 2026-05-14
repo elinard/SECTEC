@@ -68,10 +68,12 @@ export class EventoController {
   }
 
   @Delete(':id')
-  @ApiOperation({ summary: 'Remove um evento' })
+  @ApiOperation({ summary: 'Desativa um evento (Exclusão lógica)' }) // Texto atualizado
+  @ApiResponse({ status: 200, description: 'Evento marcado como inativo.' })
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.eventoService.remove(id);
   }
+
 
   @Post('temas/sincronizar')
   @ApiOperation({ 

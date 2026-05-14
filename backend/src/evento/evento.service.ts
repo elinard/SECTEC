@@ -4,7 +4,7 @@ import { Repository, In, Between } from 'typeorm';
 import { CreateEventoDto } from './dto/create-evento.dto';
 import { UpdateEventoDto } from './dto/update-evento.dto';
 import { CreateTemasDto } from './dto/create-tema.dto';
-import { Evento } from './entities/evento.entity';
+import { Evento, EventoStatus } from './entities/evento.entity'; 
 import { TemaEvento } from './entities/tema-evento.entity';
 import { User, UserRole } from '../users/entities/user.entity';
 
@@ -58,7 +58,11 @@ export class EventoService {
 
   async remove(id: number) {
     const evento = await this.findOne(id);
-    return await this.eventoRepository.remove(evento);
+    
+    evento.status = EventoStatus.INATIVO; // Muda o status
+    await this.eventoRepository.save(evento); // Salva a alteração
+    
+    return { message: `Evento ${id} desativado com sucesso.` };
   }
 
   async addTemas(eventoId: number, createTemasDto: CreateTemasDto) {
@@ -87,6 +91,7 @@ export class EventoService {
       where: {
         // Agora usamos apenas a string da data, pois o banco é tipo 'date'
         prazoInicial: Between(inicioAno as any, fimAno as any),
+        status: EventoStatus.ATIVO
       },
       order: {
         criadoEm: 'DESC',

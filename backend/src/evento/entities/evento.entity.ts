@@ -12,6 +12,16 @@ import { Projeto } from 'src/projetos/entities/projeto.entity';
 import { TemaEvento } from 'src/evento/entities/tema-evento.entity';
 import { User } from 'src/users/entities/user.entity';
 
+
+
+
+export enum EventoStatus {
+  ATIVO = 'ativo',
+  INATIVO = 'inativo',
+}
+
+
+
 // Value Object ajustado para apenas DATA
 export class Periodo {
   @Column({ type: 'date', nullable: true }) // Mudança para 'date'
@@ -54,6 +64,13 @@ prazoInicial!: Date;
 
 @Column({ name: 'prazo_final', type: 'date', nullable: true }) // Adicione o nullable aqui
 prazoFinal!: Date;
+
+  @Column({
+    type: 'enum',
+    enum: EventoStatus,
+    default: EventoStatus.ATIVO,
+  })
+  status!: EventoStatus;
 
   // Mantemos datetime para auditoria (saber o segundo exato da criação)
   @CreateDateColumn({ name: 'criado_em' })
