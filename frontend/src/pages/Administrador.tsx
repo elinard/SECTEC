@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import {
   PiArrowUpRight,
   PiBellRinging,
@@ -665,7 +666,7 @@ function EventosCoordenacao() {
           <div ref={formularioEventoRef} className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm flex flex-col">
             <PanelTitle icon={<PiCalendarBlank size={20} />} title="Novo Evento / Etapas" subtitle={isEditing ? "Editando evento existente" : "Fluxo para criar o evento anual."} />
             
-            <div className="mt-6 flex-1 flex flex-col justify-between">
+            <div ref={formularioEventoRef} className="mt-6 flex-1 flex flex-col justify-between">
               <div>
                 <div className="relative mb-8 pt-4">
                   <div className="absolute top-8 left-0 h-1 w-full bg-slate-100 rounded-full"></div>
@@ -975,6 +976,51 @@ function UsuariosCoordenacao() {
     }
   }
 
+  async function promoverAlunoParaComissao(usuario: UsuarioCoordenacao) {
+    if (usuario.perfil !== "Aluno") {
+      await Swal.fire({
+        icon: "warning",
+        title: "Ação indisponível",
+        text: "Apenas alunos podem ser movidos para a comissão.",
+        confirmButtonColor: "#15803d",
+      });
+      return;
+    }
+
+    const result = await Swal.fire({
+      icon: "question",
+      title: "Tornar aluno da comissão?",
+      text: `Deseja mover ${usuario.nome} para a comissão organizadora?`,
+      showCancelButton: true,
+      confirmButtonText: "Sim, tornar comissão",
+      cancelButtonText: "Cancelar",
+      confirmButtonColor: "#15803d",
+      cancelButtonColor: "#64748b",
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+      await apiRequest(`/users/${usuario.id}/promote-comissao`, { method: "PATCH" });
+
+      await Swal.fire({
+        icon: "success",
+        title: "Aluno movido para comissão",
+        text: `${usuario.nome} agora faz parte da comissão.`,
+        confirmButtonColor: "#15803d",
+      });
+
+      await carregarUsuarios();
+    } catch (error) {
+      await Swal.fire({
+        icon: "error",
+        title: "Erro ao mover para comissão",
+        text: error instanceof Error ? error.message : "Não foi possível mover o aluno para a comissão.",
+        confirmButtonColor: "#15803d",
+      });
+    }
+  }
+
   useEffect(() => {
     let ativo = true;
 
@@ -1002,9 +1048,7 @@ function UsuariosCoordenacao() {
       !termo ||
       usuario.nome.toLowerCase().includes(termo) ||
       usuario.email.toLowerCase().includes(termo);
-
     const bateTurma =
-      abaAtiva !== "alunos" ||
       turmaFiltro === "todas" ||
       (usuario.turma?.toLowerCase() ?? "") === turmaFiltro.toLowerCase();
 
@@ -1044,14 +1088,14 @@ function UsuariosCoordenacao() {
             <button
               type="button"
               onClick={() => inputAlunosRef.current?.click()}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-sectec-200 bg-sectec-50 px-4 text-sm font-black text-sectec-700 transition hover:bg-sectec-100"
+              className="cursor-pointer inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-sectec-200 bg-sectec-50 px-4 text-sm font-black text-sectec-700 transition hover:bg-sectec-100"
             >
               <PiUploadSimple size={18} /> Importar CSV (alunos)
             </button>
             <button
               type="button"
               onClick={() => inputOrientadoresRef.current?.click()}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:border-sectec-200 hover:bg-sectec-50 hover:text-sectec-700"
+              className="cursor-pointer inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:border-sectec-200 hover:bg-sectec-50 hover:text-sectec-700"
             >
               <PiUploadSimple size={18} /> Importar CSV (orientadores)
             </button>
@@ -1065,7 +1109,7 @@ function UsuariosCoordenacao() {
         )}
 
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
-          {[
+            {[
             { label: "Total de alunos", value: totalAlunos },
             { label: "Total de orientadores", value: totalOrientadores },
             { label: "Total geral", value: totalGeral },
@@ -1089,10 +1133,10 @@ function UsuariosCoordenacao() {
                   key={aba.id}
                   type="button"
                   onClick={() => setAbaAtiva(aba.id as "alunos" | "orientadores")}
-                  className={`px-4 py-2 text-sm font-black transition ${
+                  className={`cursor-pointer px-4 py-2 text-sm font-black transition ${
                     ativa
                       ? "rounded-xl bg-white text-sectec-700 shadow-sm"
-                      : "text-slate-500"
+                      : "text-slate-500 hover:bg-sectec-50 hover:text-sectec-700"
                   }`}
                 >
                   {aba.label}
@@ -1128,12 +1172,13 @@ function UsuariosCoordenacao() {
         </div>
 
         <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200">
-          <div className="hidden grid-cols-[1fr_1fr_0.5fr_0.5fr_0.4fr] bg-slate-50 px-4 py-3 text-[11px] font-black uppercase tracking-widest text-slate-400 lg:grid">
+          <div className="hidden grid-cols-[1fr_1fr_0.5fr_0.5fr_0.4fr_0.5fr] bg-slate-50 px-4 py-3 text-[11px] font-black uppercase tracking-widest text-slate-400 lg:grid">
             <span>Nome</span>
             <span>Email institucional</span>
             <span>Turma</span>
             <span>Perfil</span>
             <span>Status</span>
+            <span className="text-right">Ações</span>
           </div>
 
           <div className="divide-y divide-slate-100">
@@ -1146,17 +1191,42 @@ function UsuariosCoordenacao() {
             {!carregando && !erro && listaFiltrada.length === 0 && (
               <div className="px-4 py-6 text-sm font-semibold text-slate-500">Nenhum usuario encontrado.</div>
             )}
-            {!carregando && !erro && listaPaginada.map((usuario) => (
-              <article key={usuario.id} className="grid gap-2 px-4 py-4 lg:grid-cols-[1fr_1fr_0.5fr_0.5fr_0.4fr] lg:items-center">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-black text-slate-900">{usuario.nome}</p>
-                </div>
-                <p className="truncate text-sm font-semibold text-slate-600">{usuario.email || "-"}</p>
-                <p className="truncate text-sm font-semibold text-slate-600">{usuario.turma || "-"}</p>
-                <p className="text-sm font-black text-slate-700">{usuario.perfil}</p>
-                <AdminChip className="bg-emerald-50 text-emerald-700 ring-emerald-200">Ativo</AdminChip>
-              </article>
-            ))}
+            {!carregando && !erro && (
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={abaAtiva}
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -12 }}
+                  transition={{ duration: 0.18, ease: "easeOut" }}
+                >
+                  {listaPaginada.map((usuario) => (
+                    <article key={usuario.id} className="grid gap-2 px-4 py-4 lg:grid-cols-[1fr_1fr_0.5fr_0.5fr_0.4fr_0.5fr] lg:items-center transition hover:bg-sectec-50/40">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-black text-slate-900">{usuario.nome}</p>
+                      </div>
+                      <p className="truncate text-sm font-semibold text-slate-600">{usuario.email || "-"}</p>
+                      <p className="truncate text-sm font-semibold text-slate-600">{usuario.turma || "-"}</p>
+                      <p className="text-sm font-black text-slate-700">{usuario.perfil}</p>
+                      <AdminChip className="bg-emerald-50 text-emerald-700 ring-emerald-200">Ativo</AdminChip>
+                      <div className="flex justify-end">
+                        {usuario.perfil === "Aluno" ? (
+                          <button
+                            type="button"
+                            onClick={() => promoverAlunoParaComissao(usuario)}
+                            className="inline-flex cursor-pointer items-center justify-center rounded-xl border border-sectec-200 bg-sectec-50 px-3 py-2 text-xs font-black text-sectec-700 transition hover:bg-sectec-100 hover:text-sectec-800"
+                          >
+                            Tornar comissão
+                          </button>
+                        ) : (
+                          <span className="text-xs font-semibold text-slate-400">Sem ações disponíveis</span>
+                        )}
+                      </div>
+                    </article>
+                  ))}
+                </motion.div>
+              </AnimatePresence>
+            )}
           </div>
         </div>
 
