@@ -1,17 +1,33 @@
 import { useState, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Plus, FlaskConical, Users, ChevronRight, X, Search, UserPlus, UserMinus, ChevronDown, Upload, Video, FileText, CheckCircle, Lock, TriangleAlert, Calendar } from "lucide-react";
+import { Plus, FlaskConical, Users, ChevronRight, X, Search, UserPlus, UserMinus, ChevronDown, Upload, Video, FileText, CheckCircle, Lock, TriangleAlert, Calendar, Pencil } from "lucide-react";
 import { MainLayout } from "../componentes/SideBarUniversal";
 import Swal from "sweetalert2";
 import { apiRequest, type UsuarioApi } from "../lib/api";
 
 type FaseAtual = 1 | 2 | 3 | 4;
+type Etapa = 1 | 2 | 3;
 type StatusProjeto = "Rascunho" | "Aguardando Aprovação" | "Aceito" | "Recusado" | "Em Desenvolvimento" | "Submetido" | "Avaliado";
-type Membro = { id: string; nome: string; sala: string };
-type Orientador = { id: string; nome: string; disciplina: string };
+type Membro = { id: string; nome: string; sala: string; turma?: string };
+type Orientador = { id: string; nome: string; disciplina: string; eixos?: string[] };
 type Projeto = {
-  id: string; titulo: string; descricao: string; eixo: string;
+  id: string; titulo: string; descricao: string; eixo: string; temaId?: number;
   membros: Membro[]; orientadorId: string; status: StatusProjeto; linkYoutube?: string;
+};
+type TemaApi = { id: string | number; nome: string };
+type EventoApi = { id: string | number; temas?: TemaApi[] };
+type ProjetoApi = {
+  id: string | number;
+  titulo: string;
+  descricao: string;
+  temaId?: string | number;
+  alunoAutor?: UsuarioApi;
+  projetoAlunos?: Array<{ id: string | number; aluno?: UsuarioApi }>;
+  orientadores?: Array<{
+    id: string | number;
+    status: "pendente" | "aceito" | "recusado";
+    orientador?: UsuarioApi;
+  }>;
 };
 
 const FASE_ATUAL: FaseAtual = 1;
@@ -25,10 +41,6 @@ const STATUS_STYLE: Record<StatusProjeto, string> = {
   "Submetido": "bg-purple-100 text-purple-700",
   "Avaliado": "bg-orange-100 text-orange-700",
 };
-const EIXOS = [
-  "Tecnologia e Inovação", "Sustentabilidade Ambiental", "Saúde e Qualidade de Vida",
-  "Sociedade e Cultura", "Energia e Recursos Naturais", "Educação e Comunicação",
-];
 const FASES_FEIRA = [
   { fase: 1 as FaseAtual, label: "Inscrição", data: "01/05 – 15/05", descricao: "Cadastro do projeto e da equipe" },
   { fase: 2 as FaseAtual, label: "Desenvolvimento", data: "16/05 – 30/06", descricao: "Desenvolvimento e orientação" },
@@ -46,6 +58,9 @@ const STATUS_TOOLTIP: Record<StatusProjeto, string> = {
 };
 const SUBMISSAO_TOOLTIP = "Fase 3: envio do relatório final em PDF e link do vídeo no YouTube.";
 
+const MIN_MEMBROS = 3;
+const MAX_MEMBROS = 7;
+
 function getUsuarioLogado(): Membro {
   const nome = localStorage.getItem('nome') ?? 'Aluno';
   const id = localStorage.getItem('userId') ?? 'me';
@@ -53,14 +68,85 @@ function getUsuarioLogado(): Membro {
 }
 const ALUNO_LOGADO = getUsuarioLogado();
 
+function membroFromUsuario(usuario?: UsuarioApi): Membro | null {
+  if (!usuario) return null;
+  return {
+    id: String(usuario.id),
+    nome: usuario.nome,
+    sala: usuario.ano ? String(usuario.ano) : "",
+    turma: usuario.turma ?? "",
+  };
+}
+
+function normalizarTurmaCampo(valor?: string) {
+  return (valor ?? "").trim().toLowerCase();
+}
+
+function getReferenciaTurmaEquipe(membros: Membro[]) {
+  return membros.find((membro) => membro.sala || membro.turma) ?? null;
+}
+
+function pertenceMesmaTurmaEAno(aluno: Membro, referencia: Membro | null) {
+  if (!referencia) return true;
+
+  const salaReferencia = normalizarTurmaCampo(referencia.sala);
+  const turmaReferencia = normalizarTurmaCampo(referencia.turma);
+  const salaAluno = normalizarTurmaCampo(aluno.sala);
+  const turmaAluno = normalizarTurmaCampo(aluno.turma);
+
+  const mesmaSala = !salaReferencia || salaAluno === salaReferencia;
+  const mesmaTurma = !turmaReferencia || turmaAluno === turmaReferencia;
+
+  return mesmaSala && mesmaTurma;
+}
+
+function getMembrosForaDaTurma(membros: Membro[]) {
+  const referencia = getReferenciaTurmaEquipe(membros);
+  if (!referencia) return [];
+  return membros.filter((membro) => !pertenceMesmaTurmaEAno(membro, referencia));
+}
+
+function statusFromProjetoApi(projeto: ProjetoApi): StatusProjeto {
+  const orientacoes = projeto.orientadores ?? [];
+  if (orientacoes.some((orientacao) => orientacao.status === "aceito")) return "Aceito";
+  if (orientacoes.length > 0 && orientacoes.every((orientacao) => orientacao.status === "recusado")) return "Recusado";
+  return "Aguardando Aprovação";
+}
+
+function mapProjetoApiToProjeto(projeto: ProjetoApi, temas: TemaApi[]): Projeto {
+  const membrosMap = new Map<string, Membro>();
+  const autor = membroFromUsuario(projeto.alunoAutor);
+  if (autor) membrosMap.set(autor.id, autor);
+  projeto.projetoAlunos?.forEach((item) => {
+    const membro = membroFromUsuario(item.aluno);
+    if (membro) membrosMap.set(membro.id, membro);
+  });
+
+  const orientacaoAceita = projeto.orientadores?.find((item) => item.status === "aceito");
+  const primeiraOrientacao = orientacaoAceita ?? projeto.orientadores?.[0];
+  const temaId = projeto.temaId ? Number(projeto.temaId) : undefined;
+  const tema = temas.find((item) => Number(item.id) === temaId);
+
+  return {
+    id: String(projeto.id),
+    titulo: projeto.titulo,
+    descricao: projeto.descricao,
+    eixo: tema?.nome ?? (temaId ? `Eixo #${temaId}` : "Eixo não informado"),
+    temaId,
+    membros: Array.from(membrosMap.values()),
+    orientadorId: primeiraOrientacao?.orientador?.id ? String(primeiraOrientacao.orientador.id) : "",
+    status: statusFromProjetoApi(projeto),
+  };
+}
+
 function Tooltip({ children, text }: { children: React.ReactNode; text: string }) {
   return (
     <div className="relative group inline-flex">
       {children}
-      <div className="absolute bottom-full left-0 mb-2 z-50 invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-all duration-200 pointer-events-none w-52">
-        <div className="bg-slate-800 text-white text-xs rounded-xl px-3 py-2 text-center leading-relaxed shadow-lg">
+      <div className="absolute bottom-full left-1/2 z-[9999] mb-2 w-64 -translate-x-1/2 invisible opacity-0 transition-all duration-200 pointer-events-none group-hover:visible group-hover:opacity-100">
+        <div className="rounded-xl bg-slate-900 px-3 py-2 text-center text-xs leading-relaxed text-white shadow-xl">
           {text}
-          <div className="absolute top-full left-4 border-4 border-transparent border-t-slate-800" />
+          <div className="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-slate-900" />
         </div>
       </div>
     </div>
@@ -107,49 +193,74 @@ function FeiraTimeline({ faseAtual }: { faseAtual: FaseAtual }) {
 function Dashboard() {
   const [projeto, setProjeto] = useState<Projeto | null>(null);
   const [modalAberto, setModalAberto] = useState(false);
+  const [editandoProjeto, setEditandoProjeto] = useState(false);
+  const [descricaoExpandida, setDescricaoExpandida] = useState(false);
   const [aba, setAba] = useState<"painel" | "submissao">("painel");
+
+  // ── Form states ──
+  const [etapa, setEtapa] = useState<Etapa>(1);
   const [titulo, setTitulo] = useState("");
   const [descricao, setDescricao] = useState("");
   const [eixo, setEixo] = useState("");
-  const [orientadorId, setOrientadorId] = useState("");
+  const [solicitacoes, setSolicitacoes] = useState<string[]>([]);
   const [membros, setMembros] = useState<Membro[]>([ALUNO_LOGADO]);
   const [buscaAluno, setBuscaAluno] = useState("");
   const [filtrSala, setFiltrSala] = useState("todas");
+  const [filtrTurma, setFiltrTurma] = useState("todas");
+
+  // ── Submissão ──
   const [linkYoutube, setLinkYoutube] = useState("");
   const [arquivoPdf, setArquivoPdf] = useState<File | null>(null);
   const inputPdfRef = useRef<HTMLInputElement>(null);
   const [criando, setCriando] = useState(false);
 
-  // 👇 states para dados do banco
+  // ── API data ──
   const [alunosDisponiveis, setAlunosDisponiveis] = useState<Membro[]>([]);
+  const [alunosOcupadosIds, setAlunosOcupadosIds] = useState<string[]>([]);
+  const [eixosDisponiveis, setEixosDisponiveis] = useState<TemaApi[]>([]);
   const [orientadoresDisponiveis, setOrientadoresDisponiveis] = useState<Orientador[]>([]);
   const [carregandoDados, setCarregandoDados] = useState(true);
   const [erroDados, setErroDados] = useState("");
+
   const avisoSenhaDispensadoKey = `passwordNoticeDismissed:${localStorage.getItem("userId") ?? "me"}`;
   const [avisoSenhaDispensado, setAvisoSenhaDispensado] = useState(
     () => localStorage.getItem(avisoSenhaDispensadoKey) === "true"
   );
 
-  // 👇 busca do banco ao abrir a página
   useEffect(() => {
     let active = true;
-
     async function carregarDados() {
       setCarregandoDados(true);
       setErroDados("");
-
       try {
-        const [alunos, orientadores] = await Promise.all([
+        const [alunos, orientadores, ocupadosIds, eventos, projetos] = await Promise.all([
           apiRequest<UsuarioApi[]>("/users/alunos"),
           apiRequest<UsuarioApi[]>("/users/orientadores"),
+          apiRequest<Array<string | number>>("/projetos/alunos-ocupados").catch(() => []),
+          apiRequest<EventoApi[]>("/evento").catch(() => []),
+          apiRequest<ProjetoApi[]>("/projetos").catch(() => []),
         ]);
-
         if (!active) return;
-
+        const eventoAtual = [...eventos].sort((a, b) => Number(b.id) - Number(a.id))[0];
+        const temas = eventoAtual?.temas ?? [];
+        const ocupadosNormalizados = ocupadosIds.map(String);
+        const alunoLogadoApi = membroFromUsuario(alunos.find((a) => String(a.id) === localStorage.getItem('userId')));
+        setEixosDisponiveis(temas);
+        setAlunosOcupadosIds(ocupadosNormalizados);
+        if (alunoLogadoApi) {
+          setMembros((prev) =>
+            prev.map((membro) =>
+              membro.id === alunoLogadoApi.id
+                ? { ...membro, sala: alunoLogadoApi.sala, turma: alunoLogadoApi.turma }
+                : membro
+            )
+          );
+        }
         setAlunosDisponiveis(
           alunos
-            .filter((a) => String(a.id) !== localStorage.getItem('userId'))
-            .map((a) => ({ id: String(a.id), nome: a.nome, sala: '' }))
+            .filter((a) => String(a.id) !== localStorage.getItem('userId') && !ocupadosNormalizados.includes(String(a.id)))
+            .map((a) => membroFromUsuario(a))
+            .filter((a): a is Membro => Boolean(a))
         );
         setOrientadoresDisponiveis(
           orientadores.map((o) => ({
@@ -158,40 +269,51 @@ function Dashboard() {
             disciplina: o.email_institucional ?? 'Orientador',
           }))
         );
+        setProjeto(projetos[0] ? mapProjetoApiToProjeto(projetos[0], temas) : null);
       } catch (error) {
         if (!active) return;
         setErroDados(
-          error instanceof Error
-            ? error.message
-            : "Não foi possível carregar alunos e orientadores."
+          error instanceof Error ? error.message : "Não foi possível carregar alunos e orientadores."
         );
       } finally {
         if (active) setCarregandoDados(false);
       }
     }
-
     carregarDados();
-
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, []);
 
-  const MIN_MEMBROS = 6;
-  const salas = ["todas", ...Array.from(new Set(alunosDisponiveis.map((a) => a.sala))).sort()];
+  // ── Computed ──
+  const salas = ["todas", ...Array.from(new Set(alunosDisponiveis.map((a) => a.sala).filter(Boolean))).sort()];
+  const turmas = ["todas", ...Array.from(new Set(alunosDisponiveis.map((a) => a.turma ?? "").filter(Boolean))).sort()];
+
+  // Orientadores filtrados pelo eixo selecionado
+  // Substitua a condição pelo campo real de eixo quando disponível na API
+  const orientadoresFiltradosPorEixo = eixo
+    ? orientadoresDisponiveis.filter((_o) => true) // trocar por: o.eixos?.includes(eixo)
+    : [];
+  const eixoSelecionado = eixosDisponiveis.find((item) => String(item.id) === eixo);
+  const referenciaTurmaEquipe = getReferenciaTurmaEquipe(membros);
+
   const alunosFiltrados = alunosDisponiveis.filter((a) => {
     const jaAdicionado = membros.some((m) => m.id === a.id);
+    const jaTemEquipe = alunosOcupadosIds.includes(a.id);
+    const bateEquipe = pertenceMesmaTurmaEAno(a, referenciaTurmaEquipe);
     const bateNome = a.nome.toLowerCase().includes(buscaAluno.toLowerCase());
     const bateSala = filtrSala === "todas" || a.sala === filtrSala;
-    return !jaAdicionado && bateNome && bateSala;
+    const bateTurma = filtrTurma === "todas" || (a.turma ?? "") === filtrTurma;
+    return !jaAdicionado && !jaTemEquipe && bateEquipe && bateNome && bateSala && bateTurma;
   });
 
-  const orientador = orientadoresDisponiveis.find((o) => o.id === orientadorId);
+  const orientador = orientadoresDisponiveis.find((o) => o.id === solicitacoes[0]);
   const projetoAceito = projeto?.status === "Aceito" || projeto?.status === "Em Desenvolvimento";
   const submissaoDesbloqueada = projetoAceito && FASE_ATUAL === 3 && projeto?.status !== "Submetido";
   const youtubeValido = linkYoutube === "" || /^(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)[\w-]{11}/.test(linkYoutube);
   const passwordChangedKey = `passwordChangedAt:${localStorage.getItem("userId") ?? "me"}`;
   const deveMostrarAvisoSenha = !localStorage.getItem(passwordChangedKey) && !avisoSenhaDispensado;
+
+  const podeAvancarEtapa1 = titulo.trim().length > 0 && descricao.trim().length >= 30 && eixo !== "";
+  const podeAvancarEtapa2 = solicitacoes.length > 0;
 
   function dispensarAvisoSenha() {
     localStorage.setItem(avisoSenhaDispensadoKey, "true");
@@ -200,27 +322,59 @@ function Dashboard() {
 
   function fecharModal() {
     setModalAberto(false);
-    setTitulo(""); setDescricao(""); setEixo(""); setOrientadorId("");
-    setMembros([ALUNO_LOGADO]); setBuscaAluno(""); setFiltrSala("todas");
+    setEditandoProjeto(false);
+    setDescricaoExpandida(false);
+    setEtapa(1);
+    setTitulo(""); setDescricao(""); setEixo("");
+    setSolicitacoes([]);
+    setMembros([ALUNO_LOGADO]);
+    setBuscaAluno(""); setFiltrSala("todas"); setFiltrTurma("todas");
   }
 
-  function handleCriarProjeto(e: React.FormEvent) {
-    e.preventDefault();
-    if (descricao.trim().length < 30) {
+  function abrirEdicaoProjeto() {
+    if (!projeto) return;
+    setEditandoProjeto(true);
+    setEtapa(1);
+    setTitulo(projeto.titulo);
+    setDescricao(projeto.descricao);
+    setEixo(projeto.temaId ? String(projeto.temaId) : "");
+    setSolicitacoes(projeto.orientadorId ? [projeto.orientadorId] : []);
+    setMembros(projeto.membros);
+    setBuscaAluno(""); setFiltrSala("todas"); setFiltrTurma("todas");
+    setModalAberto(true);
+  }
+
+  function toggleSolicitacao(id: string) {
+    setSolicitacoes((prev) =>
+      prev.includes(id)
+        ? prev.filter((x) => x !== id)
+        : prev.length < 3
+          ? [...prev, id]
+          : prev
+    );
+  }
+
+  function adicionarMembro(aluno: Membro) {
+    if (!pertenceMesmaTurmaEAno(aluno, referenciaTurmaEquipe)) {
       Swal.fire({
         icon: "warning",
-        title: "Descrição muito curta",
-        text: "A descrição precisa ter pelo menos 30 caracteres para bater com a validação do backend.",
+        title: "Turma diferente",
+        text: "A equipe só pode ter alunos da mesma turma e do mesmo ano.",
         confirmButtonColor: "#15803d",
       });
       return;
     }
 
-    if (!orientadorId) {
+    setMembros((prev) => [...prev, aluno]);
+  }
+
+  async function handleCriarProjeto() {
+    const membrosForaDaTurma = getMembrosForaDaTurma(membros);
+    if (membrosForaDaTurma.length > 0) {
       Swal.fire({
         icon: "warning",
-        title: "Orientador obrigatório",
-        text: "Selecione um orientador antes de cadastrar o projeto.",
+        title: "Equipe com turmas diferentes",
+        text: `Remova da equipe: ${membrosForaDaTurma.map((membro) => membro.nome).join(", ")}.`,
         confirmButtonColor: "#15803d",
       });
       return;
@@ -251,12 +405,65 @@ function Dashboard() {
       });
       return;
     }
+    const temaId = Number(eixo);
+    if (!Number.isFinite(temaId)) {
+      Swal.fire({
+        icon: "warning",
+        title: "Eixo obrigatório",
+        text: "Selecione um eixo temático cadastrado no evento atual.",
+        confirmButtonColor: "#15803d",
+      });
+      return;
+    }
+
     setCriando(true);
-    setTimeout(() => {
-      setProjeto({ id: "proj-001", titulo, descricao, eixo, membros, orientadorId, status: "Aguardando Aprovação" });
-      setCriando(false);
+    try {
+      const alunosIds = membros
+        .filter((membro) => membro.id !== ALUNO_LOGADO.id)
+        .map((membro) => Number(membro.id))
+        .filter((id) => Number.isFinite(id));
+
+      const projetoSalvo = editandoProjeto && projeto
+        ? await apiRequest<ProjetoApi>(`/projetos/${projeto.id}`, {
+            method: "PATCH",
+            body: { titulo, descricao, temaId },
+          })
+        : await apiRequest<ProjetoApi>("/projetos", {
+            method: "POST",
+            body: { titulo, descricao, temaId, alunosIds },
+          });
+
+      if (solicitacoes.length > 0) {
+        await apiRequest("/projetos/solicitar-orientador", {
+          method: "POST",
+          body: { orientadoresIds: solicitacoes.map(Number).filter((id) => Number.isFinite(id)) },
+        });
+      }
+
+      const projetoAtualizado = mapProjetoApiToProjeto(projetoSalvo, eixosDisponiveis);
+      setProjeto({
+        ...projetoAtualizado,
+        orientadorId: solicitacoes[0] ?? projetoAtualizado.orientadorId,
+        status: projetoAtualizado.status === "Aguardando Aprovação" ? "Aguardando Aprovação" : projetoAtualizado.status,
+      });
+      setAlunosOcupadosIds((prev) => [...new Set([...prev, ...membros.map((membro) => membro.id)])]);
+      Swal.fire({
+        icon: "success",
+        title: editandoProjeto ? "Projeto atualizado" : "Projeto criado",
+        text: editandoProjeto ? "As alterações foram salvas no sistema." : "As solicitações foram enviadas aos orientadores selecionados.",
+        confirmButtonColor: "#15803d",
+      });
       fecharModal();
-    }, 1200);
+    } catch (error) {
+      Swal.fire({
+        icon: "error",
+        title: "Não foi possível salvar",
+        text: error instanceof Error ? error.message : "Tente novamente em instantes.",
+        confirmButtonColor: "#15803d",
+      });
+    } finally {
+      setCriando(false);
+    }
   }
 
   function handleSubmeter(e: React.FormEvent) {
@@ -264,6 +471,9 @@ function Dashboard() {
     if (!arquivoPdf || !linkYoutube) return;
     setProjeto((p) => p ? { ...p, status: "Submetido", linkYoutube } : p);
   }
+
+  const descricaoLonga = (projeto?.descricao.length ?? 0) > 110;
+  const STEP_LABELS = ["Projeto", "Orientador", "Equipe"];
 
   return (
     <MainLayout userRole="aluno">
@@ -276,16 +486,10 @@ function Dashboard() {
 
         {deveMostrarAvisoSenha && (
           <div className="mb-4 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900 sm:px-5">
-            <Link
-              to="/dashboard/aluno/configuracoes"
-              className="min-w-0 flex-1 transition hover:text-amber-950"
-            >
-              <h2 className="text-sm font-bold text-amber-900 sm:text-base">
-                Recomendação de segurança
-              </h2>
+            <Link to="/dashboard/aluno/configuracoes" className="min-w-0 flex-1 transition hover:text-amber-950">
+              <h2 className="text-sm font-bold text-amber-900 sm:text-base">Recomendação de segurança</h2>
               <p className="mt-0.5 text-xs text-amber-800 sm:text-sm">
-                Por segurança, recomendamos alterar sua senha periodicamente.
-                Escolha uma nova senha que não seja usada em outros sistemas.
+                Por segurança, recomendamos alterar sua senha periodicamente. Escolha uma nova senha que não seja usada em outros sistemas.
               </p>
             </Link>
             <button
@@ -293,7 +497,6 @@ function Dashboard() {
               onClick={dispensarAvisoSenha}
               className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-amber-700 transition hover:bg-amber-100 hover:text-amber-900"
               aria-label="Fechar aviso de segurança"
-              title="Fechar aviso"
             >
               <X size={16} />
             </button>
@@ -313,8 +516,10 @@ function Dashboard() {
             </p>
           </div>
           {FASE_ATUAL === 1 && !projeto && (
-            <button onClick={() => setModalAberto(true)}
-              className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-sectec-700 px-3 py-2 text-xs font-semibold text-white shadow-md transition-all hover:bg-sectec-800 active:scale-[0.98] sm:w-auto sm:gap-2 sm:px-4 sm:py-2.5 sm:text-sm">
+            <button
+              onClick={() => setModalAberto(true)}
+              className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-sectec-700 px-3 py-2 text-xs font-semibold text-white shadow-md transition-all hover:bg-sectec-800 active:scale-[0.98] sm:w-auto sm:gap-2 sm:px-4 sm:py-2.5 sm:text-sm"
+            >
               <Plus size={14} /><span>Novo Projeto</span>
             </button>
           )}
@@ -336,7 +541,7 @@ function Dashboard() {
 
             {projeto && (
               <div className="space-y-4">
-                <div className="flex gap-1 overflow-x-auto border-b border-slate-200">
+                <div className="flex gap-1 overflow-visible border-b border-slate-200">
                   {(["painel", "submissao"] as const).map((a) => (
                     <button key={a} onClick={() => setAba(a)}
                       className={`px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm font-medium border-b-2 -mb-px transition-colors
@@ -356,16 +561,39 @@ function Dashboard() {
                           <FlaskConical size={18} className="text-sectec-600" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-start gap-2 flex-wrap mb-1">
-                            <h2 className="text-sm sm:text-base font-semibold text-slate-900 leading-tight break-words">{projeto.titulo}</h2>
-                            <Tooltip text={STATUS_TOOLTIP[projeto.status]}>
-                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full shrink-0 cursor-help ${STATUS_STYLE[projeto.status]}`}>
-                                {projeto.status}
-                              </span>
-                            </Tooltip>
+                          <div className="mb-1 flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex flex-wrap items-start gap-2">
+                              <h2 className="text-sm sm:text-base font-semibold text-slate-900 leading-tight break-words">{projeto.titulo}</h2>
+                              <Tooltip text={STATUS_TOOLTIP[projeto.status]}>
+                                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full shrink-0 cursor-help ${STATUS_STYLE[projeto.status]}`}>
+                                  {projeto.status}
+                                </span>
+                              </Tooltip>
+                            </div>
+                            {projeto.membros[0]?.id === ALUNO_LOGADO.id && (
+                              <button
+                                type="button"
+                                onClick={abrirEdicaoProjeto}
+                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition hover:border-sectec-200 hover:bg-sectec-50 hover:text-sectec-700"
+                                aria-label="Editar projeto"
+                              >
+                                <Pencil size={14} />
+                              </button>
+                            )}
                           </div>
                           <p className="text-xs text-slate-400 mb-1">{projeto.eixo}</p>
-                          <p className="text-xs sm:text-sm text-slate-500 line-clamp-2">{projeto.descricao}</p>
+                          <p className={`text-xs sm:text-sm text-slate-500 ${descricaoExpandida ? "break-words" : "line-clamp-2"}`}>
+                            {projeto.descricao}
+                          </p>
+                          {descricaoLonga && (
+                            <button
+                              type="button"
+                              onClick={() => setDescricaoExpandida((v) => !v)}
+                              className="mt-1 text-xs font-semibold text-sectec-700 transition hover:text-sectec-800"
+                            >
+                              {descricaoExpandida ? "Ver menos" : "Ver mais"}
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -383,7 +611,10 @@ function Dashboard() {
                               <div className="w-7 h-7 rounded-full bg-sectec-100 text-sectec-700 text-xs font-semibold flex items-center justify-center shrink-0">{m.nome[0]}</div>
                               <div className="min-w-0 flex-1">
                                 <p className="text-xs font-medium text-slate-700 truncate">{m.nome}</p>
-                                <p className="text-[10px] text-slate-400">Sala {m.sala}</p>
+                                <p className="text-[10px] text-slate-400">
+                                  {m.sala ? `Sala ${m.sala}` : ""}
+                                  {m.turma ? ` · Turma ${m.turma}` : ""}
+                                </p>
                               </div>
                               {m.id === ALUNO_LOGADO.id && (
                                 <span className="text-[9px] bg-sectec-100 text-sectec-700 font-semibold px-1.5 py-0.5 rounded-full shrink-0">líder</span>
@@ -494,134 +725,326 @@ function Dashboard() {
         </div>
       </div>
 
+      {/* ── MODAL PROGRESSIVO ── */}
       {modalAberto && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
           <div className="flex max-h-[95dvh] w-full flex-col rounded-t-2xl bg-white shadow-2xl sm:max-h-[90vh] sm:max-w-2xl sm:rounded-2xl">
+
+            {/* Header */}
             <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-200">
               <div>
-                <h2 className="break-words text-sm font-semibold text-slate-900 sm:text-base">Novo Projeto Científico</h2>
-                <p className="text-xs text-slate-500 mt-0.5 hidden sm:block">Preencha os dados para inscrever seu projeto na feira</p>
+                <h2 className="text-sm font-semibold text-slate-900 sm:text-base">
+                  {editandoProjeto ? "Editar Projeto Científico" : "Novo Projeto Científico"}
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5 hidden sm:block">
+                  {etapa === 1 && "Preencha os dados do projeto"}
+                  {etapa === 2 && "Escolha até 3 orientadores para solicitar"}
+                  {etapa === 3 && "Monte a equipe do projeto"}
+                </p>
               </div>
               <button onClick={fecharModal} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 active:bg-slate-200 transition-colors">
                 <X size={17} />
               </button>
             </div>
 
-            <form id="form-projeto" onSubmit={handleCriarProjeto} className="min-w-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:space-y-5 sm:px-6 sm:py-5">
-              <section>
-                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Dados do projeto</p>
-                <div className="space-y-3">
+            {/* Stepper */}
+            <div className="flex items-center px-4 sm:px-6 pt-4 pb-2">
+              {STEP_LABELS.map((label, i) => {
+                const step = (i + 1) as Etapa;
+                const done = etapa > step;
+                const active = etapa === step;
+                return (
+                  <div key={step} className="flex items-center flex-1 last:flex-none">
+                    <div className="flex flex-col items-center gap-1">
+                      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all
+                        ${done ? "bg-sectec-600 border-sectec-600 text-white"
+                          : active ? "bg-white border-sectec-600 text-sectec-700"
+                          : "bg-white border-slate-200 text-slate-400"}`}>
+                        {done ? (
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                            <path d="M2 6l2.5 2.5L10 3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        ) : step}
+                      </div>
+                      <span className={`text-[10px] font-semibold ${active ? "text-sectec-700" : done ? "text-slate-500" : "text-slate-300"}`}>
+                        {label}
+                      </span>
+                    </div>
+                    {i < STEP_LABELS.length - 1 && (
+                      <div className={`flex-1 h-0.5 mx-2 mb-4 rounded transition-all ${done ? "bg-sectec-600" : "bg-slate-200"}`} />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Body */}
+            <div className="min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
+
+              {/* ── Etapa 1: Dados do Projeto ── */}
+              {etapa === 1 && (
+                <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Título *</label>
-                    <input required value={titulo} onChange={(e) => setTitulo(e.target.value)}
+                    <input
+                      value={titulo}
+                      onChange={(e) => setTitulo(e.target.value)}
                       placeholder="Ex: Captação de energia solar em ambientes urbanos"
-                      className="w-full min-w-0 rounded-lg border border-slate-200 px-3 py-2.5 text-sm transition focus:border-sectec-600 focus:outline-none focus:ring-2 focus:ring-sectec-100" />
+                      className="w-full min-w-0 rounded-lg border border-slate-200 px-3 py-2.5 text-sm transition focus:border-sectec-600 focus:outline-none focus:ring-2 focus:ring-sectec-100"
+                    />
                   </div>
+
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Descrição / Resumo *</label>
-                    <textarea required rows={3} value={descricao} onChange={(e) => setDescricao(e.target.value)}
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Descrição / Resumo *
+                      <span className={`ml-2 text-xs font-normal ${descricao.trim().length < 30 ? "text-amber-500" : "text-sectec-600"}`}>
+                        ({descricao.trim().length} / mín. 30 caracteres)
+                      </span>
+                    </label>
+                    <textarea
+                      rows={4}
+                      value={descricao}
+                      onChange={(e) => setDescricao(e.target.value)}
                       placeholder="Descreva o objetivo e a metodologia do projeto..."
-                      className="w-full min-w-0 resize-none rounded-lg border border-slate-200 px-3 py-2.5 text-sm transition focus:border-sectec-600 focus:outline-none focus:ring-2 focus:ring-sectec-100" />
+                      className="w-full min-w-0 resize-none rounded-lg border border-slate-200 px-3 py-2.5 text-sm transition focus:border-sectec-600 focus:outline-none focus:ring-2 focus:ring-sectec-100"
+                    />
                   </div>
+
                   <div className="relative">
                     <label className="block text-sm font-medium text-slate-700 mb-1">Eixo Temático *</label>
-                    <select required value={eixo} onChange={(e) => setEixo(e.target.value)}
-                      className="w-full min-w-0 appearance-none rounded-lg border border-slate-200 bg-white px-3 py-2.5 pr-9 text-sm transition focus:border-sectec-600 focus:outline-none focus:ring-2 focus:ring-sectec-100">
+                    <select
+                      value={eixo}
+                      onChange={(e) => { setEixo(e.target.value); setSolicitacoes([]); }}
+                      className="w-full min-w-0 appearance-none rounded-lg border border-slate-200 bg-white px-3 py-2.5 pr-9 text-sm transition focus:border-sectec-600 focus:outline-none focus:ring-2 focus:ring-sectec-100"
+                    >
                       <option value="">Selecione um eixo</option>
-                      {EIXOS.map((e) => <option key={e} value={e}>{e}</option>)}
+                      {eixosDisponiveis.map((e) => <option key={String(e.id)} value={String(e.id)}>{e.nome}</option>)}
                     </select>
                     <ChevronDown size={13} className="absolute right-3 bottom-3 text-slate-400 pointer-events-none" />
                   </div>
-                </div>
-              </section>
 
-              <section>
-                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Orientador</p>
-                <div className="relative">
-                  <select required value={orientadorId} onChange={(e) => setOrientadorId(e.target.value)}
-                    className="w-full min-w-0 appearance-none rounded-lg border border-slate-200 bg-white px-3 py-2.5 pr-9 text-sm transition focus:border-sectec-600 focus:outline-none focus:ring-2 focus:ring-sectec-100">
-                    <option value="">Selecione um orientador</option>
-                    {orientadoresDisponiveis.map((o) => (
-                      <option key={o.id} value={o.id}>{o.nome} — {o.disciplina}</option>
-                    ))}
-                  </select>
-                  <ChevronDown size={13} className="absolute right-3 top-3 text-slate-400 pointer-events-none" />
+                  {eixo && (
+                    <div className="flex items-start gap-2 rounded-xl bg-sectec-50 border border-sectec-100 px-3 py-2.5 text-xs text-sectec-700">
+                      <FlaskConical size={13} className="mt-0.5 shrink-0" />
+                      <span>
+                        Eixo selecionado: <strong>{eixoSelecionado?.nome ?? "não informado"}</strong>. No próximo passo você verá apenas orientadores disponíveis para este eixo.
+                      </span>
+                    </div>
+                  )}
                 </div>
-                {carregandoDados && <p className="text-xs text-slate-400 mt-1.5">Carregando orientadores...</p>}
-                {orientador && <p className="text-xs text-sectec-600 mt-1.5 font-medium">✓ {orientador.nome} selecionado</p>}
-              </section>
+              )}
 
-              <section>
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Equipe</p>
-                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${membros.length >= 7 ? "bg-red-100 text-red-600" : membros.length < MIN_MEMBROS ? "bg-yellow-100 text-yellow-700" : "bg-sectec-100 text-sectec-700"}`}>
-                    {membros.length}/7 {membros.length < MIN_MEMBROS && `(mín. ${MIN_MEMBROS})`}
-                  </span>
-                </div>
-                <div className="space-y-1.5 mb-3">
-                  {membros.map((m) => (
-                    <div key={m.id} className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-                      <div className="w-7 h-7 rounded-full bg-sectec-100 text-sectec-700 text-xs font-semibold flex items-center justify-center shrink-0">{m.nome[0]}</div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-slate-700 truncate">{m.nome}</p>
-                        <p className="text-xs text-slate-400">Sala {m.sala}</p>
-                      </div>
-                      {m.id === ALUNO_LOGADO.id
-                        ? <span className="text-[10px] font-semibold bg-sectec-100 text-sectec-700 px-2 py-0.5 rounded-full shrink-0">Líder</span>
-                        : <button type="button" onClick={() => setMembros((prev) => prev.filter((x) => x.id !== m.id))} className="text-slate-400 hover:text-red-500 active:text-red-600 transition-colors p-1.5 shrink-0"><UserMinus size={14} /></button>
-                      }
-                    </div>
-                  ))}
-                </div>
-                {membros.length < 7 && (
-                  <div className="border border-slate-200 rounded-lg overflow-hidden">
-                    <div className="flex gap-2 p-2 bg-slate-50 border-b border-slate-200">
-                      <div className="flex items-center gap-1.5 flex-1 bg-white border border-slate-200 rounded-md px-2 py-1.5 min-w-0">
-                        <Search size={11} className="text-slate-400 shrink-0" />
-                        <input value={buscaAluno} onChange={(e) => setBuscaAluno(e.target.value)}
-                          placeholder="Buscar aluno..." className="flex-1 text-xs outline-none bg-transparent min-w-0" />
-                      </div>
-                      <select value={filtrSala} onChange={(e) => setFiltrSala(e.target.value)}
-                        className="max-w-[96px] shrink-0 rounded-md border border-slate-200 bg-white px-2 text-xs focus:outline-none">
-                        {salas.map((s) => <option key={s} value={s}>{s === "todas" ? "Todas" : `Sala ${s}`}</option>)}
-                      </select>
-                    </div>
-                    <div className="max-h-40 overflow-y-auto">
-                      {alunosFiltrados.length === 0
-                        ? <p className="text-center text-xs text-slate-400 py-4">{carregandoDados ? "Carregando alunos..." : "Nenhum aluno encontrado"}</p>
-                        : alunosFiltrados.map((aluno) => (
-                          <button key={aluno.id} type="button" onClick={() => setMembros((prev) => [...prev, aluno])}
-                            className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-slate-50 active:bg-slate-100 transition-colors border-b border-slate-100 last:border-0">
-                            <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-600 text-[10px] font-semibold flex items-center justify-center shrink-0">{aluno.nome[0]}</div>
-                            <div className="flex-1 min-w-0 text-left">
-                              <p className="text-xs font-medium text-slate-700 truncate">{aluno.nome}</p>
-                              <p className="text-[10px] text-slate-400">Sala {aluno.sala}</p>
-                            </div>
-                            <UserPlus size={13} className="text-sectec-600 shrink-0" />
-                          </button>
-                        ))
-                      }
-                    </div>
+              {/* ── Etapa 2: Orientadores ── */}
+              {etapa === 2 && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-slate-500">
+                      Orientadores disponíveis para <strong className="text-sectec-700">{eixoSelecionado?.nome ?? "este eixo"}</strong>
+                    </p>
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full
+                      ${solicitacoes.length === 0 ? "bg-slate-100 text-slate-500"
+                        : solicitacoes.length < 3 ? "bg-sectec-100 text-sectec-700"
+                        : "bg-yellow-100 text-yellow-700"}`}>
+                      {solicitacoes.length}/3 solicitados
+                    </span>
                   </div>
-                )}
-              </section>
-            </form>
 
-            <div className="flex flex-col-reverse gap-2 rounded-b-2xl border-t border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:justify-end sm:px-6 sm:py-4">
-              <button type="button" onClick={fecharModal}
-                className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 active:bg-slate-200 sm:w-auto">
-                Cancelar
+                  {carregandoDados ? (
+                    <p className="text-center text-xs text-slate-400 py-8">Carregando orientadores...</p>
+                  ) : orientadoresFiltradosPorEixo.length === 0 ? (
+                    <div className="flex flex-col items-center py-10 text-center">
+                      <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center mb-3">
+                        <Users size={20} className="text-slate-400" />
+                      </div>
+                      <p className="text-sm font-medium text-slate-600">Nenhum orientador disponível</p>
+                      <p className="text-xs text-slate-400 mt-1">Não há orientadores cadastrados para este eixo temático.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {orientadoresFiltradosPorEixo.map((o) => {
+                        const selecionado = solicitacoes.includes(o.id);
+                        const bloqueado = !selecionado && solicitacoes.length >= 3;
+                        return (
+                          <button
+                            key={o.id}
+                            type="button"
+                            disabled={bloqueado}
+                            onClick={() => toggleSolicitacao(o.id)}
+                            className={`w-full flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all
+                              ${selecionado
+                                ? "border-sectec-400 bg-sectec-50 ring-1 ring-sectec-300"
+                                : bloqueado
+                                  ? "border-slate-100 bg-slate-50 opacity-40 cursor-not-allowed"
+                                  : "border-slate-200 bg-white hover:border-sectec-200 hover:bg-sectec-50"}`}
+                          >
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold shrink-0
+                              ${selecionado ? "bg-sectec-600 text-white" : "bg-yellow-100 text-yellow-700"}`}>
+                              {o.nome.split(" ").slice(-1)[0]?.[0] ?? "?"}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-slate-800 truncate">{o.nome}</p>
+                              <p className="text-xs text-slate-400 truncate">{o.disciplina}</p>
+                            </div>
+                            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all
+                              ${selecionado ? "bg-sectec-600 border-sectec-600" : "border-slate-300"}`}>
+                              {selecionado && (
+                                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                                  <path d="M2 5l2.5 2.5L8 3" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {solicitacoes.length > 0 && (
+                    <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 text-xs text-amber-800">
+                      <strong>Como funciona:</strong> Sua solicitação será enviada para os orientadores selecionados. O primeiro que aceitar será vinculado ao projeto.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Etapa 3: Equipe ── */}
+              {etapa === 3 && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-slate-500">Monte sua equipe</p>
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full
+                      ${membros.length > MAX_MEMBROS ? "bg-red-100 text-red-600"
+                        : membros.length < MIN_MEMBROS ? "bg-yellow-100 text-yellow-700"
+                        : "bg-sectec-100 text-sectec-700"}`}>
+                      {membros.length}/{MAX_MEMBROS} {membros.length < MIN_MEMBROS && `(mín. ${MIN_MEMBROS})`}
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    {membros.map((m) => (
+                      <div key={m.id} className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                        <div className="w-7 h-7 rounded-full bg-sectec-100 text-sectec-700 text-xs font-semibold flex items-center justify-center shrink-0">{m.nome[0]}</div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium text-slate-700 truncate">{m.nome}</p>
+                          <p className="text-[10px] text-slate-400">
+                            {m.sala ? `Sala ${m.sala}` : ""}
+                            {m.turma ? ` · Turma ${m.turma}` : ""}
+                          </p>
+                        </div>
+                        {m.id === ALUNO_LOGADO.id ? (
+                          <span className="text-[10px] font-semibold bg-sectec-100 text-sectec-700 px-2 py-0.5 rounded-full shrink-0">Líder</span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setMembros((prev) => prev.filter((x) => x.id !== m.id))}
+                            className="text-slate-400 hover:text-red-500 active:text-red-600 transition-colors p-1.5 shrink-0"
+                          >
+                            <UserMinus size={14} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {membros.length < MAX_MEMBROS && (
+                    <div className="border border-slate-200 rounded-xl overflow-hidden">
+                      <div className="flex flex-wrap gap-2 p-2 bg-slate-50 border-b border-slate-200">
+                        <div className="flex items-center gap-1.5 flex-1 min-w-[130px] bg-white border border-slate-200 rounded-md px-2 py-1.5">
+                          <Search size={11} className="text-slate-400 shrink-0" />
+                          <input
+                            value={buscaAluno}
+                            onChange={(e) => setBuscaAluno(e.target.value)}
+                            placeholder="Buscar aluno..."
+                            className="flex-1 text-xs outline-none bg-transparent min-w-0"
+                          />
+                        </div>
+                        <select
+                          value={filtrSala}
+                          onChange={(e) => setFiltrSala(e.target.value)}
+                          className="rounded-md border border-slate-200 bg-white px-2 text-xs focus:outline-none"
+                        >
+                          {salas.map((s) => <option key={s} value={s}>{s === "todas" ? "Todas as salas" : `Sala ${s}`}</option>)}
+                        </select>
+                        <select
+                          value={filtrTurma}
+                          onChange={(e) => setFiltrTurma(e.target.value)}
+                          className="rounded-md border border-slate-200 bg-white px-2 text-xs focus:outline-none"
+                        >
+                          {turmas.map((t) => <option key={t} value={t}>{t === "todas" ? "Todas as turmas" : `Turma ${t}`}</option>)}
+                        </select>
+                      </div>
+                      <div className="max-h-44 overflow-y-auto">
+                        {alunosFiltrados.length === 0 ? (
+                          <p className="text-center text-xs text-slate-400 py-5">
+                            {carregandoDados ? "Carregando alunos..." : "Nenhum aluno encontrado"}
+                          </p>
+                        ) : (
+                          alunosFiltrados.map((aluno) => (
+                            <button
+                              key={aluno.id}
+                              type="button"
+                              onClick={() => adicionarMembro(aluno)}
+                              className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-slate-50 active:bg-slate-100 transition-colors border-b border-slate-100 last:border-0"
+                            >
+                              <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-600 text-[10px] font-semibold flex items-center justify-center shrink-0">{aluno.nome[0]}</div>
+                              <div className="flex-1 min-w-0 text-left">
+                                <p className="text-xs font-medium text-slate-700 truncate">{aluno.nome}</p>
+                                <p className="text-[10px] text-slate-400">
+                                  {aluno.sala ? `Sala ${aluno.sala}` : ""}
+                                  {aluno.turma ? ` · Turma ${aluno.turma}` : ""}
+                                </p>
+                              </div>
+                              <UserPlus size={13} className="text-sectec-600 shrink-0" />
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-start gap-2 rounded-xl bg-blue-50 border border-blue-100 px-3 py-2.5 text-xs text-blue-700">
+                    <TriangleAlert size={12} className="mt-0.5 shrink-0" />
+                    <span>Apenas alunos da <strong>mesma turma e ano</strong> são exibidos. Equipes com integrantes de turmas diferentes não são permitidas.</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex flex-col-reverse gap-2 rounded-b-2xl border-t border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:justify-between sm:px-6 sm:py-4">
+              <button
+                type="button"
+                onClick={() => etapa > 1 ? setEtapa((e) => (e - 1) as Etapa) : fecharModal()}
+                className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 active:bg-slate-200 sm:w-auto"
+              >
+                {etapa === 1 ? "Cancelar" : "← Voltar"}
               </button>
-              <button type="submit" form="form-projeto" disabled={criando}
-                className="flex w-full items-center justify-center gap-2 rounded-lg bg-sectec-700 px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-sectec-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto sm:px-5">
-                {criando && (
-                  <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-                  </svg>
-                )}
-                {criando ? "Cadastrando..." : "Criar projeto"}
-              </button>
+
+              {etapa < 3 ? (
+                <button
+                  type="button"
+                  disabled={etapa === 1 ? !podeAvancarEtapa1 : !podeAvancarEtapa2}
+                  onClick={() => setEtapa((e) => (e + 1) as Etapa)}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-sectec-700 px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-sectec-800 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed sm:w-auto sm:px-5"
+                >
+                  Continuar →
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={criando || membros.length < MIN_MEMBROS || membros.length > MAX_MEMBROS}
+                  onClick={handleCriarProjeto}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-sectec-700 px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-sectec-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto sm:px-5"
+                >
+                  {criando && (
+                    <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                    </svg>
+                  )}
+                  {criando ? (editandoProjeto ? "Salvando..." : "Cadastrando...") : (editandoProjeto ? "Salvar alterações" : "Criar projeto")}
+                </button>
+              )}
             </div>
           </div>
         </div>

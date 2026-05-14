@@ -34,7 +34,7 @@ export class CreateProjetoDto {
   @IsArray()
   @IsOptional() // Opcional caso o projeto possa ser individual inicialmente
   @IsNumber({}, { each: true }) // Valida se cada item do array é um número
-  @ArrayMinSize(3, { message: 'O projeto deve ter pelo menos 3 alunos na sua equipe.' })
+  @ArrayMinSize(2, { message: 'O projeto deve ter pelo menos 3 alunos na sua equipe.' })
   @ArrayMaxSize(6, { message: 'O projeto deve ter no máximo 6 alunos na sua equipe.' })
   alunosIds?: number[];
 }

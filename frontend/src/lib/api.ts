@@ -37,6 +37,8 @@ export type UsuarioApi = {
   id: string | number;
   nome: string;
   email_institucional?: string;
+  turma?: string | null;
+  ano?: number | string | null;
 };
 
 export class ApiError extends Error {

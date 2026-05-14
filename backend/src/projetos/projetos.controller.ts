@@ -24,7 +24,7 @@ import { ApiOperation, ApiResponse, ApiTags, ApiBody, ApiBearerAuth } from '@nes
 
 @ApiTags('projetos')
 @ApiBearerAuth()
-//@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard)
 @Controller('projetos')
 export class ProjetosController {
   constructor(private readonly projetosService: ProjetosService) {}
@@ -41,10 +41,10 @@ export class ProjetosController {
     @GetUser('userId') userId: number,
     @GetUser('role') role: string
   ) {
-    // if (role !== 'aluno') {
-    //   throw new ForbiddenException('Apenas alunos podem criar projetos.');
-    // }
-    return this.projetosService.create(createProjetoDto, 425);
+    if (role !== 'aluno') {
+      throw new ForbiddenException('Apenas alunos podem criar projetos.');
+    }
+    return this.projetosService.create(createProjetoDto, userId);
   }
 
   /**
@@ -71,7 +71,11 @@ export class ProjetosController {
 
     // Chamada para o novo método que criamos no Service
     // Passamos o userId dinâmico do token e o array de IDs do Body
-    return this.projetosService.enviarMultiplasSolicitacoes(109, dto.orientadoresIds);
+    if (role !== 'aluno') {
+      throw new ForbiddenException('Apenas alunos autores podem solicitar orientaÃ§Ã£o.');
+    }
+
+    return this.projetosService.enviarMultiplasSolicitacoes(userId, dto.orientadoresIds);
   }
 
 
@@ -95,6 +99,12 @@ export class ProjetosController {
       default:
       throw new ForbiddenException('Cargo não identificado para listagem.');
     }
+  }
+
+  @Get('alunos-ocupados')
+  @ApiOperation({ summary: 'Lista IDs de alunos já vinculados a projetos no evento atual' })
+  async findAlunosOcupados() {
+    return this.projetosService.findAlunoIdsOcupadosNoUltimoEvento();
   }
 
   @Get(':id')

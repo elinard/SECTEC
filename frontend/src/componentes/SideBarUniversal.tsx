@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "motion/react";
 import { clearSession } from "../lib/api";
@@ -245,7 +245,7 @@ export function Sidebar({
           whileHover={{ scale: expanded ? 1.02 : 1.1 }}
           whileTap={{ scale: 0.98 }}
           onClick={handleLogout}
-          className={`flex items-center gap-3 w-full rounded-xl text-sm font-semibold transition cursor-pointer text-rose-300 hover:bg-rose-500/20 hover:text-rose-200 ${
+          className={`flex items-center gap-3 w-full rounded-xl text-sm font-semibold transition cursor-pointer text-white/70 hover:bg-white/10 hover:text-white ${
             !expanded ? "justify-center p-3" : "py-3 px-4"
           }`}
           title="Sair do sistema"
@@ -317,7 +317,25 @@ export function MainLayout({
 }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
+  const [usuarioNome, setUsuarioNome] = useState(
+    () => localStorage.getItem("nome") || "Usuário"
+  );
   const location = useLocation();
+
+  useEffect(() => {
+    const atualizarUsuario = () => {
+      setUsuarioNome(localStorage.getItem("nome") || "Usuário");
+    };
+
+    atualizarUsuario();
+    window.addEventListener("storage", atualizarUsuario);
+    window.addEventListener("auth-change", atualizarUsuario);
+
+    return () => {
+      window.removeEventListener("storage", atualizarUsuario);
+      window.removeEventListener("auth-change", atualizarUsuario);
+    };
+  }, []);
 
   const rolePath =
     userRole === "coordenador" || userRole === "comissao"
@@ -345,6 +363,7 @@ export function MainLayout({
     pageLabels[location.pathname] ||
     location.pathname.split("/").pop()?.replace(/-/g, " ") ||
     "painel";
+  const usuarioInicial = usuarioNome.trim().charAt(0).toUpperCase() || "U";
 
   const orientadorMenu: NavItem[] = [
     {
@@ -587,17 +606,18 @@ export function MainLayout({
               <p className="text-[10px] font-black text-slate-400 uppercase">
                 {userRole}
               </p>
-              <p className="text-xs font-bold text-slate-700">
-                Usuário conectado
+              <p className="max-w-48 truncate text-xs font-bold text-slate-700">
+                {usuarioNome}
               </p>
             </div>
 
             <motion.div
               whileHover={{ scale: 1.06 }}
               whileTap={{ scale: 0.94 }}
-              className="w-8 h-8 bg-[#15803d] rounded-lg flex items-center justify-center text-white text-xs font-bold"
+              className="w-8 h-8 bg-[#15803d] rounded-lg flex items-center justify-center text-white text-xs font-bold uppercase"
+              title={usuarioNome}
             >
-              {userRole[0]}
+              {usuarioInicial}
             </motion.div>
           </div>
         </motion.header>
