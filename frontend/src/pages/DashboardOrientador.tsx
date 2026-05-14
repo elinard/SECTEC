@@ -244,6 +244,31 @@ function mapProjetoToOrientacao(projeto: ProjetoApi): OrientacaoApi {
   };
 }
 
+function orientacaoProjetoKey(orientacao: OrientacaoApi) {
+  return orientacao.projeto?.id ? `projeto-${orientacao.projeto.id}` : `orientacao-${orientacao.id}`;
+}
+
+function orientacaoStatusWeight(status: OrientacaoApi["status"]) {
+  if (status === "aceito") return 3;
+  if (status === "pendente") return 2;
+  return 1;
+}
+
+function dedupeOrientacoes(orientacoes: OrientacaoApi[]) {
+  const mapa = new Map<string, OrientacaoApi>();
+
+  orientacoes.forEach((orientacao) => {
+    const key = orientacaoProjetoKey(orientacao);
+    const atual = mapa.get(key);
+
+    if (!atual || orientacaoStatusWeight(orientacao.status) > orientacaoStatusWeight(atual.status)) {
+      mapa.set(key, orientacao);
+    }
+  });
+
+  return Array.from(mapa.values());
+}
+
 function mapOrientacaoToEquipe(orientacao: OrientacaoApi): Equipe {
   const projeto = orientacao.projeto;
   const eixoSlug = eixoFromTemaId(projeto?.temaId);
@@ -332,13 +357,13 @@ function useOrientadorBackendData() {
       try {
         const data = await apiRequest<OrientacaoApi[]>("/orientacoes");
         if (!active) return;
-        setOrientacoes(data);
+        setOrientacoes(dedupeOrientacoes(data));
         setErro("");
       } catch (error) {
         try {
           const projetos = await apiRequest<ProjetoApi[]>("/projetos");
           if (!active) return;
-          setOrientacoes(projetos.map(mapProjetoToOrientacao));
+          setOrientacoes(dedupeOrientacoes(projetos.map(mapProjetoToOrientacao)));
           setErro("O servidor publicado não tem /orientacoes; usando /projetos. Aceitar/recusar orientação fica sem backend.");
         } catch (fallbackError) {
           if (!active) return;
@@ -363,7 +388,10 @@ function useOrientadorBackendData() {
     };
   }, []);
 
-  const equipes = useMemo(() => orientacoes.map(mapOrientacaoToEquipe), [orientacoes]);
+  const equipes = useMemo(
+    () => orientacoes.filter((orientacao) => orientacao.status === "aceito").map(mapOrientacaoToEquipe),
+    [orientacoes]
+  );
   const projetos = useMemo(() => orientacoes.map(mapOrientacaoToProjeto), [orientacoes]);
 
   async function responderProjeto(projeto: Projeto, status: StatusProjeto) {
@@ -378,10 +406,12 @@ function useOrientadorBackendData() {
     });
 
     setOrientacoes((lista) =>
-      lista.map((orientacao) =>
-        orientacao.id === orientacaoAtualizada.id
-          ? { ...orientacao, ...orientacaoAtualizada, projeto: orientacaoAtualizada.projeto ?? orientacao.projeto }
-          : orientacao
+      dedupeOrientacoes(
+        lista.map((orientacao) =>
+          orientacao.id === orientacaoAtualizada.id
+            ? { ...orientacao, ...orientacaoAtualizada, projeto: orientacaoAtualizada.projeto ?? orientacao.projeto }
+            : orientacao
+        )
       )
     );
 
@@ -810,11 +840,15 @@ function DashboardOrientador() {
   const equipesFiltradas = useMemo(() => filterByEixo(equipesData, eixoAtivo), [equipesData, eixoAtivo]);
   const entregasFiltradas = useMemo(() => filterByEixo(entregasData, eixoAtivo), [entregasData, eixoAtivo]);
   const projetosFiltrados = useMemo(() => filterByEixo(projetosData, eixoAtivo), [projetosData, eixoAtivo]);
+  const projetosParaAnalise = useMemo(
+    () => projetosFiltrados.filter((projeto) => projeto.status !== "aprovado"),
+    [projetosFiltrados]
+  );
   const agendaFiltrada = useMemo(() => filterByEixo(agendaData, eixoAtivo), [agendaData, eixoAtivo]);
 
   const riscosAltos = equipesFiltradas.filter((equipe) => equipe.risco === "alto").length;
   const pendentes = entregasFiltradas.filter((entrega) => entrega.status === "pendente" || entrega.status === "recusada").length;
-  const aguardandoAprovacao = projetosFiltrados.filter((projeto) => projeto.status === "aguardando").length;
+  const aguardandoAprovacao = projetosParaAnalise.filter((projeto) => projeto.status === "aguardando").length;
 
   function mostrarAviso(mensagem: string) {
     setAviso(mensagem);
@@ -875,13 +909,12 @@ function DashboardOrientador() {
         description="O filtro altera estatísticas, equipes, aprovações e agenda deste painel."
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-10">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Turmas"
           value={String(new Set(equipesFiltradas.map((equipe) => equipe.turma)).size)}
           detail="turmas no filtro"
           icon={<Users size={18} />}
-          className="xl:col-span-3"
         />
         <StatCard
           label="Equipes"
@@ -889,7 +922,6 @@ function DashboardOrientador() {
           detail="com orientação ativa"
           icon={<FolderOpen size={18} />}
           tone="blue"
-          className="xl:col-span-3"
         />
         <StatCard
           label="Entregas"
@@ -897,7 +929,6 @@ function DashboardOrientador() {
           detail="aguardando revisão"
           icon={<FileText size={18} />}
           tone="yellow"
-          className="xl:col-span-2"
         />
         <StatCard
           label="Riscos"
@@ -905,12 +936,11 @@ function DashboardOrientador() {
           detail="equipe precisa de ação"
           icon={<AlertTriangle size={18} />}
           tone="red"
-          className="xl:col-span-2"
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-12">
-        <Card className="xl:col-span-7">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
+        <Card>
           <div className="mb-5 flex items-center justify-between gap-3">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Equipes orientadas</p>
@@ -928,7 +958,7 @@ function DashboardOrientador() {
           </div>
         </Card>
 
-        <div className="grid grid-cols-1 gap-5 xl:col-span-5">
+        <div className="grid grid-cols-1 content-start gap-5">
           {equipeAberta && (
             <Card>
               <div className="mb-4 flex items-start justify-between gap-3">
@@ -959,8 +989,8 @@ function DashboardOrientador() {
             </div>
 
             <div className="space-y-3">
-              {projetosFiltrados.length > 0 ? (
-                projetosFiltrados.map((projeto) => (
+              {projetosParaAnalise.length > 0 ? (
+                projetosParaAnalise.map((projeto) => (
                   <div key={projeto.id} className="rounded-lg border border-slate-200 p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -985,7 +1015,7 @@ function DashboardOrientador() {
                   </div>
                 ))
               ) : (
-                <EmptyState text="Nenhum projeto enviado neste eixo." />
+                <EmptyState text="Nenhum projeto aguardando análise neste eixo." />
               )}
             </div>
           </Card>
@@ -1075,8 +1105,8 @@ export function TurmasOrientador() {
         description="Filtra o mapa de orientação e recalcula os dados das turmas pelo eixo."
       />
 
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-12">
-        {turmasResumo.map((turma, index) => {
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+        {turmasResumo.map((turma) => {
           const equipesDaTurma = equipesFiltradas.filter((equipe) => equipe.turma === turma.nome);
           const pendencias = equipesDaTurma.filter((equipe) => equipe.risco !== "baixo").length;
           const mediaProgresso = equipesDaTurma.length
@@ -1086,12 +1116,7 @@ export function TurmasOrientador() {
           return (
             <Card
               key={turma.id}
-              className={cx(
-                "h-full",
-                index === 0 && "xl:col-span-5",
-                index === 1 && "xl:col-span-4",
-                index === 2 && "xl:col-span-3"
-              )}
+              className="h-full"
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -1123,7 +1148,7 @@ export function TurmasOrientador() {
           );
         })}
         {turmasResumo.length === 0 && (
-          <Card className="md:col-span-2 xl:col-span-12">
+          <Card className="md:col-span-2 xl:col-span-3">
             <EmptyState text="Nenhuma turma retornada pelo backend." />
           </Card>
         )}
@@ -1385,21 +1410,14 @@ export function AgendaOrientador() {
         description="Mostra somente os horários do eixo selecionado."
       />
 
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-12">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-5">
         {diasAgenda.map((dia, index) => {
           const reunioes = agendaFiltrada.filter((item) => item.dia.startsWith(dia));
 
           return (
             <Card
               key={dia}
-              className={cx(
-                "xl:min-h-72",
-                index === 0 && "xl:col-span-3",
-                index === 1 && "xl:col-span-2",
-                index === 2 && "xl:col-span-3",
-                index === 3 && "xl:col-span-2",
-                index === 4 && "xl:col-span-2"
-              )}
+              className={cx("xl:min-h-72", index === 4 && "sm:col-span-2 xl:col-span-1")}
             >
               <h2 className="font-bold text-slate-900">{dia}</h2>
               <div className="mt-4 space-y-3">
@@ -1564,16 +1582,11 @@ export function AvaliacoesOrientador() {
         )}
       </Card>
 
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-12">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
         {rubrica.map(([titulo, texto], index) => (
           <Card
             key={titulo}
-            className={cx(
-              index === 0 && "xl:col-span-3",
-              index === 1 && "xl:col-span-5",
-              index === 2 && "xl:col-span-2",
-              index === 3 && "xl:col-span-2"
-            )}
+            className={cx(index === 3 && "sm:col-span-2 xl:col-span-1")}
           >
             <ClipboardCheck className="mb-4 text-sectec-600" />
             <h3 className="font-bold text-slate-900">{titulo}</h3>
