@@ -62,14 +62,13 @@ export class ProjetosService {
     await this.validarEventoETema(ultimoEvento.id, dto.temaId); // 👈 Nova validação
     this.validateGroupSize(dto.alunosIds);
     await this.ensureAlunosAreAvailable(ultimoEvento.id, [...(dto.alunosIds || []), userId]);
-    const dtoComEvento = { ...dto, evento: dto.evento ?? ultimoEvento.id };
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
-      const projeto = await this.saveProjeto(queryRunner, dtoComEvento, userId);
+      const projeto = await this.saveProjeto(queryRunner, dto, userId);
       
       await this.saveParticipantes(queryRunner, projeto.id, dto.alunosIds, userId);
 
@@ -188,7 +187,6 @@ export class ProjetosService {
         evento: true,
         alunoAutor: true,
         projetoAlunos: { aluno: true },
-        orientadores: { orientador: true },
       },
       select: this.getProjetoSelectFields(),
     });
@@ -204,15 +202,11 @@ export class ProjetosService {
    */
   async findAllAlunos(userId: number): Promise<Projeto[]> {
     return this.projetoRepository.find({
-      where: [
-        { alunoAutor: { id: userId } },
-        { projetoAlunos: { aluno: { id: userId } } },
-      ],
+      where: { alunoAutor: { id: userId } },
       relations: {
         evento: true,
         alunoAutor: true,
         projetoAlunos: { aluno: true },
-        orientadores: { orientador: true },
       },
       select: this.getProjetoSelectFields(),
     });
@@ -249,11 +243,6 @@ export class ProjetosService {
       },
       order: { id: 'DESC' }
     });
-  }
-
-  async findAlunoIdsOcupadosNoUltimoEvento(): Promise<number[]> {
-    const ultimoEvento = await this.buscarUltimoEvento();
-    return this.findAlunoIdsOcupadosPorEvento(ultimoEvento.id);
   }
 
   // ===========================================================================
@@ -356,45 +345,24 @@ async update(id: number, dto: UpdateProjetoDto, userId: number, role: string): P
 
   private validateGroupSize(alunosIds: number[] = []) {
     const total = alunosIds.length + 1;
-    if (total < 3 || total > 7) {
-      throw new BadRequestException(`O grupo deve ter entre 3 e 7 integrantes.`);
+    if (total < 3 || total > 6) {
+      throw new BadRequestException(`O grupo deve ter entre 3 e 6 integrantes.`);
     }
   }
 
   private async ensureAlunosAreAvailable(eventoId: number, todosIds: number[]) {
-    const idsUnicos = [...new Set(todosIds)];
-    const idsOcupados = await this.findAlunoIdsOcupadosPorEvento(eventoId);
-    const idsIndisponiveis = idsUnicos.filter((id) => idsOcupados.includes(id));
+    const ocupados = await this.projetoAlunoRepository.find({
+      where: {
+        aluno: { id: In(todosIds) },
+        projeto: { evento: { id: eventoId } }
+      },
+      relations: ['aluno']
+    });
 
-    if (idsIndisponiveis.length > 0) {
-      const alunos = await this.userRepository.find({
-        where: { id: In(idsIndisponiveis) },
-        select: ['id', 'nome'],
-      });
-      const nomes = alunos.map((aluno) => aluno.nome).join(', ');
+    if (ocupados.length > 0) {
+      const nomes = ocupados.map(p => p.aluno.nome).join(', ');
       throw new BadRequestException(`Alunos já vinculados a este evento: ${nomes}`);
     }
-  }
-
-  private async findAlunoIdsOcupadosPorEvento(eventoId: number): Promise<number[]> {
-    const [projetos, integrantes] = await Promise.all([
-      this.projetoRepository.find({
-        where: { evento: { id: eventoId } },
-        relations: { alunoAutor: true },
-        select: { id: true, alunoAutor: { id: true } },
-      }),
-      this.projetoAlunoRepository.find({
-        where: { projeto: { evento: { id: eventoId } } },
-        relations: ['aluno'],
-      }),
-    ]);
-
-    return [
-      ...new Set([
-        ...projetos.map((projeto) => projeto.alunoAutor?.id).filter(Boolean),
-        ...integrantes.map((integrante) => integrante.aluno?.id).filter(Boolean),
-      ]),
-    ] as number[];
   }
 
   private async saveProjeto(qr: QueryRunner, dto: CreateProjetoDto, autorId: number): Promise<Projeto> {
@@ -473,9 +441,8 @@ async update(id: number, dto: UpdateProjetoDto, userId: number, role: string): P
       titulo: true,
       descricao: true,
       temaId: true,
-      alunoAutor: { id: true, nome: true, role_cargo: true, turma: true, ano: true },
-      projetoAlunos: { id: true, aluno: { id: true, nome: true, turma: true, ano: true } },
-      orientadores: { id: true, status: true, orientador: { id: true, nome: true, email_institucional: true } },
+      alunoAutor: { id: true, nome: true, role_cargo: true },
+      projetoAlunos: { id: true, aluno: { id: true, nome: true } },
     };
   }
 

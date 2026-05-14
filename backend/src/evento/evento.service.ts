@@ -1,11 +1,13 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common'; // 1. Adicionado BadRequestException
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { CreateEventoDto } from './dto/create-evento.dto';
 import { UpdateEventoDto } from './dto/update-evento.dto';
-import { CreateTemaDto } from './dto/create-tema.dto';
+import { CreateTemasDto } from './dto/create-tema.dto';
 import { Evento } from './entities/evento.entity';
 import { TemaEvento } from './entities/tema-evento.entity';
+import { User, UserRole } from '../users/entities/user.entity'; // 2. Adicionado User e UserRole
+
 
 @Injectable()
 export class EventoService {
@@ -15,6 +17,9 @@ export class EventoService {
     
     @InjectRepository(TemaEvento)
     private readonly temaRepository: Repository<TemaEvento>,
+    
+    @InjectRepository(User) // 3. Injetando o repositório de usuários
+    private readonly userRepository: Repository<User>,
   ) {}
 
   async create(createEventoDto: CreateEventoDto) {
@@ -53,14 +58,50 @@ export class EventoService {
   }
 
   // Novo método para resolver o erro do Controller
-  async addTema(eventoId: number, createTemaDto: CreateTemaDto) {
-    const evento = await this.findOne(eventoId); // Valida se o evento existe
+  async addTemas(eventoId: number, createTemasDto: CreateTemasDto) {
+  const evento = await this.findOne(eventoId);
 
-    const novoTema = this.temaRepository.create({
-      nome: createTemaDto.nome,
-      evento: evento, // Associa o objeto do evento
+  // Criamos um array de objetos "Tema"
+  const novosTemas = createTemasDto.nomes.map(nome => {
+    return this.temaRepository.create({
+      nome,
+      evento,
     });
+  });
 
-    return await this.temaRepository.save(novoTema);
+  // Salva todos de uma vez
+  return await this.temaRepository.save(novosTemas);
+}
+
+
+
+async sincronizarTemas(professorId: number, temasIds: number[]) {
+  // 1. Buscamos o professor carregando a relação da tabela pivot
+  const professor = await this.userRepository.findOne({
+    where: { id: professorId },
+    relations: ['temasSelecionados']
+  });
+
+  if (!professor || professor.role_cargo !== UserRole.ORIENTADOR) {
+    throw new BadRequestException('Orientador não encontrado ou cargo inválido.');
   }
+
+  // 2. Buscamos todos os temas que vieram no array de IDs
+  const novosTemas = await this.temaRepository.findBy({
+    id: In(temasIds)
+  });
+
+  // 3. O Pulo do Gato: Substituímos o array antigo pelo novo
+  // O TypeORM detecta a diferença e faz os DELETEs e INSERTs sozinho
+  professor.temasSelecionados = novosTemas;
+
+  // 4. Salvamos o professor com a nova lista
+  await this.userRepository.save(professor);
+
+  return {
+    message: 'Temas sincronizados com sucesso',
+    totalSelecionado: novosTemas.length
+  };
+}
+
 }
