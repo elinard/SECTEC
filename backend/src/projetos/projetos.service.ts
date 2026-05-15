@@ -186,6 +186,7 @@ export class ProjetosService {
       relations: {
         evento: true,
         alunoAutor: true,
+        tema: true,
         projetoAlunos: { aluno: true },
       },
       select: this.getProjetoSelectFields(),
@@ -223,6 +224,7 @@ export class ProjetosService {
         projeto: {
           evento: true,
           alunoAutor: true,
+          tema: true,
           projetoAlunos: { aluno: true },
         }
       }
@@ -238,6 +240,7 @@ export class ProjetosService {
     return this.dataSource.getRepository(Evento).find({
       relations: {
         projetos: {
+          tema: true,
           alunoAutor: true,
           projetoAlunos: { aluno: true }
         }
@@ -439,8 +442,8 @@ export class ProjetosService {
       titulo: true,
       descricao: true,
       tema: { id: true, nome: true }, // 👈 Adicionado
-      alunoAutor: { id: true, nome: true, role_cargo: true },
-      projetoAlunos: { id: true, aluno: { id: true, nome: true } },
+      alunoAutor: { id: true, nome: true, role_cargo: true, ano: true, turma: true },
+      projetoAlunos: { id: true, aluno: { id: true, nome: true, ano: true, turma: true } },
     };
   }
 
