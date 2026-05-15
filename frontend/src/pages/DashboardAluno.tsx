@@ -52,7 +52,12 @@ type ProjetoApi = {
   id: string | number;
   titulo: string;
   descricao: string;
+<<<<<<< Updated upstream
   tema: TemaDoProjetoApi;  // ← MUDANÇA IMPORTANTE: agora é objeto completo
+=======
+  temaId?: string | number;
+  tema?: { id: string | number; nome: string }; // 👈
+>>>>>>> Stashed changes
   alunoAutor?: UsuarioApi;
   projetoAlunos?: Array<{ id: string | number; aluno?: UsuarioApi }>;
   orientadores?: Array<{
@@ -275,16 +280,30 @@ function mapProjetoApiToProjeto(projeto: ProjetoApi): Projeto {
 
   const orientacaoAceita = projeto.orientadores?.find((item) => item.status === "aceito");
   const primeiraOrientacao = orientacaoAceita ?? projeto.orientadores?.[0];
+<<<<<<< Updated upstream
   
   // 🔥 CORREÇÃO: usa o objeto tema diretamente da resposta da API
   const temaDaApi = projeto.tema;
   
+=======
+  const temaId = projeto.temaId ? Number(projeto.temaId) : undefined;
+  const temaNome =
+    projeto.tema?.nome ??
+    temas.find((item) => Number(item.id) === temaId)?.nome ??
+    (temaId ? `Eixo #${temaId}` : "Eixo não informado");
+
+>>>>>>> Stashed changes
   return {
     id: String(projeto.id),
     titulo: projeto.titulo,
     descricao: projeto.descricao,
+<<<<<<< Updated upstream
     eixo: temaDaApi?.nome ?? "Eixo não informado",  // ← agora pega o nome corretamente
     temaId: temaDaApi?.id ? Number(temaDaApi.id) : undefined,
+=======
+    eixo: temaNome, // 👈 agora usa o nome real
+    temaId,
+>>>>>>> Stashed changes
     membros: Array.from(membrosMap.values()),
     orientadorId: primeiraOrientacao?.orientador?.id ? String(primeiraOrientacao.orientador.id) : "",
     status: statusFromProjetoApi(projeto),

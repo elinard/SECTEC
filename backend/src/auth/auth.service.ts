@@ -111,5 +111,9 @@ export class AuthService {
     message: 'Senha alterada com sucesso',
   };
 }
+<<<<<<< Updated upstream
 }
 
+=======
+}
+>>>>>>> Stashed changes

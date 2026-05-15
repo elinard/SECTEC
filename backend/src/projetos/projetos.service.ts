@@ -15,7 +15,6 @@ import { TemaEvento } from 'src/evento/entities/tema-evento.entity';
 import { Evento } from 'src/evento/entities/evento.entity';
 import { User, UserRole } from 'src/users/entities/user.entity';
 
-
 // DTOs
 import { CreateProjetoDto } from './dto/create-projeto.dto';
 import { UpdateProjetoDto } from './dto/update-projeto.dto';
@@ -38,10 +37,9 @@ export class ProjetosService {
 
     @InjectRepository(Evento)
     private readonly eventoRepository: Repository<Evento>,
-    
-      @InjectRepository(User)
-    private readonly userRepository: Repository<User>,
 
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
 
     private readonly dataSource: DataSource,
     private readonly auditoriaService: AuditoriaService,
@@ -51,15 +49,9 @@ export class ProjetosService {
   // MÉTODOS DE CRIAÇÃO (ESCRITA)
   // ===========================================================================
 
-  /**
-   * Cria um novo projeto e vincula automaticamente os integrantes e o autor.
-   * @param dto Dados de criação do projeto
-   * @param userId ID do aluno autor
-   * @throws BadRequestException Se o grupo for inválido ou alunos já estiverem ocupados
-   */
   async create(dto: CreateProjetoDto, userId: number): Promise<Projeto> {
-  	const ultimoEvento = await this.buscarUltimoEvento();
-    await this.validarEventoETema(ultimoEvento.id, dto.temaId); // 👈 Nova validação
+    const ultimoEvento = await this.buscarUltimoEvento();
+    await this.validarEventoETema(ultimoEvento.id, dto.temaId);
     this.validateGroupSize(dto.alunosIds);
     await this.ensureAlunosAreAvailable(ultimoEvento.id, [...(dto.alunosIds || []), userId]);
 
@@ -68,10 +60,8 @@ export class ProjetosService {
     await queryRunner.startTransaction();
 
     try {
-      const projeto = await this.saveProjeto(queryRunner, dto, userId);
-      
+      const projeto = await this.saveProjeto(queryRunner, dto, userId, ultimoEvento.id);
       await this.saveParticipantes(queryRunner, projeto.id, dto.alunosIds, userId);
-
       await queryRunner.commitTransaction();
       await this.auditoriaService.registrar(
         userId,
@@ -88,66 +78,53 @@ export class ProjetosService {
     }
   }
 
-  /**
-   * Processa uma lista de orientadores, enviando solicitações individuais.
-   * Se um ID falhar, o sistema registra o erro e continua para o próximo.
-   */
   async enviarMultiplasSolicitacoes(userId: number, orientadoresIds: number[]) {
-    const resultados: { 
-      orientadorId: number; 
-      status: string; 
-      motivo?: string; 
-      solicitacaoId?: number 
+    const resultados: {
+      orientadorId: number;
+      status: string;
+      motivo?: string;
+      solicitacaoId?: number;
     }[] = [];
-    
-    // Buscamos o projeto uma única vez antes do loop para poupar processamento
+
     const projeto = await this.getUltimoProjetoDoAluno(userId);
 
     for (const orientadorId of orientadoresIds) {
       try {
-        // 1. Verificação de Perfil: É realmente um orientador?
         const professorValido = await this.verificarSeEProfessor(orientadorId);
-        
+
         if (!professorValido) {
           resultados.push({ orientadorId, status: 'pulado', motivo: 'Usuário não é um orientador válido.' });
-          continue; // Pula para o próximo ID
+          continue;
         }
 
-        // 2. Tenta realizar a solicitação usando seu método existente
-        // Se validarSolicitacaoDuplicada ou validarTema disparar erro, o catch captura
         const solicitacao = await this.enviarSolicitacaoIndividual(projeto, userId, orientadorId);
-        
         resultados.push({ orientadorId, status: 'sucesso', solicitacaoId: solicitacao.id });
-
       } catch (error) {
-        // Captura erros de validação (duplicidade, tema inválido, etc)
-        resultados.push({ 
-          orientadorId, 
-          status: 'erro', 
-          motivo: error.message || 'Erro interno ao processar este ID.' 
+        resultados.push({
+          orientadorId,
+          status: 'erro',
+          motivo: error.message || 'Erro interno ao processar este ID.',
         });
-        continue; // Garante que o loop continue mesmo com erro
+        continue;
       }
     }
 
-    return {
-      projetoId: projeto.id,
-      resumo: resultados
-    };
+    return { projetoId: projeto.id, resumo: resultados };
   }
 
-  /**
-   * Versão ajustada do seu método original para aceitar o objeto projeto já carregado
-   */
   private async enviarSolicitacaoIndividual(projeto: Projeto, userId: number, orientadorId: number): Promise<ProjetoOrientador> {
+<<<<<<< Updated upstream
     // Suas validações existentes
     await this.validarTemaNoEvento(projeto.tema.id, projeto.evento.id);
+=======
+    await this.validarTemaNoEvento(projeto.temaId, projeto.evento.id);
+>>>>>>> Stashed changes
     await this.validarSolicitacaoDuplicada(projeto.id, orientadorId);
 
     const novaSolicitacao = this.projetoOrientadorRepository.create({
       projeto: { id: projeto.id },
       orientador: { id: orientadorId },
-      status: 'pendente'
+      status: 'pendente',
     });
 
     const solicitacao = await this.projetoOrientadorRepository.save(novaSolicitacao);
@@ -162,24 +139,15 @@ export class ProjetosService {
     return solicitacao;
   }
 
-  /**
-   * Verifica se o ID pertence a um usuário com cargo de orientador
-   */
   private async verificarSeEProfessor(id: number): Promise<boolean> {
-    // Ajuste conforme o nome da sua entidade de usuário/repositório
-    const user = await this.userRepository.findOne({ where: { id, role_cargo:
-    UserRole.ORIENTADOR } });
+    const user = await this.userRepository.findOne({ where: { id, role_cargo: UserRole.ORIENTADOR } });
     return !!user;
   }
-
 
   // ===========================================================================
   // MÉTODOS DE CONSULTA (LEITURA)
   // ===========================================================================
 
-  /**
-   * Retorna um projeto detalhado por ID.
-   */
   async findOne(id: number): Promise<Projeto> {
     const projeto = await this.projetoRepository.findOne({
       where: { id },
@@ -188,6 +156,7 @@ export class ProjetosService {
         alunoAutor: true,
         tema: true,
         projetoAlunos: { aluno: true },
+        tema: true, // ✅ adicionado
       },
       select: this.getProjetoSelectFields(),
     });
@@ -198,9 +167,6 @@ export class ProjetosService {
     return projeto;
   }
 
-  /**
-   * Lista projetos onde o usuário é o autor principal.
-   */
   async findAllAlunos(userId: number): Promise<Projeto[]> {
     return this.projetoRepository.find({
       where: { alunoAutor: { id: userId } },
@@ -209,14 +175,12 @@ export class ProjetosService {
         alunoAutor: true,
         tema: true,
         projetoAlunos: { aluno: true },
+        tema: true, // ✅ adicionado
       },
       select: this.getProjetoSelectFields(),
     });
   }
 
-  /**
-   * Lista projetos onde o professor logado já aceitou a orientação.
-   */
   async findAllOrientador(userId: number): Promise<Projeto[]> {
     const projetosOrientados = await this.projetoOrientadorRepository.find({
       where: { orientador: { id: userId }, status: 'aceito' },
@@ -226,26 +190,25 @@ export class ProjetosService {
           alunoAutor: true,
           tema: true,
           projetoAlunos: { aluno: true },
-        }
-      }
+          tema: true, // ✅ adicionado
+        },
+      },
     });
 
-    return projetosOrientados.map(solicitacao => solicitacao.projeto);
+    return projetosOrientados.map((solicitacao) => solicitacao.projeto);
   }
 
-  /**
-   * Visão geral para coordenação: Retorna eventos com seus respectivos projetos agrupados.
-   */
   async findAllCoordenador(): Promise<Evento[]> {
     return this.dataSource.getRepository(Evento).find({
       relations: {
         projetos: {
           tema: true,
           alunoAutor: true,
-          projetoAlunos: { aluno: true }
-        }
+          projetoAlunos: { aluno: true },
+          tema: true, // ✅ adicionado
+        },
       },
-      order: { id: 'DESC' }
+      order: { id: 'DESC' },
     });
   }
 
@@ -253,6 +216,7 @@ export class ProjetosService {
   // MÉTODOS DE ATUALIZAÇÃO E REMOÇÃO
   // ===========================================================================
 
+<<<<<<< Updated upstream
   /**
    * Atualiza dados do projeto. Regras de permissão variam por Role.
    */
@@ -306,9 +270,70 @@ export class ProjetosService {
     throw err;
   } finally {
     await queryRunner.release();
-  }
-}
+=======
+  async update(id: number, dto: UpdateProjetoDto, userId: number, role: string): Promise<Projeto> {
+    const projeto = await this.findOne(id);
 
+    if (role !== 'coordenador' && projeto.alunoAutor.id !== userId) {
+      throw new ForbiddenException('Sem permissão para editar este projeto.');
+    }
+
+    if (dto.alunosIds && role !== 'coordenador') {
+      throw new ForbiddenException('Apenas coordenadores alteram integrantes.');
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      let eventoId = dto.evento || projeto.evento?.id;
+
+      if (!eventoId) {
+        const ultimo = await this.buscarUltimoEvento();
+        eventoId = ultimo.id;
+      }
+
+      const dadosAtualizados: any = {
+        titulo: dto.titulo ?? projeto.titulo,
+        descricao: dto.descricao ?? projeto.descricao,
+        evento: { id: eventoId },
+        alunoAutor: { id: projeto.alunoAutor.id },
+      };
+
+      // ✅ corrigido: temaId é number, não objeto
+      if (dto.temaId) {
+        dadosAtualizados.temaId = dto.temaId;
+      }
+
+      this.projetoRepository.merge(projeto, dadosAtualizados);
+      await queryRunner.manager.save(projeto);
+
+      if (dto.alunosIds && role === 'coordenador') {
+        await queryRunner.manager.delete(ProjetoAluno, { projeto: { id: projeto.id } });
+        await this.saveParticipantes(queryRunner, projeto.id, dto.alunosIds, projeto.alunoAutor.id);
+      }
+
+      await queryRunner.commitTransaction();
+
+      await this.auditoriaService.registrar(
+        userId,
+        'PROJETO_ATUALIZADO',
+        `Projeto #${id} atualizado por usuario com cargo "${role}".`,
+        id,
+      );
+
+      return this.findOne(id);
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
+>>>>>>> Stashed changes
+  }
+
+<<<<<<< Updated upstream
 
 
 
@@ -317,6 +342,8 @@ export class ProjetosService {
   /**
    * Remove um projeto do sistema.
    */
+=======
+>>>>>>> Stashed changes
   async remove(id: number, userId: number, role: string): Promise<void> {
     const projeto = await this.findOne(id);
 
@@ -348,17 +375,18 @@ export class ProjetosService {
     const ocupados = await this.projetoAlunoRepository.find({
       where: {
         aluno: { id: In(todosIds) },
-        projeto: { evento: { id: eventoId } }
+        projeto: { evento: { id: eventoId } },
       },
-      relations: ['aluno']
+      relations: ['aluno'],
     });
 
     if (ocupados.length > 0) {
-      const nomes = ocupados.map(p => p.aluno.nome).join(', ');
+      const nomes = ocupados.map((p) => p.aluno.nome).join(', ');
       throw new BadRequestException(`Alunos já vinculados a este evento: ${nomes}`);
     }
   }
 
+<<<<<<< Updated upstream
   private async saveProjeto(qr: QueryRunner, dto: CreateProjetoDto, autorId: number): Promise<Projeto> {
   // Criamos o objeto limpando qualquer ID que possa vir do Front por engano
   const novoProjeto = qr.manager.create(Projeto, {
@@ -372,28 +400,42 @@ export class ProjetosService {
   // Usamos save, mas garantimos que o objeto está "limpo"
   return qr.manager.save(Projeto, novoProjeto);
 }
+=======
+  // ✅ eventoId agora vem como parâmetro separado (não do dto.evento que pode ser undefined)
+  private async saveProjeto(
+    qr: QueryRunner,
+    dto: CreateProjetoDto,
+    autorId: number,
+    eventoId: number,
+  ): Promise<Projeto> {
+    const projeto = qr.manager.create(Projeto, {
+      titulo: dto.titulo,
+      descricao: dto.descricao,
+      temaId: dto.temaId,
+      evento: { id: eventoId } as any,
+      alunoAutor: { id: autorId } as any,
+    });
+>>>>>>> Stashed changes
 
+    return qr.manager.save(projeto);
+  }
 
 
   private async saveParticipantes(qr: QueryRunner, projetoId: number, convidadosIds: number[] = [], autorId: number) {
-  // 1. Remove o autor da lista (caso o front tenha enviado por engano)
-  // 2. Remove IDs duplicados que possam ter vindo no array
-  const participantesApenas = convidadosIds.filter(id => id !== autorId);
-  const idsUnicos = [...new Set(participantesApenas)];
+    const participantesApenas = convidadosIds.filter((id) => id !== autorId);
+    const idsUnicos = [...new Set(participantesApenas)];
 
-  // Se o projeto for individual (sem convidados), não precisa salvar nada na tabela pivô
-  if (idsUnicos.length === 0) return [];
+    if (idsUnicos.length === 0) return [];
 
-  const vinculos = idsUnicos.map(id =>
-    qr.manager.create(ProjetoAluno, {
-      projeto: { id: projetoId },
-      aluno: { id: id }
-    })
-  );
+    const vinculos = idsUnicos.map((id) =>
+      qr.manager.create(ProjetoAluno, {
+        projeto: { id: projetoId },
+        aluno: { id },
+      }),
+    );
 
-  return qr.manager.save(vinculos);
-}
-
+    return qr.manager.save(vinculos);
+  }
 
     private async getUltimoProjetoDoAluno(userId: number): Promise<Projeto> {
     const projeto = await this.projetoRepository.findOne({
@@ -412,7 +454,7 @@ export class ProjetosService {
 
   private async validarTemaNoEvento(temaId: number, eventoId: number) {
     const existe = await this.temaEventoRepository.exists({
-      where: { id: temaId, evento: { id: eventoId } }
+      where: { id: temaId, evento: { id: eventoId } },
     });
 
     if (!existe) {
@@ -422,12 +464,12 @@ export class ProjetosService {
 
   private async validarSolicitacaoDuplicada(projetoId: number, orientadorId: number) {
     const solicitacao = await this.projetoOrientadorRepository.findOne({
-      where: { projeto: { id: projetoId }, orientador: { id: orientadorId } }
+      where: { projeto: { id: projetoId }, orientador: { id: orientadorId } },
     });
 
     if (!solicitacao) return;
 
-    const mensagensErro = {
+    const mensagensErro: Record<string, string> = {
       pendente: 'Já existe uma solicitação pendente para este orientador.',
       aceito: 'Este orientador já aceitou orientar este projeto.',
     };
@@ -436,49 +478,48 @@ export class ProjetosService {
     if (erro) throw new BadRequestException(erro);
   }
 
+  // ✅ tema adicionado no select
   private getProjetoSelectFields() {
     return {
       id: true,
       titulo: true,
       descricao: true,
+<<<<<<< Updated upstream
       tema: { id: true, nome: true }, // 👈 Adicionado
       alunoAutor: { id: true, nome: true, role_cargo: true, ano: true, turma: true },
       projetoAlunos: { id: true, aluno: { id: true, nome: true, ano: true, turma: true } },
+=======
+      temaId: true,
+      tema: { id: true, nome: true },
+      alunoAutor: { id: true, nome: true, role_cargo: true },
+      projetoAlunos: { id: true, aluno: { id: true, nome: true } },
+>>>>>>> Stashed changes
     };
   }
 
-  /**
-   * Valida se o evento existe, se está dentro do prazo e se o tema pertence a ele.
-   */
   private async validarEventoETema(eventoId: number, temaId: number) {
-    // 1. Busca o evento para verificar existência e prazos
     const evento = await this.eventoRepository.findOne({ where: { id: eventoId } });
-    
+
     if (!evento) {
       throw new NotFoundException(`O evento #${eventoId} não existe.`);
     }
 
-    // 2. Validação de Prazo (Data de Início e Fim)
     const agora = new Date();
 
     if (agora < evento.prazoInicial) {
       throw new BadRequestException(
-        `As inscrições para este evento ainda não começaram. (Início: ${evento.prazoInicial.toLocaleString()})`
+        `As inscrições para este evento ainda não começaram. (Início: ${evento.prazoInicial.toLocaleString()})`,
       );
     }
 
     if (agora > evento.prazoFinal) {
       throw new BadRequestException(
-        `O prazo de inscrição para este evento encerrou em ${evento.prazoFinal.toLocaleString()}.`
+        `O prazo de inscrição para este evento encerrou em ${evento.prazoFinal.toLocaleString()}.`,
       );
     }
 
-    // 3. Verifica se o tema existe e está vinculado a esse evento
     const temaValido = await this.temaEventoRepository.findOne({
-      where: {
-        id: temaId,
-        evento: { id: eventoId }
-      }
+      where: { id: temaId, evento: { id: eventoId } },
     });
 
     if (!temaValido) {
@@ -486,20 +527,16 @@ export class ProjetosService {
     }
   }
 
-	/**
- * Busca o evento mais recente cadastrado no sistema.
- */
-private async buscarUltimoEvento(): Promise<Evento> {
-  const ultimoEvento = await this.eventoRepository.findOne({
-    where: {},
-    order: { criadoEm: 'DESC' },
-  });
+  private async buscarUltimoEvento(): Promise<Evento> {
+    const ultimoEvento = await this.eventoRepository.findOne({
+      where: {},
+      order: { criadoEm: 'DESC' },
+    });
 
-  if (!ultimoEvento) {
-    throw new NotFoundException('Não há nenhum evento cadastrado no sistema.');
+    if (!ultimoEvento) {
+      throw new NotFoundException('Não há nenhum evento cadastrado no sistema.');
+    }
+
+    return ultimoEvento;
   }
-
-  return ultimoEvento;
-}
-
 }
