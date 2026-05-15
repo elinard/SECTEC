@@ -31,6 +31,7 @@ import {
   PiUploadSimple,
   PiYoutubeLogo,
 } from "react-icons/pi";
+import { Eye } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { MainLayout } from "../componentes/SideBarUniversal";
 import Swal from "sweetalert2";
@@ -360,6 +361,31 @@ function AdminChip({ children, className = "" }: { children: React.ReactNode; cl
   );
 }
 
+function PainelDetalhes({ aberto, titulo, onClose, children }: { aberto: boolean; titulo: string; onClose: () => void; children: React.ReactNode }) {
+  if (!aberto) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/40 backdrop-blur-sm">
+      <div className="h-full w-full max-w-xl overflow-y-auto bg-white p-6 shadow-2xl">
+        <div className="mb-6 flex items-center justify-between gap-4">
+          <h2 className="text-xl font-black text-slate-950">{titulo}</h2>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900"
+            aria-label="Fechar painel de detalhes"
+          >
+            ×
+          </button>
+        </div>
+
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function AdminPageShell({ children }: { children: React.ReactNode }) {
   return (
     <MainLayout userRole="coordenador">
@@ -546,6 +572,9 @@ function EventosCoordenacao() {
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
   const [temaInputs, setTemaInputs] = useState<Record<number, string>>({});
+  const [eventoSelecionado, setEventoSelecionado] = useState<EventoApi | null>(null);
+  const [detalhesEventoAberto, setDetalhesEventoAberto] = useState(false);
+  const [projetosEventoSelecionado, setProjetosEventoSelecionado] = useState<ProjetoCoordenacaoListagem[]>([]);
   
   const formularioEventoRef = useRef<HTMLDivElement | null>(null);
   const [step, setStep] = useState(1);
@@ -650,6 +679,32 @@ function EventosCoordenacao() {
         block: "start",
       });
     }, 50);
+  }
+
+  async function abrirDetalhesEvento(evento: EventoApi) {
+    setEventoSelecionado(evento);
+    setDetalhesEventoAberto(true);
+
+    try {
+      const dados = await apiRequest<EventoComProjetosApi[]>("/projetos");
+      const projetos = (dados ?? []).flatMap((item) =>
+        (item.projetos ?? []).map((projeto) => ({
+          ...projeto,
+          eventoTitulo: projeto.evento?.titulo ?? item.titulo,
+          eventoId: projeto.evento?.id ?? item.id,
+        })),
+      );
+
+      setProjetosEventoSelecionado(projetos.filter((projeto) => projeto.eventoId === evento.id));
+    } catch {
+      setProjetosEventoSelecionado([]);
+    }
+  }
+
+  function fecharDetalhesEvento() {
+    setDetalhesEventoAberto(false);
+    setEventoSelecionado(null);
+    setProjetosEventoSelecionado([]);
   }
 
   
@@ -1081,6 +1136,14 @@ function EventosCoordenacao() {
                        <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-600">{new Date(evento.prazoInicial).getFullYear()}</span>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => abrirDetalhesEvento(evento)}
+                        aria-label={`Ver detalhes do evento ${evento.titulo}`}
+                        className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-sectec-300 hover:bg-sectec-50 hover:text-sectec-700"
+                      >
+                        <Eye size={16} />
+                      </button>
                       <button type="button" onClick={() => handleEdit(evento)} className="cursor-pointer flex h-8 items-center justify-center rounded-xl bg-slate-50 px-3 text-xs font-black text-slate-600 transition hover:bg-sectec-50 hover:text-sectec-700">Editar</button>
                       <button type="button" onClick={() => handleExcluirEvento(evento.id)} className="cursor-pointer flex h-8 w-8 items-center justify-center rounded-xl bg-slate-50 text-slate-400 transition hover:bg-red-50 hover:text-red-600"><PiXCircle size={16} /></button>
                     </div>
@@ -1140,6 +1203,73 @@ function EventosCoordenacao() {
             </div>
           )}
         </section>
+
+        <PainelDetalhes
+          aberto={detalhesEventoAberto}
+          titulo={eventoSelecionado ? `Detalhes · ${eventoSelecionado.titulo}` : "Detalhes do evento"}
+          onClose={fecharDetalhesEvento}
+        >
+          {eventoSelecionado ? (
+            <div className="space-y-5">
+              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                <p className="text-xs font-black uppercase tracking-widest text-slate-500">Visão geral</p>
+                <h3 className="mt-2 text-lg font-black text-slate-900">{eventoSelecionado.titulo}</h3>
+                <p className="mt-2 text-sm font-medium text-slate-600">{eventoSelecionado.descricao || "Sem descrição"}</p>
+                <p className="mt-3 text-xs text-slate-500">Ano: <span className="font-black text-slate-700">{new Date(eventoSelecionado.prazoInicial).getFullYear()}</span></p>
+                <p className="mt-1 text-xs text-slate-500">Período geral: <span className="font-black text-slate-700">{formatarPeriodo({ inicio: eventoSelecionado.prazoInicial, fim: eventoSelecionado.prazoFinal })}</span></p>
+              </div>
+
+              <div className="rounded-2xl border border-slate-100 p-4">
+                <p className="text-xs font-black uppercase tracking-widest text-slate-500">Cronograma</p>
+                <div className="mt-3 grid gap-2">
+                  {getFasesEvento(eventoSelecionado).map((fase) => (
+                    <div key={fase.label} className="flex items-center justify-between gap-3 text-sm">
+                      <span className="font-black text-slate-700">{fase.label}</span>
+                      <span className="font-semibold text-slate-500">{formatarPeriodo(fase.periodo)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-100 p-4">
+                <p className="text-xs font-black uppercase tracking-widest text-slate-500">Temas ({eventoSelecionado.temas?.length ?? 0})</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {(eventoSelecionado.temas ?? []).length === 0 && (
+                    <span className="text-sm font-semibold text-slate-500">Nenhum tema cadastrado para este evento.</span>
+                  )}
+                  {(eventoSelecionado.temas ?? []).map((tema) => (
+                    <span
+                      key={tema.id}
+                      className="inline-flex items-center rounded-full border border-sectec-100 bg-sectec-50 px-3 py-1 text-xs font-bold text-sectec-700"
+                    >
+                      {tema.nome}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-100 p-4">
+                <p className="text-xs font-black uppercase tracking-widest text-slate-500">Projetos vinculados ({projetosEventoSelecionado.length})</p>
+                <div className="mt-3 space-y-2">
+                  {projetosEventoSelecionado.length === 0 ? (
+                    <p className="text-sm font-semibold text-slate-500">Nenhum projeto vinculado a este evento.</p>
+                  ) : (
+                    projetosEventoSelecionado.map((projeto) => (
+                      <div key={projeto.id} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                        <p className="font-black text-slate-900">{projeto.titulo}</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {projeto.tema?.nome || "Sem tema"} · {projeto.alunoAutor?.nome || projeto.projetoAlunos?.[0]?.aluno?.nome || "Sem autor"}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm font-semibold text-slate-500">Carregando detalhes...</p>
+          )}
+        </PainelDetalhes>
       </div>
     </AdminPageShell>
   );
@@ -1163,6 +1293,9 @@ function UsuariosCoordenacao() {
   const [alunos, setAlunos] = useState<UsuarioCoordenacao[]>([]);
   const [orientadores, setOrientadores] = useState<UsuarioCoordenacao[]>([]);
   const [comissao, setComissao] = useState<UsuarioCoordenacao[]>([]);
+  const [projetosCoordenacao, setProjetosCoordenacao] = useState<any[]>([]);
+  const [usuarioSelecionado, setUsuarioSelecionado] = useState<UsuarioCoordenacao | null>(null);
+  const [detalhesAberto, setDetalhesAberto] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
   const [uploadando, setUploadando] = useState(false);
@@ -1204,6 +1337,16 @@ function UsuariosCoordenacao() {
       setErro(error instanceof Error ? error.message : "Nao foi possivel carregar os usuarios.");
     } finally {
       setCarregando(false);
+    }
+  }
+
+  async function carregarProjetos() {
+    try {
+      const dados = await apiRequest<any[]>('/projetos');
+      const flatten = Array.isArray(dados) ? dados.flatMap((item) => (Array.isArray(item.projetos) ? item.projetos.map((p: any) => ({ ...p, evento: p.evento ?? { id: item.id, titulo: item.titulo } })) : [item])) : [];
+      setProjetosCoordenacao(flatten);
+    } catch {
+      setProjetosCoordenacao([]);
     }
   }
 
@@ -1313,7 +1456,7 @@ function UsuariosCoordenacao() {
 
     async function carregar() {
       if (!ativo) return;
-      await carregarUsuarios();
+      await Promise.all([carregarUsuarios(), carregarProjetos()]);
     }
 
     carregar();
@@ -1322,6 +1465,29 @@ function UsuariosCoordenacao() {
       ativo = false;
     };
   }, []);
+
+  function getProjetosDoUsuario(usuario: UsuarioCoordenacao) {
+    const usuarioId = String(usuario.id);
+
+    return projetosCoordenacao.filter((projeto: any) => {
+      const autorId = projeto.alunoAutor?.id ? String(projeto.alunoAutor.id) : null;
+      const ehAutor = autorId === usuarioId;
+      const ehIntegrante = Array.isArray(projeto.projetoAlunos)
+        ? projeto.projetoAlunos.some((v: any) => String(v.aluno?.id) === usuarioId)
+        : false;
+      return ehAutor || ehIntegrante;
+    });
+  }
+
+  function abrirDetalhesUsuario(usuario: UsuarioCoordenacao) {
+    setUsuarioSelecionado(usuario);
+    setDetalhesAberto(true);
+  }
+
+  function fecharDetalhesUsuario() {
+    setDetalhesAberto(false);
+    setUsuarioSelecionado(null);
+  }
 
   const listaAtual = abaAtiva === "alunos" ? alunos : abaAtiva === "orientadores" ? orientadores : comissao;
   const termo = busca.trim().toLowerCase();
@@ -1512,17 +1678,28 @@ function UsuariosCoordenacao() {
                       </p>
                       <p className="text-sm font-black text-slate-700">{usuario.perfil}</p>
                       <div className="flex justify-end">
-                        {abaAtiva === "alunos" && usuario.perfil === "Aluno" ? (
+                        <div className="flex items-center gap-2">
                           <button
                             type="button"
-                            onClick={() => promoverAlunoParaComissao(usuario)}
-                            className="inline-flex cursor-pointer items-center justify-center rounded-xl border border-sectec-200 bg-sectec-50 px-3 py-2 text-xs font-black text-sectec-700 transition hover:bg-sectec-100 hover:text-sectec-800"
+                            onClick={() => abrirDetalhesUsuario(usuario)}
+                            aria-label={`Ver detalhes de ${usuario.nome}`}
+                            className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-sectec-300 hover:bg-sectec-50 hover:text-sectec-700"
                           >
-                            Tornar comissão
+                            <Eye size={16} />
                           </button>
-                        ) : (
-                          <span className="text-xs font-semibold text-slate-400">Sem ações disponíveis</span>
-                        )}
+
+                          {abaAtiva === "alunos" && usuario.perfil === "Aluno" ? (
+                            <button
+                              type="button"
+                              onClick={() => promoverAlunoParaComissao(usuario)}
+                              className="inline-flex cursor-pointer items-center justify-center rounded-xl border border-sectec-200 bg-sectec-50 px-3 py-2 text-xs font-black text-sectec-700 transition hover:bg-sectec-100 hover:text-sectec-800"
+                            >
+                              Tornar comissão
+                            </button>
+                          ) : (
+                            <span className="text-xs font-semibold text-slate-400">Sem ações disponíveis</span>
+                          )}
+                        </div>
                       </div>
                     </article>
                   ))}
@@ -1558,6 +1735,41 @@ function UsuariosCoordenacao() {
           </div>
         )}
       </section>
+      <PainelDetalhes aberto={detalhesAberto} titulo={usuarioSelecionado ? usuarioSelecionado.nome : "Detalhes do usuário"} onClose={fecharDetalhesUsuario}>
+        {usuarioSelecionado ? (
+          <div className="space-y-4">
+            <div>
+              <p className="text-sm font-black text-slate-900">{usuarioSelecionado.nome}</p>
+              <p className="mt-1 text-sm font-semibold text-slate-600">{usuarioSelecionado.email || "-"}</p>
+              <p className="mt-1 text-xs text-slate-500">Perfil: <strong className="text-slate-700">{usuarioSelecionado.perfil}</strong></p>
+              <p className="mt-1 text-xs text-slate-500">Turma: {usuarioSelecionado.turma || "-"}{usuarioSelecionado.ano ? ` · ${usuarioSelecionado.ano}` : ""}</p>
+            </div>
+
+            <div>
+              <h4 className="text-sm font-black text-slate-900">Projetos vinculados</h4>
+              <div className="mt-3 space-y-3">
+                {getProjetosDoUsuario(usuarioSelecionado).length === 0 ? (
+                  <div className="text-sm text-slate-500">Nenhum projeto vinculado a este usuário.</div>
+                ) : (
+                  getProjetosDoUsuario(usuarioSelecionado).map((projeto) => (
+                    <div key={projeto.id} className="rounded-xl border border-slate-100 p-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-black text-slate-900">{projeto.titulo}</p>
+                          <p className="mt-1 text-xs text-slate-500">{projeto.tema?.nome || "Sem tema"} · {projeto.evento?.titulo || projeto.eventoTitulo || "Sem evento"}</p>
+                        </div>
+                        <div className="text-xs font-black text-slate-700">{String(projeto.alunoAutor?.id) === usuarioSelecionado.id ? 'Autor' : 'Integrante'}</div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="text-sm text-slate-500">Carregando...</div>
+        )}
+      </PainelDetalhes>
     </AdminPageShell>
   );
 }
@@ -1838,7 +2050,7 @@ function Administrador() {
                           className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition hover:border-sectec-200 hover:bg-sectec-50 hover:text-sectec-700"
                           aria-label={`Abrir ${projeto.titulo}`}
                         >
-                          <PiArrowUpRight size={18} />
+                          <Eye size={18} />
                         </button>
                       </article>
                     ))}
