@@ -78,6 +78,30 @@ export class EventoService {
     return await this.temaRepository.save(novosTemas);
   }
 
+
+
+
+
+// modulos/eventos/evento.service.ts
+
+async findProfessoresPorTema(temaId: number) {
+  const tema = await this.temaRepository.findOne({
+    where: { id: temaId },
+    relations: ['orientadores'], // Carrega os usuários vinculados a este tema
+  });
+
+  if (!tema) {
+    throw new NotFoundException(`Tema com ID ${temaId} não encontrado`);
+  }
+
+  // Retorna apenas a lista de orientadores vinculados
+  return tema.orientadores;
+}
+
+
+
+
+
   /**
    * Busca o evento mais recente do ano vigente.
    * Ajustado para lidar com o tipo 'date' puro.
