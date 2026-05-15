@@ -93,7 +93,7 @@ export class EventoController {
       }
     }
   })
-  // @UseGuards(JwtAuthGuard) // Comentado para testes iniciais
+  @UseGuards(JwtAuthGuard) // Comentado para testes iniciais
   async sincronizar(
     @Body('temasIds') temasIds: number[],
     @GetUser() user: User // O decorator GetUser retornará undefined enquanto o Guard estiver OFF

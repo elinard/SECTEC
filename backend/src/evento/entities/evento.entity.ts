@@ -24,10 +24,10 @@ export enum EventoStatus {
 
 // Value Object ajustado para apenas DATA
 export class Periodo {
-  @Column({ type: 'date', nullable: true }) // Mudança para 'date'
+  @Column({ type: 'datetime', nullable: true }) // Mudança para 'date'
   inicio?: Date;
 
-  @Column({ type: 'date', nullable: true }) // Mudança para 'date'
+  @Column({ type: 'datetime', nullable: true }) // Mudança para 'date'
   fim?: Date;
 }
 
@@ -59,10 +59,10 @@ export class Evento {
   @Column({ name: 'coordenador_id', nullable: true })
   coordenadorId?: number;
 
-@Column({ name: 'prazo_inicial', type: 'date', nullable: true }) // Adicione o nullable aqui
+@Column({ name: 'prazo_inicial', type: 'datetime', nullable: true }) // Adicione o nullable aqui
 prazoInicial!: Date;
 
-@Column({ name: 'prazo_final', type: 'date', nullable: true }) // Adicione o nullable aqui
+@Column({ name: 'prazo_final', type: 'datetime', nullable: true }) // Adicione o nullable aqui
 prazoFinal!: Date;
 
   @Column({

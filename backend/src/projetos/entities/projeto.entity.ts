@@ -4,6 +4,7 @@ import { Evento } from '../../evento/entities/evento.entity';
 import { User } from '../../users/entities/user.entity'; // 👈 Corrigido: era Usuario
 import { ProjetoAluno } from './projeto-aluno.entity';
 import { ProjetoOrientador } from './projeto-orientador.entity';
+import { TemaEvento } from '../../evento/entities/tema-evento.entity';
 
 @Entity('projetos')
 @Unique(['alunoAutor', 'evento'])
@@ -28,9 +29,11 @@ evento!: Evento;
   @Column({ type: 'text' })
   descricao!: string;
 
-  // Se você for usar a tabela de temas orientadores, o campo seria assim:
-  @Column({ name: 'tema_id' })
-  temaId!: number;
+  // Se você for usar a tabela de temas orientadores, o campo seria assim
+@ManyToOne(() => TemaEvento)
+@JoinColumn({ name: 'tema_id' })
+tema!: TemaEvento; 
+
 
   @OneToMany(() => ProjetoAluno, (projetoAluno) => projetoAluno.projeto)
   projetoAlunos!: ProjetoAluno[];
