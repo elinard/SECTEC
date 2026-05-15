@@ -2,10 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   BarChart3,
-  CalendarDays,
   Check,
   CheckCircle2,
-  ClipboardCheck,
   Clock3,
   FileText,
   FolderOpen,
@@ -17,6 +15,7 @@ import {
   SlidersHorizontal,
   Trash2,
   Users,
+  X,
 } from "lucide-react";
 
 import { MainLayout } from "../componentes/SideBarUniversal";
@@ -74,24 +73,6 @@ type Projeto = RegistroComEixo & {
   turma: string;
   enviadoEm: string;
   status: StatusProjeto;
-};
-
-type AgendaItem = RegistroComEixo & {
-  id: string;
-  hora: string;
-  dia: string;
-  titulo: string;
-  equipe: string;
-  local: string;
-};
-
-type NotaEquipe = RegistroComEixo & {
-  equipe: string;
-  turma: string;
-  pesquisa: number;
-  prototipo: number;
-  apresentacao: number;
-  documentacao: number;
 };
 
 type UsuarioProjetoApi = {
@@ -161,16 +142,6 @@ type UsuarioOrientadorApi = {
   temasSelecionados?: TemaOrientadorApi[];
 };
 
-const rubrica = [
-  ["Pesquisa", "Problema, objetivo, justificativa, fontes e metodologia."],
-  ["Protótipo", "Funcionamento, teste, aplicação prática e evidências."],
-  ["Apresentação", "Clareza, domínio do tema e resposta à banca."],
-  ["Documentação", "Relatório, banner, código e organização dos arquivos."],
-];
-
-const diasAgenda = ["Seg", "Ter", "Qua", "Qui", "Sex"];
-const agendaSemBackend: AgendaItem[] = [];
-const notasSemBackend: NotaEquipe[] = [];
 const eixosProjeto = EIXOS_LIST.filter((eixo): eixo is EixoProjeto => eixo !== "todos");
 function cx(...classes: Array<string | false | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -216,6 +187,12 @@ function turmaFromProjeto(projeto?: ProjetoApi) {
 
 function liderFromProjeto(projeto?: ProjetoApi) {
   return projeto?.alunoAutor?.nome ?? projeto?.projetoAlunos?.[0]?.aluno?.nome ?? "Aluno não informado";
+}
+
+function nomeCurto(nome: string) {
+  const partes = nome.trim().split(/\s+/).filter(Boolean);
+  if (partes.length <= 2) return nome;
+  return `${partes[0]} ${partes[partes.length - 1]}`;
 }
 
 function integrantesFromProjeto(projeto?: ProjetoApi) {
@@ -641,8 +618,8 @@ function countByEixo<T extends RegistroComEixo>(items: T[], eixo: EixoTematico) 
   return eixo === "todos" ? items.length : items.filter((item) => item.eixoSlug === eixo).length;
 }
 
-function filterByTemasSelecionados<T extends RegistroComEixo>(items: T[], temasIds: number[]) {
-  if (temasIds.length === 0) return items;
+function filterByTemasSelecionados<T extends RegistroComEixo>(items: T[], temasIds: number[], totalTemas = temasIds.length) {
+  if (temasIds.length === 0 || (totalTemas > 0 && temasIds.length >= totalTemas)) return items;
   return items.filter((item) => item.temaId !== undefined && temasIds.includes(item.temaId));
 }
 
@@ -841,10 +818,6 @@ function projetoLabel(status: StatusProjeto) {
   return "aprovado";
 }
 
-function mediaNota(item: NotaEquipe) {
-  return ((item.pesquisa + item.prototipo + item.apresentacao + item.documentacao) / 4).toFixed(1);
-}
-
 function StatCard({
   label,
   value,
@@ -949,6 +922,8 @@ function TemasChecklist({
   onChange: (ids: number[]) => void;
   onSave: () => void;
 }) {
+  const [modalAberto, setModalAberto] = useState(false);
+
   function toggleTema(temaId: number) {
     onChange(
       selecionadosIds.includes(temaId)
@@ -958,66 +933,114 @@ function TemasChecklist({
   }
 
   return (
-    <Card className="p-4 sm:p-4">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+    <>
+      <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Eixos temáticos</p>
-          <h2 className="mt-1 text-lg font-bold text-slate-900">Eixos que o professor orienta</h2>
+          <h2 className="mt-1 text-lg font-bold text-slate-900">
+            {selecionadosIds.length || temas.length} eixo(s) ativo(s)
+          </h2>
           <p className="mt-1 text-sm font-medium text-slate-500">
             {eventoTitulo ? `Evento atual: ${eventoTitulo}` : "Eixos carregados pelo evento atual."}
           </p>
         </div>
 
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <Button variant="secondary" onClick={() => onChange(temas.map((tema) => tema.id))} disabled={carregando || salvando}>
-            Todos
-          </Button>
-          <Button onClick={onSave} disabled={carregando || salvando || temas.length === 0}>
-            <Save size={16} />
-            {salvando ? "Salvando" : "Salvar temas"}
-          </Button>
-        </div>
+        <Button onClick={() => setModalAberto(true)} disabled={carregando}>
+          <SlidersHorizontal size={16} />
+          Eixos temáticos
+        </Button>
       </div>
 
-      <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
-        {carregando ? (
-          <div className="rounded-lg border border-dashed border-slate-200 p-4 text-sm font-semibold text-slate-400 sm:col-span-2 xl:col-span-3">
-            Carregando eixos do evento atual...
-          </div>
-        ) : temas.length > 0 ? (
-          temas.map((tema) => {
-            const ativo = selecionadosIds.includes(tema.id);
+      <AnimatePresence>
+        {modalAberto && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 px-4 py-6"
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 18, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 12, scale: 0.98 }}
+              className="max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-xl bg-white shadow-2xl"
+            >
+              <div className="flex items-start justify-between gap-3 border-b border-slate-100 p-5">
+                <div className="min-w-0">
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Eixos temáticos</p>
+                  <h2 className="mt-1 text-lg font-bold text-slate-900">Eixos que o professor orienta</h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setModalAberto(false)}
+                  className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                  aria-label="Fechar eixos temáticos"
+                >
+                  <X size={18} />
+                </button>
+              </div>
 
-            return (
-              <label
-                key={tema.id}
-                className={cx(
-                  "flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 transition",
-                  ativo
-                    ? "border-sectec-300 bg-sectec-50 text-sectec-800"
-                    : "border-slate-200 bg-white text-slate-600 hover:border-sectec-200 hover:bg-sectec-50"
-                )}
-              >
-                <input
-                  type="checkbox"
-                  checked={ativo}
-                  onChange={() => toggleTema(tema.id)}
-                  className="h-4 w-4 shrink-0 accent-sectec-700"
-                />
-                <span className="min-w-0 flex-1 break-words text-sm font-semibold">{tema.nome}</span>
-                <span className="rounded-md bg-white px-2 py-1 text-xs font-bold text-slate-500">
-                  {contagemPorTema(tema.id)}
-                </span>
-              </label>
-            );
-          })
-        ) : (
-          <div className="rounded-lg border border-dashed border-slate-200 p-4 text-sm font-semibold text-slate-400 sm:col-span-2 xl:col-span-3">
-            Nenhum eixo temático veio do evento atual.
-          </div>
+              <div className="max-h-[60vh] overflow-y-auto p-5">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {carregando ? (
+                    <div className="rounded-lg border border-dashed border-slate-200 p-4 text-sm font-semibold text-slate-400 sm:col-span-2">
+                      Carregando eixos do evento atual...
+                    </div>
+                  ) : temas.length > 0 ? (
+                    temas.map((tema) => {
+                      const ativo = selecionadosIds.includes(tema.id);
+
+                      return (
+                        <label
+                          key={tema.id}
+                          className={cx(
+                            "flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 transition",
+                            ativo
+                              ? "border-sectec-300 bg-sectec-50 text-sectec-800"
+                              : "border-slate-200 bg-white text-slate-600 hover:border-sectec-200 hover:bg-sectec-50"
+                          )}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={ativo}
+                            onChange={() => toggleTema(tema.id)}
+                            className="h-4 w-4 shrink-0 accent-sectec-700"
+                          />
+                          <span className="min-w-0 flex-1 break-words text-sm font-semibold">{tema.nome}</span>
+                          <span className="rounded-md bg-white px-2 py-1 text-xs font-bold text-slate-500">
+                            {contagemPorTema(tema.id)}
+                          </span>
+                        </label>
+                      );
+                    })
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-slate-200 p-4 text-sm font-semibold text-slate-400 sm:col-span-2">
+                      Nenhum eixo temático veio do evento atual.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2 border-t border-slate-100 p-5 sm:flex-row sm:justify-end">
+                <Button variant="secondary" onClick={() => onChange(temas.map((tema) => tema.id))} disabled={carregando || salvando}>
+                  Todos
+                </Button>
+                <Button
+                  onClick={() => {
+                    onSave();
+                    setModalAberto(false);
+                  }}
+                  disabled={carregando || salvando || temas.length === 0}
+                >
+                  <Save size={16} />
+                  {salvando ? "Salvando" : "Salvar temas"}
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
         )}
-      </div>
-    </Card>
+      </AnimatePresence>
+    </>
   );
 }
 
@@ -1074,7 +1097,7 @@ function ProjetoDetalheCard({
 }) {
   if (!projeto && !carregando && !erro) return null;
 
-  const integrantes = projeto?.projetoAlunos?.map((item) => item.aluno?.nome).filter(Boolean) ?? [];
+  const integrantes = projeto?.projetoAlunos?.flatMap((item) => (item.aluno?.nome ? [item.aluno.nome] : [])) ?? [];
 
   return (
     <Card>
@@ -1108,7 +1131,23 @@ function ProjetoDetalheCard({
           <div className="sm:col-span-2">
             <DetailLine
               label="Integrantes"
-              value={integrantes.length > 0 ? integrantes.join(", ") : "Nenhum integrante extra retornado"}
+              value={
+                integrantes.length > 0 ? (
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {integrantes.map((nome) => (
+                      <span
+                        key={nome}
+                        title={nome}
+                        className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700"
+                      >
+                        {nomeCurto(nome)}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  "Nenhum integrante extra retornado"
+                )
+              }
             />
           </div>
         </div>
@@ -1185,12 +1224,12 @@ function DashboardOrientador() {
   }, [temaFiltro, temasBackend.selecionadosIds]);
 
   const equipesPorTemasSelecionados = useMemo(
-    () => filterByTemasSelecionados(equipesData, temasBackend.selecionadosIds),
-    [equipesData, temasBackend.selecionadosIds]
+    () => filterByTemasSelecionados(equipesData, temasBackend.selecionadosIds, temasBackend.temas.length),
+    [equipesData, temasBackend.selecionadosIds, temasBackend.temas.length]
   );
   const projetosPorTemasSelecionados = useMemo(
-    () => filterByTemasSelecionados(projetosData, temasBackend.selecionadosIds),
-    [projetosData, temasBackend.selecionadosIds]
+    () => filterByTemasSelecionados(projetosData, temasBackend.selecionadosIds, temasBackend.temas.length),
+    [projetosData, temasBackend.selecionadosIds, temasBackend.temas.length]
   );
   const equipesFiltradas = useMemo(
     () => filterByTemaAtivo(equipesPorTemasSelecionados, temaFiltro),
@@ -1818,226 +1857,6 @@ export function EntregasOrientador() {
           </>
         )}
       </Card>
-    </PageShell>
-  );
-}
-
-export function AgendaOrientador() {
-  const [eixoAtivo, setEixoAtivo] = useState<EixoTematico>("todos");
-  const [aviso, setAviso] = useState("");
-  const agendaData = agendaSemBackend;
-
-  const agendaFiltrada = useMemo(() => filterByEixo(agendaData, eixoAtivo), [agendaData, eixoAtivo]);
-
-  function novoHorario() {
-    setAviso("Agenda ainda não tem endpoint no backend para criar horários.");
-  }
-
-  return (
-    <PageShell
-      eyebrow="Agenda"
-      title="Orientações da semana"
-      description="Planeje horários, locais e assuntos de cada reunião com as equipes."
-      actions={
-        <Button onClick={novoHorario}>
-          <CalendarDays size={16} />
-          Novo horário
-        </Button>
-      }
-    >
-      <Notice message={aviso || "Não existe backend para agenda/horários de orientação nesta implementação."} />
-
-      <FiltroEixoBox
-        eixoAtivo={eixoAtivo}
-        onChange={setEixoAtivo}
-        contagemPorEixo={(eixo) => countByEixo(agendaData, eixo)}
-        description="Mostra somente os horários do eixo selecionado."
-      />
-
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-5">
-        {diasAgenda.map((dia, index) => {
-          const reunioes = agendaFiltrada.filter((item) => item.dia.startsWith(dia));
-
-          return (
-            <Card
-              key={dia}
-              className={cx("xl:min-h-72", index === 4 && "sm:col-span-2 xl:col-span-1")}
-            >
-              <h2 className="font-bold text-slate-900">{dia}</h2>
-              <div className="mt-4 space-y-3">
-                {reunioes.length > 0 ? (
-                  reunioes.map((item) => (
-                    <div key={item.id} className="rounded-lg border border-slate-200 p-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-bold text-sectec-700">{item.hora}</p>
-                          <p className="mt-1 break-words text-sm font-semibold leading-5 text-slate-900">{item.equipe}</p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setAviso("Agenda ainda não tem endpoint no backend para remover horários.")}
-                          className="rounded-lg p-1.5 text-slate-300 transition hover:bg-red-50 hover:text-red-500"
-                          aria-label="Remover horário"
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                      <p className="mt-1 break-words text-xs font-medium text-slate-500">{item.titulo}</p>
-                      <p className="mt-2 text-xs font-semibold text-slate-400">{item.local}</p>
-                    </div>
-                  ))
-                ) : (
-                  <div className="rounded-lg border border-dashed border-slate-200 p-4 text-sm font-medium text-slate-400">
-                    Sem orientação marcada.
-                  </div>
-                )}
-              </div>
-            </Card>
-          );
-        })}
-      </div>
-    </PageShell>
-  );
-}
-
-export function AvaliacoesOrientador() {
-  const [eixoAtivo, setEixoAtivo] = useState<EixoTematico>("todos");
-  const [aviso, setAviso] = useState("");
-  const notasData = notasSemBackend;
-
-  const notasFiltradas = useMemo(() => filterByEixo(notasData, eixoAtivo), [notasData, eixoAtivo]);
-
-  function atualizarNota(equipe: string, campo: keyof Pick<NotaEquipe, "pesquisa" | "prototipo" | "apresentacao" | "documentacao">, valor: number) {
-    void equipe;
-    void campo;
-    void valor;
-    setAviso("Notas/avaliações ainda não têm endpoint no backend.");
-  }
-
-  return (
-    <PageShell
-      eyebrow="Avaliação"
-      title="Notas e rubrica"
-      description="Lance notas por critério e mantenha a avaliação consistente para todas as equipes."
-      actions={
-        <Button onClick={() => setAviso("Notas/avaliações ainda não têm endpoint no backend.")}>
-          <Save size={16} />
-          Salvar notas
-        </Button>
-      }
-    >
-      <Notice message={aviso || "Não existe backend para notas/avaliações nesta implementação."} />
-
-      <FiltroEixoBox
-        eixoAtivo={eixoAtivo}
-        onChange={setEixoAtivo}
-        contagemPorEixo={(eixo) => countByEixo(notasData, eixo)}
-        description="Filtra as notas das equipes por eixo temático."
-      />
-
-      <Card>
-        {notasFiltradas.length === 0 ? (
-          <EmptyState text="Nenhuma avaliação encontrada neste eixo." />
-        ) : (
-          <>
-            <div className="space-y-3 md:hidden">
-              {notasFiltradas.map((item) => (
-                <div key={item.equipe} className="rounded-lg border border-slate-200 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <h3 className="break-words font-bold text-slate-900">{item.equipe}</h3>
-                      <p className="mt-1 break-words text-sm font-medium text-slate-500">{item.turma}</p>
-                    </div>
-                    <Badge tone="green">{mediaNota(item)}</Badge>
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-2 gap-3">
-                    {([
-                      ["Pesquisa", "pesquisa", item.pesquisa],
-                      ["Protótipo", "prototipo", item.prototipo],
-                      ["Apresentação", "apresentacao", item.apresentacao],
-                      ["Documentação", "documentacao", item.documentacao],
-                    ] as const).map(([label, campo, valor]) => (
-                      <label key={campo} className="min-w-0 space-y-1">
-                        <span className="block break-words text-[11px] font-bold uppercase tracking-[0.1em] text-slate-400">
-                          {label}
-                        </span>
-                        <input
-                          type="number"
-                          min={0}
-                          max={10}
-                          step={0.1}
-                          value={valor}
-                          onChange={(event) => atualizarNota(item.equipe, campo, Number(event.target.value))}
-                          className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-semibold outline-none focus:border-sectec-600 focus:ring-2 focus:ring-sectec-100"
-                        />
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="hidden overflow-x-auto md:block">
-              <table className="w-full min-w-[860px] border-separate border-spacing-0 text-left">
-                <thead>
-                  <tr className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">
-                    <th className="border-b border-slate-200 py-3">Equipe</th>
-                    <th className="border-b border-slate-200 py-3">Turma</th>
-                    <th className="border-b border-slate-200 py-3">Pesquisa</th>
-                    <th className="border-b border-slate-200 py-3">Protótipo</th>
-                    <th className="border-b border-slate-200 py-3">Apresentação</th>
-                    <th className="border-b border-slate-200 py-3">Documentação</th>
-                    <th className="border-b border-slate-200 py-3">Média</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {notasFiltradas.map((item) => (
-                    <tr key={item.equipe} className="text-sm">
-                      <td className="border-b border-slate-100 py-4 font-bold text-slate-900">{item.equipe}</td>
-                      <td className="border-b border-slate-100 py-4 text-slate-600">{item.turma}</td>
-                      {([
-                        ["pesquisa", item.pesquisa],
-                        ["prototipo", item.prototipo],
-                        ["apresentacao", item.apresentacao],
-                        ["documentacao", item.documentacao],
-                      ] as const).map(([campo, valor]) => (
-                        <td key={campo} className="border-b border-slate-100 py-4">
-                          <input
-                            type="number"
-                            min={0}
-                            max={10}
-                            step={0.1}
-                            value={valor}
-                            onChange={(event) => atualizarNota(item.equipe, campo, Number(event.target.value))}
-                            className="h-9 w-20 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-semibold outline-none focus:border-sectec-600 focus:ring-2 focus:ring-sectec-100"
-                          />
-                        </td>
-                      ))}
-                      <td className="border-b border-slate-100 py-4">
-                        <Badge tone="green">{mediaNota(item)}</Badge>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
-      </Card>
-
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
-        {rubrica.map(([titulo, texto], index) => (
-          <Card
-            key={titulo}
-            className={cx(index === 3 && "sm:col-span-2 xl:col-span-1")}
-          >
-            <ClipboardCheck className="mb-4 text-sectec-600" />
-            <h3 className="font-bold text-slate-900">{titulo}</h3>
-            <p className="mt-2 text-sm font-medium leading-6 text-slate-500">{texto}</p>
-          </Card>
-        ))}
-      </div>
     </PageShell>
   );
 }

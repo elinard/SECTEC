@@ -11,8 +11,6 @@ import ConfigAluno from './componentes/configurações/config';
 import ProtectedRoute from './componentes/ProtectedRoute';
 import { getRoleRedirect, type BackendRole } from './lib/api';
 import DashboardOrientador, {
-  AgendaOrientador,
-  AvaliacoesOrientador,
   ConfigOrientador,
   EntregasOrientador,
   TurmasOrientador,
@@ -115,22 +113,6 @@ function App() {
           element={
             <ProtectedRoute allowedRoles={['orientador']}>
               <EntregasOrientador />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/dashboard/orientador/agenda"
-          element={
-            <ProtectedRoute allowedRoles={['orientador']}>
-              <AgendaOrientador />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/dashboard/orientador/notas"
-          element={
-            <ProtectedRoute allowedRoles={['orientador']}>
-              <AvaliacoesOrientador />
             </ProtectedRoute>
           }
         />
