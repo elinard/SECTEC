@@ -484,7 +484,7 @@ function useTemasOrientadorData() {
         if (!active) return;
         const temasEvento = evento?.temas ?? [];
         setTemas(temasEvento);
-        setSelecionadosIds(temasSelecionadosIds.length > 0 ? temasSelecionadosIds : temasEvento.map((tema) => tema.id));
+        setSelecionadosIds(temasSelecionadosIds);
         setEventoTitulo(evento?.titulo ?? "");
         setErro(avisoSelecao);
       } catch (error) {
@@ -619,7 +619,8 @@ function countByEixo<T extends RegistroComEixo>(items: T[], eixo: EixoTematico) 
 }
 
 function filterByTemasSelecionados<T extends RegistroComEixo>(items: T[], temasIds: number[], totalTemas = temasIds.length) {
-  if (temasIds.length === 0 || (totalTemas > 0 && temasIds.length >= totalTemas)) return items;
+  if (totalTemas > 0 && temasIds.length === 0) return [];
+  if (totalTemas > 0 && temasIds.length >= totalTemas) return items;
   return items.filter((item) => item.temaId !== undefined && temasIds.includes(item.temaId));
 }
 
@@ -938,7 +939,7 @@ function TemasChecklist({
         <div className="min-w-0">
           <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Eixos temáticos</p>
           <h2 className="mt-1 text-lg font-bold text-slate-900">
-            {selecionadosIds.length || temas.length} eixo(s) ativo(s)
+            {selecionadosIds.length} eixo(s) ativo(s)
           </h2>
           <p className="mt-1 text-sm font-medium text-slate-500">
             {eventoTitulo ? `Evento atual: ${eventoTitulo}` : "Eixos carregados pelo evento atual."}
@@ -1265,7 +1266,11 @@ function DashboardOrientador() {
   const eixosSelecionadosLabel =
     temasBackend.selecionadosIds.length > 0
       ? `${temasBackend.selecionadosIds.length} eixo(s) selecionado(s)`
-      : "todos os eixos do evento";
+      : "nenhum eixo selecionado";
+  const avisoEixos =
+    !temasBackend.carregando && temasBackend.temas.length > 0 && temasBackend.selecionadosIds.length === 0
+      ? "Escolha os eixos temáticos que você orienta para visualizar e filtrar os projetos."
+      : "";
 
   function mostrarAviso(mensagem: string) {
     setAviso(mensagem);
@@ -1348,9 +1353,8 @@ function DashboardOrientador() {
       <Notice
         message={
           aviso ||
-          (backend.carregando
-            ? "Carregando dados do backend..."
-            : backend.erro || temasBackend.erro || "Dados do orientador carregados do backend.")
+          avisoEixos ||
+          temasBackend.erro
         }
       />
 
