@@ -9,7 +9,7 @@ type FaseAtual = 1 | 2 | 3 | 4;
 type Etapa = 1 | 2 | 3;
 type StatusProjeto = "Rascunho" | "Aguardando Aprovação" | "Aceito" | "Recusado" | "Em Desenvolvimento" | "Submetido" | "Avaliado";
 type Membro = { id: string; nome: string; sala: string; turma?: string };
-type Orientador = { id: string; nome: string; disciplina: string; eixos?: string[] };
+type Orientador = { id: string; nome: string; disciplina: string; temasIds: string[] };
 type Projeto = {
   id: string; titulo: string; descricao: string; eixo: string; temaId?: number;
   membros: Membro[]; orientadorId: string; status: StatusProjeto; linkYoutube?: string;
@@ -39,25 +39,14 @@ type EventoApi = {
   temas?: TemaApi[];
 };
 
-// NOVA INTERFACE: Tema do Projeto retornado pela API
-type TemaDoProjetoApi = {
-  id: string | number;
-  nome: string;
-  evento?: string;
-  orientadores?: string[];
-};
 
 // INTERFACE ATUALIZADA: Agora com tema (objeto) ao invés de temaId
 type ProjetoApi = {
   id: string | number;
   titulo: string;
   descricao: string;
-<<<<<<< Updated upstream
-  tema: TemaDoProjetoApi;  // ← MUDANÇA IMPORTANTE: agora é objeto completo
-=======
   temaId?: string | number;
   tema?: { id: string | number; nome: string }; // 👈
->>>>>>> Stashed changes
   alunoAutor?: UsuarioApi;
   projetoAlunos?: Array<{ id: string | number; aluno?: UsuarioApi }>;
   orientadores?: Array<{
@@ -198,6 +187,10 @@ function getOrientadorIdsDoEixo(eixo?: TemaApi | null) {
     .map(String);
 }
 
+function orientadorAtendeEixo(orientador: Orientador, eixoId: string, eixo?: TemaApi | null) {
+  return orientador.temasIds.includes(eixoId) || getOrientadorIdsDoEixo(eixo).includes(orientador.id);
+}
+
 function statusFromProjetoApi(projeto: ProjetoApi): StatusProjeto {
   const orientacoes = projeto.orientadores ?? [];
   if (orientacoes.some((orientacao) => orientacao.status === "aceito")) return "Aceito";
@@ -269,7 +262,7 @@ function buildFasesFeira(evento?: EventoApi | null): typeof FASES_FEIRA {
 }
 
 // FUNÇÃO ATUALIZADA: Agora usa o objeto tema diretamente da API
-function mapProjetoApiToProjeto(projeto: ProjetoApi): Projeto {
+function mapProjetoApiToProjeto(projeto: ProjetoApi, temasDisponiveis: TemaApi[] = []): Projeto {
   const membrosMap = new Map<string, Membro>();
   const autor = membroFromUsuario(projeto.alunoAutor);
   if (autor) membrosMap.set(autor.id, autor);
@@ -280,30 +273,18 @@ function mapProjetoApiToProjeto(projeto: ProjetoApi): Projeto {
 
   const orientacaoAceita = projeto.orientadores?.find((item) => item.status === "aceito");
   const primeiraOrientacao = orientacaoAceita ?? projeto.orientadores?.[0];
-<<<<<<< Updated upstream
-  
-  // 🔥 CORREÇÃO: usa o objeto tema diretamente da resposta da API
-  const temaDaApi = projeto.tema;
-  
-=======
-  const temaId = projeto.temaId ? Number(projeto.temaId) : undefined;
+  const temaId = projeto.temaId ? Number(projeto.temaId) : projeto.tema?.id ? Number(projeto.tema.id) : undefined;
   const temaNome =
     projeto.tema?.nome ??
-    temas.find((item) => Number(item.id) === temaId)?.nome ??
+    temasDisponiveis.find((item) => Number(item.id) === temaId)?.nome ??
     (temaId ? `Eixo #${temaId}` : "Eixo não informado");
 
->>>>>>> Stashed changes
   return {
     id: String(projeto.id),
     titulo: projeto.titulo,
     descricao: projeto.descricao,
-<<<<<<< Updated upstream
-    eixo: temaDaApi?.nome ?? "Eixo não informado",  // ← agora pega o nome corretamente
-    temaId: temaDaApi?.id ? Number(temaDaApi.id) : undefined,
-=======
-    eixo: temaNome, // 👈 agora usa o nome real
+    eixo: temaNome,
     temaId,
->>>>>>> Stashed changes
     membros: Array.from(membrosMap.values()),
     orientadorId: primeiraOrientacao?.orientador?.id ? String(primeiraOrientacao.orientador.id) : "",
     status: statusFromProjetoApi(projeto),
@@ -449,11 +430,12 @@ function Dashboard() {
             id: String(o.id),
             nome: o.nome,
             disciplina: o.email_institucional ?? 'Orientador',
+            temasIds: (o.temasSelecionados ?? []).map((tema) => String(tema.id)),
           }))
         );
         
         // ATUALIZADO: Agora passa apenas o projeto, sem o parâmetro temas
-        setProjeto(projetos[0] ? mapProjetoApiToProjeto(projetos[0]) : null);
+        setProjeto(projetos[0] ? mapProjetoApiToProjeto(projetos[0], temas) : null);
       } catch (error) {
         if (!active) return;
         setErroDados(
@@ -472,11 +454,8 @@ function Dashboard() {
   const turmas = ["todas", ...Array.from(new Set(alunosDisponiveis.map((a) => a.turma ?? "").filter(Boolean))).sort()];
 
   const eixoSelecionado = eixosDisponiveis.find((item) => String(item.id) === eixo);
-  const orientadorIdsDoEixo = getOrientadorIdsDoEixo(eixoSelecionado);
   const orientadoresFiltradosPorEixo = eixo
-    ? orientadorIdsDoEixo.length > 0
-      ? orientadoresDisponiveis.filter((orientadorItem) => orientadorIdsDoEixo.includes(orientadorItem.id))
-      : orientadoresDisponiveis
+    ? orientadoresDisponiveis.filter((orientadorItem) => orientadorAtendeEixo(orientadorItem, eixo, eixoSelecionado))
     : [];
   const referenciaTurmaEquipe = getReferenciaTurmaEquipe(membros);
 
@@ -521,8 +500,10 @@ function Dashboard() {
   function handleEixoChange(eixoId: string) {
     setEixo(eixoId);
     const proximoEixo = eixosDisponiveis.find((item) => String(item.id) === eixoId);
-    const orientadorIds = getOrientadorIdsDoEixo(proximoEixo);
-    setSolicitacoes(orientadorIds.length === 1 ? [orientadorIds[0]] : []);
+    const orientadoresDoEixo = orientadoresDisponiveis.filter((orientadorItem) =>
+      orientadorAtendeEixo(orientadorItem, eixoId, proximoEixo)
+    );
+    setSolicitacoes(orientadoresDoEixo.length === 1 ? [orientadoresDoEixo[0].id] : []);
   }
 
   function abrirEdicaoProjeto() {
@@ -633,7 +614,7 @@ function Dashboard() {
       }
 
       // ATUALIZADO: Agora passa apenas o projeto, sem o parâmetro temas
-      const projetoAtualizado = mapProjetoApiToProjeto(projetoSalvo);
+      const projetoAtualizado = mapProjetoApiToProjeto(projetoSalvo, eixosDisponiveis);
       setProjeto({
         ...projetoAtualizado,
         orientadorId: solicitacoes[0] ?? projetoAtualizado.orientadorId,
@@ -1021,7 +1002,7 @@ function Dashboard() {
                       <FlaskConical size={13} className="mt-0.5 shrink-0" />
                       <span>
                         Eixo selecionado: <strong>{eixoSelecionado?.nome ?? "não informado"}</strong>. No próximo passo você verá apenas orientadores disponíveis para este eixo.
-                        {orientadorIdsDoEixo.length === 0 && " Nenhum orientador vinculado veio do sistema, então a lista completa será exibida."}
+                        {orientadoresFiltradosPorEixo.length === 0 && " Nenhum orientador escolheu este eixo ainda."}
                       </span>
                     </div>
                   )}

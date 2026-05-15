@@ -1,9 +1,18 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, Unique, OneToMany, CreateDateColumn } from 'typeorm';
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  JoinColumn,
+  ManyToOne,
+  OneToMany,
+  PrimaryGeneratedColumn,
+  Unique,
+} from 'typeorm';
 import { Evento } from '../../evento/entities/evento.entity';
+import { TemaEvento } from '../../evento/entities/tema-evento.entity';
 import { User } from '../../users/entities/user.entity';
 import { ProjetoAluno } from './projeto-aluno.entity';
 import { ProjetoOrientador } from './projeto-orientador.entity';
-import { TemaEvento } from '../../evento/entities/tema-evento.entity';
 
 @Entity('projetos')
 @Unique(['alunoAutor', 'evento'])
@@ -25,18 +34,9 @@ export class Projeto {
   @Column({ type: 'text' })
   descricao!: string;
 
-<<<<<<< Updated upstream
-  // Se você for usar a tabela de temas orientadores, o campo seria assim
-@ManyToOne(() => TemaEvento)
-@JoinColumn({ name: 'tema_id' })
-tema!: TemaEvento; 
-
-=======
   @Column({ name: 'tema_id' })
   temaId!: number;
->>>>>>> Stashed changes
 
-  // Relação para carregar o objeto TemaEvento completo (nome, etc.)
   @ManyToOne(() => TemaEvento, { nullable: true, eager: false })
   @JoinColumn({ name: 'tema_id', referencedColumnName: 'id' })
   tema!: TemaEvento;
