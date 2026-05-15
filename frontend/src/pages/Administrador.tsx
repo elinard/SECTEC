@@ -137,6 +137,49 @@ type EventoApi = {
   temas?: TemaEventoApi[];
 };
 
+type ProjetoCoordenacaoApi = {
+  id: number;
+  titulo: string;
+  descricao?: string;
+  criadoEm?: string;
+  evento?: {
+    id: number;
+    titulo: string;
+  };
+  alunoAutor?: {
+    id: number;
+    nome: string;
+    email_institucional?: string | null;
+    turma?: string | null;
+    ano?: number | null;
+  };
+  tema?: {
+    id: number;
+    nome: string;
+  } | null;
+  projetoAlunos?: Array<{
+    aluno?: {
+      id: number;
+      nome: string;
+      email_institucional?: string | null;
+      turma?: string | null;
+      ano?: number | null;
+    } | null;
+  }>;
+};
+
+type EventoComProjetosApi = {
+  id: number;
+  titulo: string;
+  prazoInicial?: string | null;
+  projetos?: ProjetoCoordenacaoApi[];
+};
+
+type ProjetoCoordenacaoListagem = ProjetoCoordenacaoApi & {
+  eventoTitulo?: string;
+  eventoId?: number;
+};
+
 const faseAtual: FaseEvento = "Submissão";
 const prazoEncerrado = false;
 
@@ -450,20 +493,33 @@ function temasRestantes(temas?: TemaEventoApi[]) {
   return Math.max(0, (temas?.length ?? 0) - 3);
 }
 
-function toDatetimeLocal(value?: string | null) {
+function getFasesEvento(evento: EventoApi) {
+  return [
+    { label: "Inscrição", periodo: evento.inscricao },
+    { label: "Aceitação", periodo: evento.aceitacao },
+    { label: "Submissão", periodo: evento.submissao },
+    { label: "Avaliação", periodo: evento.avaliacao },
+  ];
+}
+
+function toIsoDate(value: string) {
+  if (!value) return undefined;
+
+  return new Date(`${value}T00:00:00`).toISOString();
+}
+
+function toDateInput(value?: string | null) {
   if (!value) return "";
 
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
 
-  const offset = date.getTimezoneOffset();
-  const localDate = new Date(date.getTime() - offset * 60 * 1000);
-
-  return localDate.toISOString().slice(0, 16);
+  return date.toISOString().slice(0, 10);
 }
 
 function periodoValido(inicio: string, fim: string) {
-  if (!inicio || !fim) return true;
+  if (!inicio && !fim) return true;
+  if (!inicio || !fim) return false;
   return new Date(fim) > new Date(inicio);
 }
 
@@ -475,6 +531,13 @@ function formatarPeriodo(periodo?: PeriodoEventoApi | null) {
   if (Number.isNaN(inicio.getTime()) || Number.isNaN(fim.getTime())) return "Não definido";
 
   return `${inicio.toLocaleDateString("pt-BR")} - ${fim.toLocaleDateString("pt-BR")}`;
+}
+
+function formatarData(value: string) {
+  const data = new Date(value);
+  if (Number.isNaN(data.getTime())) return "-";
+
+  return data.toLocaleDateString("pt-BR");
 }
 
 function EventosCoordenacao() {
@@ -516,6 +579,10 @@ function EventosCoordenacao() {
         vigente = null;
       }
 
+      if (!vigente?.id) {
+        vigente = null;
+      }
+
       if (!vigente) {
         const anoAtualBusca = new Date().getFullYear();
         vigente = dados.find((evento) => new Date(evento.prazoInicial).getFullYear() === anoAtualBusca) ?? null;
@@ -547,18 +614,16 @@ function EventosCoordenacao() {
     if (!inicio && !fim) return undefined;
 
     return {
-      inicio: inicio ? new Date(inicio).toISOString() : undefined,
-      fim: fim ? new Date(fim).toISOString() : undefined,
+      inicio: toIsoDate(inicio),
+      fim: toIsoDate(fim),
     };
   }
 
   function formatarData(iso: string) {
     const data = new Date(iso);
     if (Number.isNaN(data.getTime())) return "-";
-    return data.toLocaleString("pt-BR", {
-      day: "2-digit", month: "2-digit", year: "numeric",
-      hour: "2-digit", minute: "2-digit",
-    });
+
+    return data.toLocaleDateString("pt-BR");
   }
 
   function handleEdit(evento: EventoApi) {
@@ -566,16 +631,16 @@ function EventosCoordenacao() {
     setFormData({
       titulo: evento.titulo || "",
       descricao: evento.descricao || "",
-      prazoInicial: toDatetimeLocal(evento.prazoInicial),
-      prazoFinal: toDatetimeLocal(evento.prazoFinal),
-      inscricaoInicio: toDatetimeLocal(evento.inscricao?.inicio),
-      inscricaoFim: toDatetimeLocal(evento.inscricao?.fim),
-      aceitacaoInicio: toDatetimeLocal(evento.aceitacao?.inicio),
-      aceitacaoFim: toDatetimeLocal(evento.aceitacao?.fim),
-      submissaoInicio: toDatetimeLocal(evento.submissao?.inicio),
-      submissaoFim: toDatetimeLocal(evento.submissao?.fim),
-      avaliacaoInicio: toDatetimeLocal(evento.avaliacao?.inicio),
-      avaliacaoFim: toDatetimeLocal(evento.avaliacao?.fim),
+      prazoInicial: toDateInput(evento.prazoInicial),
+      prazoFinal: toDateInput(evento.prazoFinal),
+      inscricaoInicio: toDateInput(evento.inscricao?.inicio),
+      inscricaoFim: toDateInput(evento.inscricao?.fim),
+      aceitacaoInicio: toDateInput(evento.aceitacao?.inicio),
+      aceitacaoFim: toDateInput(evento.aceitacao?.fim),
+      submissaoInicio: toDateInput(evento.submissao?.inicio),
+      submissaoFim: toDateInput(evento.submissao?.fim),
+      avaliacaoInicio: toDateInput(evento.avaliacao?.inicio),
+      avaliacaoFim: toDateInput(evento.avaliacao?.fim),
     });
     setStep(1);
 
@@ -646,7 +711,7 @@ function EventosCoordenacao() {
   function nextStep() {
     if (step === 1) {
       if (!formData.titulo.trim()) {
-        Swal.fire({ icon: "warning", title: "O titulo e obrigatorio", confirmButtonColor: "#15803d" });
+        Swal.fire({ icon: "warning", title: "O título é obrigatório", confirmButtonColor: "#15803d" });
         return;
       }
       setStep(2);
@@ -655,9 +720,7 @@ function EventosCoordenacao() {
         Swal.fire({ icon: "warning", title: "Preencha os prazos", confirmButtonColor: "#15803d" });
         return;
       }
-      const inicio = new Date(formData.prazoInicial);
-      const fim = new Date(formData.prazoFinal);
-      if (fim <= inicio) {
+      if (!periodoValido(formData.prazoInicial, formData.prazoFinal)) {
         Swal.fire({ icon: "warning", title: "Prazo invalido", text: "O prazo final deve ser maior que o inicial.", confirmButtonColor: "#15803d" });
         return;
       }
@@ -684,7 +747,7 @@ function EventosCoordenacao() {
           Swal.fire({
             icon: "warning",
             title: `Período inválido em ${fase.label}`,
-            text: "O fim da fase deve ser maior que o início.",
+            text: "Preencha início e fim, e mantenha o fim maior que o início.",
             confirmButtonColor: "#15803d",
           });
           return;
@@ -700,6 +763,19 @@ function EventosCoordenacao() {
   }
 
   async function handleGravarEvento() {
+    if (!formData.titulo.trim()) {
+      await Swal.fire({ icon: "warning", title: "O título é obrigatório", confirmButtonColor: "#15803d" });
+      return;
+    }
+    if (!formData.prazoInicial || !formData.prazoFinal) {
+      await Swal.fire({ icon: "warning", title: "Preencha o período geral", confirmButtonColor: "#15803d" });
+      return;
+    }
+    if (!periodoValido(formData.prazoInicial, formData.prazoFinal)) {
+      await Swal.fire({ icon: "warning", title: "Prazo inválido", text: "O prazo final deve ser maior que o inicial.", confirmButtonColor: "#15803d" });
+      return;
+    }
+
     if (temConflitoAno) {
       await Swal.fire({
         icon: "warning",
@@ -710,12 +786,31 @@ function EventosCoordenacao() {
       return;
     }
 
+    const fases = [
+      { label: "Inscrição", inicio: formData.inscricaoInicio, fim: formData.inscricaoFim },
+      { label: "Aceitação", inicio: formData.aceitacaoInicio, fim: formData.aceitacaoFim },
+      { label: "Submissão", inicio: formData.submissaoInicio, fim: formData.submissaoFim },
+      { label: "Avaliação", inicio: formData.avaliacaoInicio, fim: formData.avaliacaoFim },
+    ];
+
+    for (const fase of fases) {
+      if (!periodoValido(fase.inicio, fase.fim)) {
+        await Swal.fire({
+          icon: "warning",
+          title: `Período inválido em ${fase.label}`,
+          text: "Preencha início e fim, e mantenha o fim maior que o início.",
+          confirmButtonColor: "#15803d",
+        });
+        return;
+      }
+    }
+
     try {
       const payload: CreateEventoPayload = {
         titulo: formData.titulo.trim(),
         descricao: formData.descricao.trim() || undefined,
-        prazoInicial: new Date(formData.prazoInicial).toISOString(),
-        prazoFinal: new Date(formData.prazoFinal).toISOString(),
+        prazoInicial: toIsoDate(formData.prazoInicial)!,
+        prazoFinal: toIsoDate(formData.prazoFinal)!,
         inscricao: montarPeriodo(formData.inscricaoInicio, formData.inscricaoFim),
         aceitacao: montarPeriodo(formData.aceitacaoInicio, formData.aceitacaoFim),
         submissao: montarPeriodo(formData.submissaoInicio, formData.submissaoFim),
@@ -781,12 +876,14 @@ function EventosCoordenacao() {
   }
 
   const anoAtual = new Date().getFullYear();
-  const eventoVigente = eventoAtual ?? eventos.find((e) => new Date(e.prazoInicial).getFullYear() === anoAtual) ?? null;
+  const eventoVigente = eventoAtual?.id
+    ? eventoAtual
+    : eventos.find((e) => new Date(e.prazoInicial).getFullYear() === anoAtual) ?? null;
 
   const etapas = [
     { id: 1, label: "Básico" },
     { id: 2, label: "Período geral" },
-    { id: 3, label: "Fases" },
+    { id: 3, label: "Fases da SECTEC" },
     { id: 4, label: "Revisão" },
   ];
   const progresso = ((step - 1) / (etapas.length - 1)) * 100;
@@ -851,11 +948,11 @@ function EventosCoordenacao() {
                       <div className="grid gap-4 sm:grid-cols-2">
                         <label className="text-xs font-black text-slate-500">
                           Prazo inicial
-                          <input type="datetime-local" value={formData.prazoInicial} onChange={(e) => atualizarForm("prazoInicial", e.target.value)} className="mt-2 h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100" />
+                            <input type="date" value={formData.prazoInicial} onChange={(e) => atualizarForm("prazoInicial", e.target.value)} className="mt-2 h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100" />
                         </label>
                         <label className="text-xs font-black text-slate-500">
                           Prazo final
-                          <input type="datetime-local" value={formData.prazoFinal} onChange={(e) => atualizarForm("prazoFinal", e.target.value)} className="mt-2 h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100" />
+                            <input type="date" value={formData.prazoFinal} onChange={(e) => atualizarForm("prazoFinal", e.target.value)} className="mt-2 h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100" />
                         </label>
                       </div>
                       {temConflitoAno && (
@@ -876,7 +973,7 @@ function EventosCoordenacao() {
                             <label className="text-xs font-black text-slate-500">
                               Início
                               <input
-                                type="datetime-local"
+                                type="date"
                                 value={formData[fase.inicio]}
                                 onChange={(e) => atualizarForm(fase.inicio, e.target.value)}
                                 className="mt-2 h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100"
@@ -885,7 +982,7 @@ function EventosCoordenacao() {
                             <label className="text-xs font-black text-slate-500">
                               Fim
                               <input
-                                type="datetime-local"
+                                type="date"
                                 value={formData[fase.fim]}
                                 onChange={(e) => atualizarForm(fase.fim, e.target.value)}
                                 className="mt-2 h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100"
@@ -903,8 +1000,7 @@ function EventosCoordenacao() {
                       <ul className="space-y-2">
                         <li><strong className="text-slate-900">Título:</strong> {formData.titulo}</li>
                         <li><strong className="text-slate-900">Descrição:</strong> {formData.descricao || "Nenhum"}</li>
-                        <li><strong className="text-slate-900">Início geral:</strong> {formatarData(new Date(formData.prazoInicial).toISOString())}</li>
-                        <li><strong className="text-slate-900">Fim geral:</strong> {formatarData(new Date(formData.prazoFinal).toISOString())}</li>
+                        <li><strong className="text-slate-900">Período geral:</strong> {formatarPeriodo(montarPeriodo(formData.prazoInicial, formData.prazoFinal))}</li>
                         <li><strong className="text-slate-900">Inscrição:</strong> {formatarPeriodo(montarPeriodo(formData.inscricaoInicio, formData.inscricaoFim))}</li>
                         <li><strong className="text-slate-900">Aceitação:</strong> {formatarPeriodo(montarPeriodo(formData.aceitacaoInicio, formData.aceitacaoFim))}</li>
                         <li><strong className="text-slate-900">Submissão:</strong> {formatarPeriodo(montarPeriodo(formData.submissaoInicio, formData.submissaoFim))}</li>
@@ -918,22 +1014,22 @@ function EventosCoordenacao() {
               <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-5">
                 <div className="flex gap-2">
                    {isEditing ? (
-                     <button type="button" onClick={handleCancelEdit} className="h-11 px-4 text-sm font-bold text-slate-400 transition hover:text-slate-600">Cancelar edição</button>
+                    <button type="button" onClick={handleCancelEdit} className="cursor-pointer h-11 px-4 text-sm font-bold text-slate-400 transition hover:text-slate-600">Cancelar edição</button>
                    ) : <span />}
                 </div>
                 
                 <div className="flex gap-2">
                   {step > 1 && (
-                    <button type="button" onClick={prevStep} className="inline-flex h-11 items-center justify-center rounded-2xl bg-white border border-slate-200 px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50">
+                    <button type="button" onClick={prevStep} className="cursor-pointer inline-flex h-11 items-center justify-center rounded-2xl bg-white border border-slate-200 px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50">
                       Voltar
                     </button>
                   )}
                   {step < 4 ? (
-                    <button type="button" onClick={nextStep} disabled={step === 2 && temConflitoAno} className="inline-flex h-11 items-center justify-center rounded-2xl bg-sectec-600 px-5 text-sm font-black text-white transition hover:bg-sectec-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <button type="button" onClick={nextStep} disabled={step === 2 && temConflitoAno} className="cursor-pointer inline-flex h-11 items-center justify-center rounded-2xl bg-sectec-600 px-5 text-sm font-black text-white transition hover:bg-sectec-700 disabled:cursor-not-allowed disabled:opacity-50">
                       Próximo
                     </button>
                   ) : (
-                    <button type="button" onClick={handleGravarEvento} className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-700">
+                    <button type="button" onClick={handleGravarEvento} className="cursor-pointer inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-700">
                       <PiCheckCircle size={18} /> {isEditing ? "Salvar alterações" : "Criar evento"}
                     </button>
                   )}
@@ -985,8 +1081,8 @@ function EventosCoordenacao() {
                        <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-600">{new Date(evento.prazoInicial).getFullYear()}</span>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
-                      <button type="button" onClick={() => handleEdit(evento)} className="flex h-8 items-center justify-center rounded-xl bg-slate-50 px-3 text-xs font-black text-slate-600 transition hover:bg-sectec-50 hover:text-sectec-700">Editar</button>
-                      <button type="button" onClick={() => handleExcluirEvento(evento.id)} className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-50 text-slate-400 transition hover:bg-red-50 hover:text-red-600"><PiXCircle size={16} /></button>
+                      <button type="button" onClick={() => handleEdit(evento)} className="cursor-pointer flex h-8 items-center justify-center rounded-xl bg-slate-50 px-3 text-xs font-black text-slate-600 transition hover:bg-sectec-50 hover:text-sectec-700">Editar</button>
+                      <button type="button" onClick={() => handleExcluirEvento(evento.id)} className="cursor-pointer flex h-8 w-8 items-center justify-center rounded-xl bg-slate-50 text-slate-400 transition hover:bg-red-50 hover:text-red-600"><PiXCircle size={16} /></button>
                     </div>
                   </div>
                   
@@ -1001,12 +1097,7 @@ function EventosCoordenacao() {
                   <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-3">
                     <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Cronograma</p>
                     <div className="grid gap-2">
-                      {[
-                        { label: "Inscrição", periodo: evento.inscricao },
-                        { label: "Aceitação", periodo: evento.aceitacao },
-                        { label: "Submissão", periodo: evento.submissao },
-                        { label: "Avaliação", periodo: evento.avaliacao },
-                      ].map((fase) => (
+                      {getFasesEvento(evento).map((fase) => (
                         <div key={fase.label} className="flex items-center justify-between gap-3 text-xs">
                           <span className="font-black text-slate-700">{fase.label}</span>
                           <span className="font-semibold text-slate-500">{formatarPeriodo(fase.periodo)}</span>
@@ -1023,7 +1114,7 @@ function EventosCoordenacao() {
                           key={tema.id}
                           type="button"
                           onClick={() => handleVerDetalhesTema(evento, tema)}
-                          className="inline-flex items-center rounded-full border border-sectec-100 bg-sectec-50 px-3 py-1 text-xs font-bold text-sectec-700 transition hover:bg-sectec-100"
+                          className="cursor-pointer inline-flex items-center rounded-full border border-sectec-100 bg-sectec-50 px-3 py-1 text-xs font-bold text-sectec-700 transition hover:bg-sectec-100"
                         >
                           {tema.nome}
                         </button>
@@ -1032,7 +1123,7 @@ function EventosCoordenacao() {
                         <button
                           type="button"
                           onClick={() => handleVerDetalhesTema(evento)}
-                          className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-600 transition hover:bg-slate-100"
+                          className="cursor-pointer inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-600 transition hover:bg-slate-100"
                         >
                           +{temasRestantes(evento.temas)} temas
                         </button>
@@ -1042,7 +1133,7 @@ function EventosCoordenacao() {
                   
                   <div className="mt-auto pt-3 border-t border-slate-100 flex gap-2">
                     <input value={temaInputs[evento.id] || ""} onChange={(e) => setTemaInputs((prev) => ({ ...prev, [evento.id]: e.target.value }))} placeholder="Novo tema..." className="h-9 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100" />
-                    <button type="button" onClick={() => handleAdicionarTema(evento.id)} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-800 text-white transition hover:bg-slate-700"><PiPlus size={14} /></button>
+                    <button type="button" onClick={() => handleAdicionarTema(evento.id)} className="cursor-pointer inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-800 text-white transition hover:bg-slate-700"><PiPlus size={14} /></button>
                   </div>
                 </article>
               ))}
@@ -1091,6 +1182,7 @@ function UsuariosCoordenacao() {
       email: usuario.email_institucional ?? "",
       perfil,
       turma: (usuario as { turma?: string })?.turma,
+      ano: typeof usuario.ano === "string" ? Number(usuario.ano) : usuario.ano ?? undefined,
     }));
   }
 
@@ -1233,10 +1325,13 @@ function UsuariosCoordenacao() {
 
   const listaAtual = abaAtiva === "alunos" ? alunos : abaAtiva === "orientadores" ? orientadores : comissao;
   const termo = busca.trim().toLowerCase();
-  const turmasDisponiveis = [
-    "todas",
-    ...Array.from(new Set(listaAtual.map((usuario) => usuario.turma).filter(Boolean))).sort(),
-  ] as string[];
+  const podeFiltrarTurma = abaAtiva !== "orientadores";
+  const turmasDisponiveis = podeFiltrarTurma
+    ? [
+        "todas",
+        ...Array.from(new Set(listaAtual.map((usuario) => usuario.turma).filter(Boolean))).sort(),
+      ] as string[]
+    : ["todas"];
 
   const listaFiltrada = listaAtual.filter((usuario) => {
     const bateBusca =
@@ -1244,6 +1339,7 @@ function UsuariosCoordenacao() {
       usuario.nome.toLowerCase().includes(termo) ||
       usuario.email.toLowerCase().includes(termo);
     const bateTurma =
+      !podeFiltrarTurma ||
       turmaFiltro === "todas" ||
       (usuario.turma?.toLowerCase() ?? "") === turmaFiltro.toLowerCase();
 
@@ -1260,11 +1356,17 @@ function UsuariosCoordenacao() {
     setPaginaAtual(1);
   }, [abaAtiva, busca, turmaFiltro]);
 
+  useEffect(() => {
+    if (!podeFiltrarTurma && turmaFiltro !== "todas") {
+      setTurmaFiltro("todas");
+    }
+  }, [podeFiltrarTurma, turmaFiltro]);
+
   return (
     <AdminPageShell>
       <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <PanelTitle icon={<PiUsersThree size={20} />} title="Usuarios" subtitle="Cadastro via CSV e controle de alunos e orientadores ativos." />
+          <PanelTitle icon={<PiUsersThree size={20} />} title="Usuarios" subtitle="Cadastro via CSV e comissão real carregada do backend." />
           <div className="flex flex-wrap gap-2">
             <input
               ref={inputAlunosRef}
@@ -1303,7 +1405,7 @@ function UsuariosCoordenacao() {
           </div>
         )}
 
-        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {[
             { label: "Total de alunos", value: totalAlunos },
             { label: "Total de orientadores", value: totalOrientadores },
@@ -1351,30 +1453,31 @@ function UsuariosCoordenacao() {
                 className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100 sm:w-60"
               />
             </label>
-            <label className="relative block">
-              <PiFunnel className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
-              <select
-                value={turmaFiltro}
-                onChange={(event) => setTurmaFiltro(event.target.value)}
-                className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-8 text-sm font-black text-slate-600 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100 sm:w-48"
-              >
-                {turmasDisponiveis.map((turma) => (
-                  <option key={turma} value={turma}>
-                    {turma === "todas" ? "Todas as turmas" : turma}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {podeFiltrarTurma && (
+              <label className="relative block">
+                <PiFunnel className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
+                <select
+                  value={turmaFiltro}
+                  onChange={(event) => setTurmaFiltro(event.target.value)}
+                  className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-8 text-sm font-black text-slate-600 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100 sm:w-48"
+                >
+                  {turmasDisponiveis.map((turma) => (
+                    <option key={turma} value={turma}>
+                      {turma === "todas" ? "Todas as turmas" : turma}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
         </div>
 
         <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200">
-          <div className="hidden grid-cols-[1fr_1fr_0.5fr_0.5fr_0.4fr_0.5fr] bg-slate-50 px-4 py-3 text-[11px] font-black uppercase tracking-widest text-slate-400 lg:grid">
+          <div className="hidden grid-cols-[1fr_1fr_0.7fr_0.7fr_0.5fr] bg-slate-50 px-4 py-3 text-[11px] font-black uppercase tracking-widest text-slate-400 lg:grid">
             <span>Nome</span>
             <span>Email institucional</span>
-            <span>Turma</span>
+            <span>Turma / ano</span>
             <span>Perfil</span>
-            <span>Status</span>
             <span className="text-right">Ações</span>
           </div>
 
@@ -1398,14 +1501,16 @@ function UsuariosCoordenacao() {
                   transition={{ duration: 0.18, ease: "easeOut" }}
                 >
                   {listaPaginada.map((usuario) => (
-                    <article key={usuario.id} className="grid gap-2 px-4 py-4 lg:grid-cols-[1fr_1fr_0.5fr_0.5fr_0.4fr_0.5fr] lg:items-center transition hover:bg-sectec-50/40">
+                    <article key={usuario.id} className="grid gap-2 px-4 py-4 lg:grid-cols-[1fr_1fr_0.7fr_0.7fr_0.5fr] lg:items-center transition hover:bg-sectec-50/40">
                       <div className="min-w-0">
                         <p className="truncate text-sm font-black text-slate-900">{usuario.nome}</p>
                       </div>
                       <p className="truncate text-sm font-semibold text-slate-600">{usuario.email || "-"}</p>
-                      <p className="truncate text-sm font-semibold text-slate-600">{usuario.turma || "-"}</p>
+                      <p className="truncate text-sm font-semibold text-slate-600">
+                        {usuario.turma || "-"}
+                        {usuario.ano ? ` · ${usuario.ano}` : ""}
+                      </p>
                       <p className="text-sm font-black text-slate-700">{usuario.perfil}</p>
-                      <AdminChip className="bg-emerald-50 text-emerald-700 ring-emerald-200">Ativo</AdminChip>
                       <div className="flex justify-end">
                         {abaAtiva === "alunos" && usuario.perfil === "Aluno" ? (
                           <button
@@ -1459,28 +1564,92 @@ function UsuariosCoordenacao() {
 
 function Administrador() {
   const { pathname } = useLocation();
-  const [busca, setBusca] = useState("");
-  const [statusFiltro, setStatusFiltro] = useState<StatusProjeto | "Todos">("Todos");
+  const [buscaProjeto, setBuscaProjeto] = useState("");
+  const [carregandoProjetos, setCarregandoProjetos] = useState(false);
+  const [erroProjetos, setErroProjetos] = useState("");
+  const [eventosComProjetos, setEventosComProjetos] = useState<EventoComProjetosApi[]>([]);
+
+  useEffect(() => {
+    let ativo = true;
+
+    async function carregarProjetos() {
+      setCarregandoProjetos(true);
+      setErroProjetos("");
+
+      try {
+        const dados = await apiRequest<EventoComProjetosApi[]>("/projetos");
+        if (!ativo) return;
+        setEventosComProjetos(dados ?? []);
+      } catch (error) {
+        if (!ativo) return;
+        setErroProjetos(error instanceof Error ? error.message : "Não foi possível carregar os projetos.");
+      } finally {
+        if (ativo) {
+          setCarregandoProjetos(false);
+        }
+      }
+    }
+
+    carregarProjetos();
+
+    return () => {
+      ativo = false;
+    };
+  }, []);
+
+  const projetosCoordenacao = useMemo<ProjetoCoordenacaoListagem[]>(() => {
+    return eventosComProjetos.flatMap((evento) =>
+      (evento.projetos ?? []).map((projeto) => ({
+        ...projeto,
+        eventoTitulo: evento.titulo,
+        eventoId: evento.id,
+      })),
+    );
+  }, [eventosComProjetos]);
 
   const projetosFiltrados = useMemo(() => {
-    const termo = busca.trim().toLowerCase();
+    const termo = buscaProjeto.trim().toLowerCase();
 
-    return projetosMock.filter((projeto) => {
-      const bateBusca =
-        !termo ||
+    return projetosCoordenacao.filter((projeto) => {
+      if (!termo) return true;
+
+      const autor = projeto.alunoAutor?.nome ?? projeto.projetoAlunos?.[0]?.aluno?.nome ?? "";
+      const tema = projeto.tema?.nome ?? "";
+      const evento = projeto.eventoTitulo ?? projeto.evento?.titulo ?? "";
+
+      return (
         projeto.titulo.toLowerCase().includes(termo) ||
-        projeto.autor.toLowerCase().includes(termo) ||
-        projeto.orientador.toLowerCase().includes(termo) ||
-        projeto.eixo.toLowerCase().includes(termo);
-
-      return (statusFiltro === "Todos" || projeto.status === statusFiltro) && bateBusca;
+        projeto.descricao?.toLowerCase().includes(termo) ||
+        autor.toLowerCase().includes(termo) ||
+        tema.toLowerCase().includes(termo) ||
+        evento.toLowerCase().includes(termo)
+      );
     });
-  }, [busca, statusFiltro]);
+  }, [buscaProjeto, projetosCoordenacao]);
 
-  const pendenciasAltas = projetosMock.filter((projeto) => projeto.prioridade === "alta").length;
-  const materiaisCompletos = projetosMock.filter(
-    (projeto) => projeto.materiais.pdf && projeto.materiais.youtube && projeto.materiais.resumo,
-  ).length;
+  const totalProjetos = projetosCoordenacao.length;
+  const totalEventos = eventosComProjetos.length;
+  const totalTemas = new Set(projetosCoordenacao.map((projeto) => projeto.tema?.id).filter((id): id is number => typeof id === "number")).size;
+
+  function handleVerDetalhesProjeto(projeto: ProjetoCoordenacaoListagem) {
+    const autor = projeto.alunoAutor ?? projeto.projetoAlunos?.[0]?.aluno;
+
+    Swal.fire({
+      title: escapeHtml(projeto.titulo),
+      html: `
+        <div style="text-align:left">
+          <p><strong>Evento:</strong> ${escapeHtml(projeto.eventoTitulo || projeto.evento?.titulo || "Sem evento")}</p>
+          <p><strong>Autor:</strong> ${escapeHtml(autor?.nome || "Sem autor identificado")}</p>
+          <p><strong>E-mail:</strong> ${escapeHtml(autor?.email_institucional || "-")}</p>
+          <p><strong>Turma:</strong> ${escapeHtml(autor?.turma || "-")}${autor?.ano ? ` · ${autor.ano}` : ""}</p>
+          <p><strong>Tema:</strong> ${escapeHtml(projeto.tema?.nome || "Sem tema")}</p>
+          <p><strong>Descrição:</strong> ${escapeHtml(projeto.descricao || "Sem descrição")}</p>
+          <p><strong>Criado em:</strong> ${projeto.criadoEm ? formatarData(projeto.criadoEm) : "-"}</p>
+        </div>
+      `,
+      confirmButtonColor: "#15803d",
+    });
+  }
 
   if (pathname.endsWith("/turmas")) return <TurmasCoordenacao />;
   if (pathname.endsWith("/frequencia")) return <FrequenciaCoordenacao />;
@@ -1512,15 +1681,15 @@ function Administrador() {
                   <div className="grid gap-3 sm:grid-cols-3">
                     <div className="border-l border-white/20 pl-4">
                       <p className="text-[11px] font-black uppercase tracking-widest text-white/45">Projetos</p>
-                      <strong className="mt-1 block text-2xl font-black">{projetosMock.length}</strong>
+                      <strong className="mt-1 block text-2xl font-black">{totalProjetos}</strong>
                     </div>
                     <div className="border-l border-white/20 pl-4">
-                      <p className="text-[11px] font-black uppercase tracking-widest text-white/45">Completos</p>
-                      <strong className="mt-1 block text-2xl font-black">{materiaisCompletos}</strong>
+                      <p className="text-[11px] font-black uppercase tracking-widest text-white/45">Eventos</p>
+                      <strong className="mt-1 block text-2xl font-black">{totalEventos}</strong>
                     </div>
                     <div className="border-l border-white/20 pl-4">
-                      <p className="text-[11px] font-black uppercase tracking-widest text-white/45">Pendências</p>
-                      <strong className="mt-1 block text-2xl font-black">{pendenciasAltas}</strong>
+                      <p className="text-[11px] font-black uppercase tracking-widest text-white/45">Temas</p>
+                      <strong className="mt-1 block text-2xl font-black">{totalTemas}</strong>
                     </div>
                   </div>
                 </div>
@@ -1614,70 +1783,58 @@ function Administrador() {
 
               <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                  <PanelTitle icon={<PiGitBranch size={20} />} title="Projetos em trânsito" subtitle="Fila principal da coordenação, com busca e status." />
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <label className="relative block">
-                      <PiMagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
-                      <input
-                        value={busca}
-                        onChange={(event) => setBusca(event.target.value)}
-                        placeholder="Buscar projeto, aluno ou eixo"
-                        className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100 sm:w-64"
-                      />
-                    </label>
-                    <label className="relative block">
-                      <PiFunnel className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
-                      <select
-                        value={statusFiltro}
-                        onChange={(event) => setStatusFiltro(event.target.value as StatusProjeto | "Todos")}
-                        className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-8 text-sm font-black text-slate-600 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100 sm:w-48"
-                      >
-                        <option>Todos</option>
-                        {Object.keys(statusStyle).map((status) => (
-                          <option key={status}>{status}</option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
+                  <PanelTitle icon={<PiGitBranch size={20} />} title="Projetos em trânsito" subtitle="Dados reais agrupados por evento, vindos do backend." />
+                  <label className="relative block">
+                    <PiMagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
+                    <input
+                      value={buscaProjeto}
+                      onChange={(event) => setBuscaProjeto(event.target.value)}
+                      placeholder="Buscar projeto, autor, tema ou evento"
+                      className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100 sm:w-72"
+                    />
+                  </label>
                 </div>
 
                 <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200">
-                  <div className="hidden grid-cols-[1.2fr_0.78fr_0.62fr_44px] bg-slate-50 px-4 py-3 text-[11px] font-black uppercase tracking-widest text-slate-400 lg:grid">
+                  <div className="hidden grid-cols-[1.1fr_0.8fr_0.7fr_44px] bg-slate-50 px-4 py-3 text-[11px] font-black uppercase tracking-widest text-slate-400 lg:grid">
                     <span>Projeto</span>
-                    <span>Status</span>
-                    <span>Material</span>
+                    <span>Evento</span>
+                    <span>Autor</span>
                     <span />
                   </div>
 
                   <div className="divide-y divide-slate-100">
-                    {projetosFiltrados.map((projeto) => (
-                      <article key={projeto.id} className="grid gap-4 px-4 py-4 transition hover:bg-slate-50 lg:grid-cols-[1.2fr_0.78fr_0.62fr_44px] lg:items-center">
+                    {carregandoProjetos && (
+                      <div className="px-4 py-6 text-sm font-semibold text-slate-500">Carregando projetos reais...</div>
+                    )}
+                    {!carregandoProjetos && erroProjetos && (
+                      <div className="px-4 py-6 text-sm font-semibold text-red-600">{erroProjetos}</div>
+                    )}
+                    {!carregandoProjetos && !erroProjetos && projetosFiltrados.length === 0 && (
+                      <div className="px-4 py-10 text-center text-sm font-semibold text-slate-500">
+                        Nenhum projeto encontrado no backend.
+                      </div>
+                    )}
+                    {!carregandoProjetos && !erroProjetos && projetosFiltrados.map((projeto) => (
+                      <article key={projeto.id} className="grid gap-4 px-4 py-4 transition hover:bg-slate-50 lg:grid-cols-[1.1fr_0.8fr_0.7fr_44px] lg:items-center">
                         <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="font-black text-slate-900">{projeto.titulo}</h3>
-                            <AdminChip className={prioridadeStyle[projeto.prioridade]}>{projeto.prioridade}</AdminChip>
-                          </div>
-                          <p className="mt-1 text-sm font-semibold text-slate-500">{projeto.autor} · {projeto.turma}</p>
-                          <p className="mt-1 text-xs text-slate-400">{projeto.eixo} · {projeto.orientador} · {projeto.atualizadoEm}</p>
+                          <h3 className="font-black text-slate-900">{projeto.titulo}</h3>
+                          <p className="mt-1 text-sm font-semibold text-slate-500 line-clamp-2">{projeto.descricao || "Sem descrição informada."}</p>
                         </div>
 
-                        <AdminChip className={statusStyle[projeto.status]}>{projeto.status}</AdminChip>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-black text-slate-700">{projeto.eventoTitulo || projeto.evento?.titulo || "Sem evento"}</p>
+                          <p className="mt-1 text-xs text-slate-400">ID {projeto.eventoId ?? projeto.evento?.id ?? "-"}</p>
+                        </div>
 
-                        <div className="flex gap-2 text-lg">
-                          <span className={projeto.materiais.pdf ? "text-emerald-600" : "text-slate-300"} title="PDF">
-                            <PiFilePdf />
-                          </span>
-                          <span className={projeto.materiais.youtube ? "text-emerald-600" : "text-slate-300"} title="Vídeo">
-                            <PiYoutubeLogo />
-                          </span>
-                          <span className={projeto.materiais.resumo ? "text-emerald-600" : "text-slate-300"} title="Resumo">
-                            <PiTextAlignLeft />
-                          </span>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-black text-slate-700">{projeto.alunoAutor?.nome || projeto.projetoAlunos?.[0]?.aluno?.nome || "-"}</p>
+                          <p className="mt-1 text-xs text-slate-400">{projeto.tema?.nome || "Sem tema"}</p>
                         </div>
 
                         <button
                           type="button"
-                          onClick={() => handleAcaoIndisponivel("Abrir detalhes do projeto")}
+                          onClick={() => handleVerDetalhesProjeto(projeto)}
                           className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition hover:border-sectec-200 hover:bg-sectec-50 hover:text-sectec-700"
                           aria-label={`Abrir ${projeto.titulo}`}
                         >
@@ -1696,7 +1853,7 @@ function Administrador() {
               <PanelTitle icon={<PiGauge size={20} />} title="Saúde operacional" subtitle="Indicadores em formato de controle, não vitrine." />
               <div className="mt-5 space-y-4">
                 {[
-                  { label: "Submissões completas", value: `${materiaisCompletos}/${projetosMock.length}`, width: "50%", icon: <PiSealCheck /> },
+                  { label: "Submissões completas", value: `${totalProjetos} projetos`, width: "50%", icon: <PiSealCheck /> },
                   { label: "Orientações pendentes", value: "1 crítica", width: "30%", icon: <PiWarningCircle /> },
                   { label: "Usuários provisionados", value: `${usuariosMock.length} contas`, width: "70%", icon: <PiUsersThree /> },
                 ].map((item) => (
