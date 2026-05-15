@@ -15,7 +15,8 @@ import { UpdateEventoDto } from './dto/update-evento.dto';
 import { CreateTemasDto } from './dto/create-tema.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard'; 
 import { GetUser } from '../auth/decorators/get-user.decorator';
-import { ApiOperation, ApiResponse, ApiTags, ApiBody } from '@nestjs/swagger';
+import { User } from '../users/entities/user.entity';
+import { ApiOperation, ApiResponse, ApiTags, ApiBody, ApiParam } from '@nestjs/swagger';
 // Remova o "Param as ApiParam" que estava dando erro
 
 @ApiTags('evento')
@@ -57,6 +58,23 @@ export class EventoController {
     return this.eventoService.findOne(id);
   }
 
+
+// modulos/eventos/evento.controller.ts
+
+@Get('temas/:id/professores')
+@ApiOperation({ 
+  summary: 'Busca professores por tema', 
+  description: 'Retorna todos os orientadores vinculados a um tema específico.' 
+})
+@ApiResponse({ status: 200, description: 'Lista de professores retornada com sucesso.' })
+async getProfessoresByTema(@Param('id', ParseIntPipe) id: number) {
+  return await this.eventoService.findProfessoresPorTema(id);
+}
+
+
+
+
+
   @Patch(':id')
   @ApiOperation({ summary: 'Atualiza dados e prazos de um evento' })
   update(
@@ -95,8 +113,11 @@ export class EventoController {
   @UseGuards(JwtAuthGuard) // Comentado para testes iniciais
   async sincronizar(
     @Body('temasIds') temasIds: number[],
-    @GetUser('userId') orientadorId: number
+    @GetUser() user: User // O decorator GetUser retornará undefined enquanto o Guard estiver OFF
   ) {
+    // Usando ID fixo para teste como solicitado, 
+    // Futuramente substituir 51 por user.id
+    const orientadorId = user.id; 
     return await this.eventoService.sincronizarTemas(orientadorId, temasIds);
   }
 }
