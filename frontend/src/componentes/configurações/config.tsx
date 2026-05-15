@@ -11,8 +11,13 @@ function getEmailFromToken() {
   if (!token) return "";
 
   try {
-    const tokenPayload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const tokenPayload = token
+      .split(".")[1]
+      .replace(/-/g, "+")
+      .replace(/_/g, "/");
+
     const payload = JSON.parse(atob(tokenPayload));
+
     return payload.email ?? "";
   } catch {
     return "";
@@ -43,7 +48,7 @@ function Config({ userRole = "aluno" }: { userRole?: UserRole }) {
 
     const token = localStorage.getItem("token");
 
-    const response = await fetch("http://localhost:3000/auth/change-password", {
+    const response = await fetch("http://localhost:3000/api/auth/change-password", {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",

@@ -58,7 +58,7 @@ export class AuthService {
       { expiresIn: '1h' },
     );
 
-    const frontendUrl = this.config.get<string>('FRONTEND_URL');
+    const frontendUrl = this.config.get<string>('VITE_API_URL');
     const resetLink = `${frontendUrl}/reset-password?token=${token}`;
 
     await this.emailService.sendPasswordReset(user.email_institucional, resetLink);
@@ -79,4 +79,37 @@ export class AuthService {
     user.senha = await this.hashingProvider.hash(newPassword);
     await this.usersRepository.save(user);
   }
+  async changePassword(
+  userId: number,
+  oldPassword: string,
+  newPassword: string,
+) {
+  const user = await this.usersRepository
+    .createQueryBuilder('user')
+    .addSelect('user.senha')
+    .where('user.id = :id', { id: userId })
+    .getOne();
+
+  if (!user) {
+    throw new NotFoundException('Usuário não encontrado');
+  }
+
+  const isPasswordValid = await this.hashingProvider.compare(
+    oldPassword,
+    user.senha,
+  );
+
+  if (!isPasswordValid) {
+    throw new UnauthorizedException('Senha antiga incorreta');
+  }
+
+  user.senha = await this.hashingProvider.hash(newPassword);
+
+  await this.usersRepository.save(user);
+
+  return {
+    message: 'Senha alterada com sucesso',
+  };
 }
+}
+

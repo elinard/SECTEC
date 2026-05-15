@@ -38,11 +38,21 @@ type EventoApi = {
   avaliacao?: PeriodoEventoApi | null;
   temas?: TemaApi[];
 };
+
+// NOVA INTERFACE: Tema do Projeto retornado pela API
+type TemaDoProjetoApi = {
+  id: string | number;
+  nome: string;
+  evento?: string;
+  orientadores?: string[];
+};
+
+// INTERFACE ATUALIZADA: Agora com tema (objeto) ao invés de temaId
 type ProjetoApi = {
   id: string | number;
   titulo: string;
   descricao: string;
-  temaId?: string | number;
+  tema: TemaDoProjetoApi;  // ← MUDANÇA IMPORTANTE: agora é objeto completo
   alunoAutor?: UsuarioApi;
   projetoAlunos?: Array<{ id: string | number; aluno?: UsuarioApi }>;
   orientadores?: Array<{
@@ -253,7 +263,8 @@ function buildFasesFeira(evento?: EventoApi | null): typeof FASES_FEIRA {
   ];
 }
 
-function mapProjetoApiToProjeto(projeto: ProjetoApi, temas: TemaApi[]): Projeto {
+// FUNÇÃO ATUALIZADA: Agora usa o objeto tema diretamente da API
+function mapProjetoApiToProjeto(projeto: ProjetoApi): Projeto {
   const membrosMap = new Map<string, Membro>();
   const autor = membroFromUsuario(projeto.alunoAutor);
   if (autor) membrosMap.set(autor.id, autor);
@@ -264,15 +275,16 @@ function mapProjetoApiToProjeto(projeto: ProjetoApi, temas: TemaApi[]): Projeto 
 
   const orientacaoAceita = projeto.orientadores?.find((item) => item.status === "aceito");
   const primeiraOrientacao = orientacaoAceita ?? projeto.orientadores?.[0];
-  const temaId = projeto.temaId ? Number(projeto.temaId) : undefined;
-  const tema = temas.find((item) => Number(item.id) === temaId);
-
+  
+  // 🔥 CORREÇÃO: usa o objeto tema diretamente da resposta da API
+  const temaDaApi = projeto.tema;
+  
   return {
     id: String(projeto.id),
     titulo: projeto.titulo,
     descricao: projeto.descricao,
-    eixo: tema?.nome ?? (temaId ? `Eixo #${temaId}` : "Eixo não informado"),
-    temaId,
+    eixo: temaDaApi?.nome ?? "Eixo não informado",  // ← agora pega o nome corretamente
+    temaId: temaDaApi?.id ? Number(temaDaApi.id) : undefined,
     membros: Array.from(membrosMap.values()),
     orientadorId: primeiraOrientacao?.orientador?.id ? String(primeiraOrientacao.orientador.id) : "",
     status: statusFromProjetoApi(projeto),
@@ -383,6 +395,14 @@ function Dashboard() {
           apiRequest<ProjetoApi[]>("/projetos").catch(() => []),
         ]);
         if (!active) return;
+        
+        // Debug: verificar o que a API retornou
+        if (projetos[0]) {
+          console.log('📦 Projeto retornado da API:', projetos[0]);
+          console.log('📝 Tema do projeto:', projetos[0].tema);
+          console.log('📛 Nome do tema:', projetos[0].tema?.nome);
+        }
+        
         const eventoAtualApi = eventoVigente ?? [...eventos].sort((a, b) => Number(b.id) - Number(a.id))[0] ?? null;
         const temas = eventoAtualApi?.temas ?? [];
         const ocupadosNormalizados = ocupadosIds.map(String);
@@ -412,7 +432,9 @@ function Dashboard() {
             disciplina: o.email_institucional ?? 'Orientador',
           }))
         );
-        setProjeto(projetos[0] ? mapProjetoApiToProjeto(projetos[0], temas) : null);
+        
+        // ATUALIZADO: Agora passa apenas o projeto, sem o parâmetro temas
+        setProjeto(projetos[0] ? mapProjetoApiToProjeto(projetos[0]) : null);
       } catch (error) {
         if (!active) return;
         setErroDados(
@@ -591,7 +613,8 @@ function Dashboard() {
         });
       }
 
-      const projetoAtualizado = mapProjetoApiToProjeto(projetoSalvo, eixosDisponiveis);
+      // ATUALIZADO: Agora passa apenas o projeto, sem o parâmetro temas
+      const projetoAtualizado = mapProjetoApiToProjeto(projetoSalvo);
       setProjeto({
         ...projetoAtualizado,
         orientadorId: solicitacoes[0] ?? projetoAtualizado.orientadorId,
