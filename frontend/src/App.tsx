@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/login';
+import ResetPassword from './pages/ResetPassword';
 import Dashboard from './pages/DashboardAluno';
 import Administrador from './pages/Administrador';
 import NotasAluno from './pages/Notas';
@@ -60,6 +61,7 @@ function App() {
             )
           }
         />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route
           path="/dashboard/aluno"
           element={

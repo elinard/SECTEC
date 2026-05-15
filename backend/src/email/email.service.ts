@@ -1,23 +1,27 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Resend } from 'resend';
+import * as nodemailer from 'nodemailer';
 
 @Injectable()
 export class EmailService {
-  private resend: Resend;
+  private transporter: nodemailer.Transporter;
 
   constructor(private config: ConfigService) {
-    this.resend = new Resend(
-      this.config.get<string>('RESEND_API_KEY'),
-    );
+    this.transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: this.config.get<string>('GMAIL_USER'),
+        pass: this.config.get<string>('GMAIL_APP_PASS'),
+      },
+    });
   }
 
   async sendPasswordReset(
     email: string,
     resetLink: string,
   ): Promise<void> {
-    await this.resend.emails.send({
-      from: 'SECTEC <onboarding@resend.dev>',
+    await this.transporter.sendMail({
+      from: `SECTEC <${this.config.get<string>('GMAIL_USER')}>`,
       to: email,
       subject: 'SECTEC – Redefinição de senha',
       html: `

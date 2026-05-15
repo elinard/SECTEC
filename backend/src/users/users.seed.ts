@@ -32,6 +32,11 @@ export class UsersSeed {
         email: 'coordenador@sectec.com',
         role: UserRole.COORDENACAO, // 👈 Ajustado para COORDENACAO (conforme seu erro anterior)
       },
+      {
+        nome: 'Yago Abreu',
+        email: 'yago.abreu@aluno.ce.gov.br',
+        role: UserRole.ALUNO, // 👈 Ajustado para COORDENACAO (conforme seu erro anterior)
+      },
     ];
 
     for (const u of seedUsers) {

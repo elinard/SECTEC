@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
-  AlertTriangle,
   BarChart3,
   CalendarDays,
   Check,
@@ -35,10 +34,12 @@ type FiltroSolicitacao = "pendentes" | "reprovadas" | "todas";
 
 type RegistroComEixo = {
   eixoSlug: EixoProjeto;
+  temaId?: number;
 };
 
 type Equipe = RegistroComEixo & {
   id: string;
+  projetoId?: number;
   nome: string;
   turma: string;
   eixo: string;
@@ -53,6 +54,7 @@ type Equipe = RegistroComEixo & {
 
 type Entrega = RegistroComEixo & {
   id: string;
+  projetoId?: number;
   materialId?: number;
   arquivo: string;
   equipe: string;
@@ -65,6 +67,7 @@ type Entrega = RegistroComEixo & {
 
 type Projeto = RegistroComEixo & {
   id: string;
+  projetoId?: number;
   orientacaoId?: number;
   titulo: string;
   equipe: string;
@@ -103,6 +106,10 @@ type ProjetoApi = {
   descricao?: string;
   temaId?: number;
   criadoEm?: string;
+  evento?: {
+    id: number;
+    titulo?: string;
+  };
   alunoAutor?: UsuarioProjetoApi;
   projetoAlunos?: Array<{
     id?: number | string;
@@ -134,6 +141,22 @@ type PdfApi = {
   originalName?: string;
   status?: string;
   enviadoEm?: string;
+};
+
+type TemaOrientadorApi = {
+  id: number;
+  nome: string;
+};
+
+type EventoAtualApi = {
+  id: number;
+  titulo: string;
+  temas?: TemaOrientadorApi[];
+};
+
+type UsuarioOrientadorApi = {
+  id: number | string;
+  temasSelecionados?: TemaOrientadorApi[];
 };
 
 const rubrica = [
@@ -223,6 +246,7 @@ function mapOrientacaoToProjeto(orientacao: OrientacaoApi): Projeto {
 
   return {
     id: `orientacao-${orientacao.id}`,
+    projetoId: projeto?.id,
     orientacaoId: orientacao.id,
     titulo: projeto?.titulo ?? "Projeto sem título",
     equipe: liderFromProjeto(projeto),
@@ -230,6 +254,7 @@ function mapOrientacaoToProjeto(orientacao: OrientacaoApi): Projeto {
     enviadoEm: formatBackendDate(orientacao.criadoEm),
     status: statusProjetoFromOrientacao(orientacao.status),
     eixoSlug,
+    temaId: projeto?.temaId,
   };
 }
 
@@ -275,6 +300,7 @@ function mapOrientacaoToEquipe(orientacao: OrientacaoApi): Equipe {
 
   return {
     id: `orientacao-${orientacao.id}`,
+    projetoId: projeto?.id,
     nome: projeto?.titulo ? `Equipe ${projeto.titulo}` : `Equipe ${lider}`,
     turma: turmaFromProjeto(projeto),
     eixo: eixoLabels[eixoSlug],
@@ -286,6 +312,7 @@ function mapOrientacaoToEquipe(orientacao: OrientacaoApi): Equipe {
     ultimoContato: orientacao.respondidoEm ? formatBackendDate(orientacao.respondidoEm) : formatBackendDate(orientacao.criadoEm),
     proximaReuniao: "A definir",
     risco: riscoFromOrientacao(orientacao.status),
+    temaId: projeto?.temaId,
   };
 }
 
@@ -312,6 +339,7 @@ function mapMaterialToEntrega(material: MaterialApi, orientacao: OrientacaoApi):
 
   return {
     id: `material-${material.id}`,
+    projetoId: projeto?.id,
     materialId: material.id,
     arquivo: materialArquivo(material),
     equipe: projeto?.titulo ?? "Projeto sem título",
@@ -321,6 +349,7 @@ function mapMaterialToEntrega(material: MaterialApi, orientacao: OrientacaoApi):
     data: formatBackendDate(material.criadoEm),
     status: materialStatusToEntregaStatus(material.status),
     eixoSlug,
+    temaId: projeto?.temaId,
   };
 }
 
@@ -330,6 +359,7 @@ function mapPdfToEntrega(pdf: PdfApi, orientacao: OrientacaoApi): Entrega {
 
   return {
     id: `pdf-${pdf.fileId}`,
+    projetoId: projeto?.id,
     materialId: pdf.materialId,
     arquivo: pdf.originalName ?? `PDF #${pdf.fileId}`,
     equipe: projeto?.titulo ?? "Projeto sem título",
@@ -339,6 +369,7 @@ function mapPdfToEntrega(pdf: PdfApi, orientacao: OrientacaoApi): Entrega {
     data: formatBackendDate(pdf.enviadoEm),
     status: pdf.status === "VALID" || pdf.status === "aprovado" ? "revisada" : "pendente",
     eixoSlug,
+    temaId: projeto?.temaId,
   };
 }
 
@@ -354,10 +385,20 @@ function useOrientadorBackendData() {
       setCarregando(true);
 
       try {
-        const data = await apiRequest<OrientacaoApi[]>("/orientacoes");
+        const [todasResult, pendentesResult] = await Promise.allSettled([
+          apiRequest<OrientacaoApi[]>("/orientacoes"),
+          apiRequest<OrientacaoApi[]>("/orientacoes/pendentes"),
+        ]);
         if (!active) return;
-        setOrientacoes(dedupeOrientacoes(data));
-        setErro("");
+
+        if (todasResult.status === "rejected" && pendentesResult.status === "rejected") {
+          throw todasResult.reason;
+        }
+
+        const todas = todasResult.status === "fulfilled" ? todasResult.value : [];
+        const pendentes = pendentesResult.status === "fulfilled" ? pendentesResult.value : [];
+        setOrientacoes(dedupeOrientacoes([...todas, ...pendentes]));
+        setErro(pendentesResult.status === "rejected" ? "Orientações carregadas; pendentes dedicadas não puderam ser consultadas." : "");
       } catch (error) {
         try {
           const projetos = await apiRequest<ProjetoApi[]>("/projetos");
@@ -417,7 +458,89 @@ function useOrientadorBackendData() {
     return true;
   }
 
-  return { orientacoes, equipes, projetos, carregando, erro, responderProjeto };
+  async function buscarProjetoDetalhe(projetoId: number) {
+    return apiRequest<ProjetoApi>(`/projetos/${projetoId}`);
+  }
+
+  return { orientacoes, equipes, projetos, carregando, erro, responderProjeto, buscarProjetoDetalhe };
+}
+
+function useTemasOrientadorData() {
+  const [temas, setTemas] = useState<TemaOrientadorApi[]>([]);
+  const [selecionadosIds, setSelecionadosIds] = useState<number[]>([]);
+  const [eventoTitulo, setEventoTitulo] = useState("");
+  const [carregando, setCarregando] = useState(true);
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    async function carregar() {
+      setCarregando(true);
+
+      try {
+        const evento = await apiRequest<EventoAtualApi | null>("/evento/atual/vigente");
+        let temasSelecionadosIds: number[] = [];
+        let avisoSelecao = "";
+
+        try {
+          const userId = typeof window !== "undefined" ? localStorage.getItem("userId") : null;
+          const orientadores = await apiRequest<UsuarioOrientadorApi[]>("/users/orientadores");
+          const orientadorAtual = orientadores.find((orientador) => String(orientador.id) === String(userId));
+          temasSelecionadosIds = orientadorAtual?.temasSelecionados?.map((tema) => tema.id) ?? [];
+        } catch {
+          avisoSelecao = "Eixos carregados do evento atual; seleção anterior do orientador não pôde ser carregada.";
+        }
+
+        if (!active) return;
+        setTemas(evento?.temas ?? []);
+        setSelecionadosIds(temasSelecionadosIds);
+        setEventoTitulo(evento?.titulo ?? "");
+        setErro(avisoSelecao);
+      } catch (error) {
+        if (!active) return;
+        setTemas([]);
+        setSelecionadosIds([]);
+        setEventoTitulo("");
+        setErro(error instanceof Error ? error.message : "Não foi possível carregar os eixos temáticos do evento atual.");
+      } finally {
+        if (active) setCarregando(false);
+      }
+    }
+
+    carregar();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function salvar(novosSelecionadosIds: number[]) {
+    setSalvando(true);
+
+    try {
+      await apiRequest("/evento/temas/sincronizar", {
+        method: "POST",
+        body: { temasIds: novosSelecionadosIds },
+      });
+      setSelecionadosIds(novosSelecionadosIds);
+      setErro("");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return {
+    temas,
+    selecionadosIds,
+    setSelecionadosIds,
+    eventoTitulo,
+    carregando,
+    salvando,
+    erro,
+    salvar,
+  };
 }
 
 function useEntregasBackendData(orientacoes: OrientacaoApi[], orientacoesCarregando: boolean) {
@@ -504,6 +627,15 @@ function filterByEixo<T extends RegistroComEixo>(items: T[], eixoAtivo: EixoTema
 
 function countByEixo<T extends RegistroComEixo>(items: T[], eixo: EixoTematico) {
   return eixo === "todos" ? items.length : items.filter((item) => item.eixoSlug === eixo).length;
+}
+
+function filterByTemasSelecionados<T extends RegistroComEixo>(items: T[], temasIds: number[]) {
+  if (temasIds.length === 0) return items;
+  return items.filter((item) => item.temaId !== undefined && temasIds.includes(item.temaId));
+}
+
+function countByTema<T extends RegistroComEixo>(items: T[], temaId: number) {
+  return items.filter((item) => item.temaId === temaId).length;
 }
 
 const fadeUp = {
@@ -781,6 +913,153 @@ function FiltroEixoBox({
   );
 }
 
+function TemasChecklist({
+  temas,
+  selecionadosIds,
+  eventoTitulo,
+  carregando,
+  salvando,
+  contagemPorTema,
+  onChange,
+  onSave,
+}: {
+  temas: TemaOrientadorApi[];
+  selecionadosIds: number[];
+  eventoTitulo: string;
+  carregando: boolean;
+  salvando: boolean;
+  contagemPorTema: (temaId: number) => number;
+  onChange: (ids: number[]) => void;
+  onSave: () => void;
+}) {
+  function toggleTema(temaId: number) {
+    onChange(
+      selecionadosIds.includes(temaId)
+        ? selecionadosIds.filter((id) => id !== temaId)
+        : [...selecionadosIds, temaId]
+    );
+  }
+
+  return (
+    <Card className="p-4 sm:p-4">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Eixos temáticos</p>
+          <h2 className="mt-1 text-lg font-bold text-slate-900">Eixos que o professor orienta</h2>
+          <p className="mt-1 text-sm font-medium text-slate-500">
+            {eventoTitulo ? `Evento atual: ${eventoTitulo}` : "Eixos carregados pelo evento atual."}
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Button variant="secondary" onClick={() => onChange(temas.map((tema) => tema.id))} disabled={carregando || salvando}>
+            Todos
+          </Button>
+          <Button onClick={onSave} disabled={carregando || salvando || temas.length === 0}>
+            <Save size={16} />
+            {salvando ? "Salvando" : "Salvar temas"}
+          </Button>
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        {carregando ? (
+          <div className="rounded-lg border border-dashed border-slate-200 p-4 text-sm font-semibold text-slate-400 sm:col-span-2 xl:col-span-3">
+            Carregando eixos do evento atual...
+          </div>
+        ) : temas.length > 0 ? (
+          temas.map((tema) => {
+            const ativo = selecionadosIds.includes(tema.id);
+
+            return (
+              <label
+                key={tema.id}
+                className={cx(
+                  "flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 transition",
+                  ativo
+                    ? "border-sectec-300 bg-sectec-50 text-sectec-800"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-sectec-200 hover:bg-sectec-50"
+                )}
+              >
+                <input
+                  type="checkbox"
+                  checked={ativo}
+                  onChange={() => toggleTema(tema.id)}
+                  className="h-4 w-4 shrink-0 accent-sectec-700"
+                />
+                <span className="min-w-0 flex-1 break-words text-sm font-semibold">{tema.nome}</span>
+                <span className="rounded-md bg-white px-2 py-1 text-xs font-bold text-slate-500">
+                  {contagemPorTema(tema.id)}
+                </span>
+              </label>
+            );
+          })
+        ) : (
+          <div className="rounded-lg border border-dashed border-slate-200 p-4 text-sm font-semibold text-slate-400 sm:col-span-2 xl:col-span-3">
+            Nenhum eixo temático veio do evento atual.
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function ProjetoDetalheCard({
+  projeto,
+  carregando,
+  erro,
+  onClose,
+}: {
+  projeto: ProjetoApi | null;
+  carregando: boolean;
+  erro: string;
+  onClose: () => void;
+}) {
+  if (!projeto && !carregando && !erro) return null;
+
+  const integrantes = projeto?.projetoAlunos?.map((item) => item.aluno?.nome).filter(Boolean) ?? [];
+
+  return (
+    <Card>
+      <div className="mb-5 flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Detalhe do backend</p>
+          <h2 className="mt-1 break-words text-lg font-bold text-slate-900">
+            {carregando ? "Carregando projeto..." : projeto?.titulo ?? "Projeto"}
+          </h2>
+        </div>
+        <Button variant="secondary" onClick={onClose} className="w-auto sm:w-auto">
+          Fechar
+        </Button>
+      </div>
+
+      {erro ? (
+        <EmptyState text={erro} />
+      ) : carregando ? (
+        <EmptyState text="Buscando /projetos/:id no backend..." />
+      ) : projeto ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <DetailLine label="Título" value={projeto.titulo} />
+          <DetailLine label="Aluno autor" value={projeto.alunoAutor?.nome ?? "Não informado"} />
+          <DetailLine label="Turma" value={turmaFromProjeto(projeto)} />
+          <DetailLine label="Tema ID" value={projeto.temaId ?? "Não informado"} />
+          <DetailLine label="Evento" value={projeto.evento?.titulo ?? projeto.evento?.id ?? "Não informado"} />
+          <DetailLine label="Criado em" value={formatBackendDate(projeto.criadoEm)} />
+          <div className="sm:col-span-2">
+            <DetailLine label="Descrição" value={projeto.descricao || "Sem descrição cadastrada"} />
+          </div>
+          <div className="sm:col-span-2">
+            <DetailLine
+              label="Integrantes"
+              value={integrantes.length > 0 ? integrantes.join(", ") : "Nenhum integrante extra retornado"}
+            />
+          </div>
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
 function EquipeRow({
   equipe,
   onOpen,
@@ -827,24 +1106,31 @@ function EquipeRow({
 
 function DashboardOrientador() {
   const backend = useOrientadorBackendData();
-  const [eixoAtivo, setEixoAtivo] = useState<EixoTematico>("todos");
+  const temasBackend = useTemasOrientadorData();
   const [turmaFiltro, setTurmaFiltro] = useState("todas");
   const [filtroSolicitacao, setFiltroSolicitacao] = useState<FiltroSolicitacao>("pendentes");
   const [aviso, setAviso] = useState("");
-  const [equipeAberta, setEquipeAberta] = useState<Equipe | null>(null);
+  const [projetoDetalhe, setProjetoDetalhe] = useState<ProjetoApi | null>(null);
+  const [carregandoDetalhe, setCarregandoDetalhe] = useState(false);
+  const [erroDetalhe, setErroDetalhe] = useState("");
   const equipesData = backend.equipes;
   const projetosData = backend.projetos;
-  const agendaData = agendaSemBackend;
 
-  const equipesFiltradas = useMemo(() => filterByEixo(equipesData, eixoAtivo), [equipesData, eixoAtivo]);
-  const projetosPorEixo = useMemo(() => filterByEixo(projetosData, eixoAtivo), [projetosData, eixoAtivo]);
+  const equipesFiltradas = useMemo(
+    () => filterByTemasSelecionados(equipesData, temasBackend.selecionadosIds),
+    [equipesData, temasBackend.selecionadosIds]
+  );
+  const projetosPorTema = useMemo(
+    () => filterByTemasSelecionados(projetosData, temasBackend.selecionadosIds),
+    [projetosData, temasBackend.selecionadosIds]
+  );
   const turmasSolicitacoes = useMemo(
-    () => Array.from(new Set(projetosPorEixo.map((projeto) => projeto.turma))).sort(),
-    [projetosPorEixo]
+    () => Array.from(new Set(projetosPorTema.map((projeto) => projeto.turma))).sort(),
+    [projetosPorTema]
   );
   const projetosParaAnalise = useMemo(
     () =>
-      projetosPorEixo.filter((projeto) => {
+      projetosPorTema.filter((projeto) => {
         const bateTurma = turmaFiltro === "todas" || projeto.turma === turmaFiltro;
         const bateStatus =
           filtroSolicitacao === "todas" ||
@@ -853,14 +1139,18 @@ function DashboardOrientador() {
 
         return bateTurma && bateStatus;
       }),
-    [filtroSolicitacao, projetosPorEixo, turmaFiltro]
+    [filtroSolicitacao, projetosPorTema, turmaFiltro]
   );
-  const agendaFiltrada = useMemo(() => filterByEixo(agendaData, eixoAtivo), [agendaData, eixoAtivo]);
 
   const riscosAltos = equipesFiltradas.filter((equipe) => equipe.risco === "alto").length;
-  const solicitacoesPendentes = projetosPorEixo.filter((projeto) => projeto.status === "aguardando").length;
-  const solicitacoesReprovadas = projetosPorEixo.filter((projeto) => projeto.status === "ajustes").length;
+  const solicitacoesPendentes = projetosPorTema.filter((projeto) => projeto.status === "aguardando").length;
+  const solicitacoesAprovadas = projetosPorTema.filter((projeto) => projeto.status === "aprovado").length;
+  const solicitacoesReprovadas = projetosPorTema.filter((projeto) => projeto.status === "ajustes").length;
   const aguardandoAprovacao = projetosParaAnalise.filter((projeto) => projeto.status === "aguardando").length;
+  const eixosSelecionadosLabel =
+    temasBackend.selecionadosIds.length > 0
+      ? `${temasBackend.selecionadosIds.length} eixo(s) selecionado(s)`
+      : "todos os eixos do evento";
 
   function mostrarAviso(mensagem: string) {
     setAviso(mensagem);
@@ -879,16 +1169,58 @@ function DashboardOrientador() {
     }
   }
 
+  async function salvarTemas() {
+    try {
+      await temasBackend.salvar(temasBackend.selecionadosIds);
+      mostrarAviso("Temas do orientador salvos.");
+    } catch (error) {
+      mostrarAviso(error instanceof Error ? error.message : "Não foi possível salvar os temas do orientador.");
+    }
+  }
+
+  async function abrirDetalheProjeto(projetoId?: number) {
+    if (!projetoId) {
+      setErroDetalhe("Este item não veio do backend com ID de projeto.");
+      setProjetoDetalhe(null);
+      return;
+    }
+
+    setCarregandoDetalhe(true);
+    setErroDetalhe("");
+
+    try {
+      const detalhe = await backend.buscarProjetoDetalhe(projetoId);
+      setProjetoDetalhe(detalhe);
+    } catch (error) {
+      setProjetoDetalhe(null);
+      setErroDetalhe(error instanceof Error ? error.message : "Não foi possível carregar os detalhes do projeto.");
+    } finally {
+      setCarregandoDetalhe(false);
+    }
+  }
+
+  function fecharDetalheProjeto() {
+    setProjetoDetalhe(null);
+    setErroDetalhe("");
+    setCarregandoDetalhe(false);
+  }
+
   return (
     <PageShell
       eyebrow="Orientação SECTEC"
       title="Painel do orientador"
-      description="Veja solicitações pendentes, filtre por turma ou eixo, aprove ou reprove pedidos e acompanhe as equipes que você orienta."
+      description="Consulte solicitações, equipes e selecione os eixos temáticos que você orienta."
       actions={
         <>
-          <Button variant="secondary" onClick={() => setTurmaFiltro("todas")}>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setTurmaFiltro("todas");
+              setFiltroSolicitacao("todas");
+            }}
+          >
             <SlidersHorizontal size={16} />
-            Limpar turma
+            Limpar filtros
           </Button>
           <Button onClick={() => setFiltroSolicitacao("pendentes")}>
             <Search size={16} />
@@ -902,61 +1234,22 @@ function DashboardOrientador() {
           aviso ||
           (backend.carregando
             ? "Carregando dados do backend..."
-            : backend.erro || "Solicitações carregadas do backend; agenda e reunião ainda não têm endpoints.")
+            : backend.erro || temasBackend.erro || "Dados do orientador carregados do backend.")
         }
       />
 
-      <FiltroEixoBox
-        eixoAtivo={eixoAtivo}
-        onChange={setEixoAtivo}
-        contagemPorEixo={(eixo) => countByEixo(projetosData, eixo)}
-        title="Filtros de solicitações"
-        description="Filtre solicitações pendentes por eixo, turma e situação."
+      <TemasChecklist
+        temas={temasBackend.temas}
+        selecionadosIds={temasBackend.selecionadosIds}
+        eventoTitulo={temasBackend.eventoTitulo}
+        carregando={temasBackend.carregando}
+        salvando={temasBackend.salvando}
+        contagemPorTema={(temaId) => countByTema(projetosData, temaId)}
+        onChange={temasBackend.setSelecionadosIds}
+        onSave={salvarTemas}
       />
 
-      <Card>
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(180px,0.8fr)_minmax(0,1.2fr)] lg:items-end">
-          <label className="min-w-0 space-y-2">
-            <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">Turma</span>
-            <select
-              value={turmaFiltro}
-              onChange={(event) => setTurmaFiltro(event.target.value)}
-              className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-600 focus:ring-2 focus:ring-sectec-100"
-            >
-              <option value="todas">Todas as turmas</option>
-              {turmasSolicitacoes.map((turma) => (
-                <option key={turma} value={turma}>
-                  {turma}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <div className="flex flex-wrap gap-2">
-            {([
-              ["pendentes", "Pendentes"],
-              ["reprovadas", "Reprovadas"],
-              ["todas", "Todas"],
-            ] as const).map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setFiltroSolicitacao(value)}
-                className={cx(
-                  "h-10 rounded-lg px-4 text-sm font-semibold transition",
-                  filtroSolicitacao === value
-                    ? "bg-sectec-700 text-white"
-                    : "border border-slate-200 bg-white text-slate-600 hover:border-sectec-200 hover:bg-sectec-50 hover:text-sectec-700"
-                )}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </Card>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <StatCard
           label="Pendentes"
           value={String(solicitacoesPendentes)}
@@ -967,21 +1260,14 @@ function DashboardOrientador() {
         <StatCard
           label="Orientando"
           value={String(equipesFiltradas.length)}
-          detail="equipes aprovadas"
+          detail={eixosSelecionadosLabel}
           icon={<FolderOpen size={18} />}
           tone="blue"
         />
         <StatCard
-          label="Reprovadas"
-          value={String(solicitacoesReprovadas)}
-          detail="solicitações recusadas"
-          icon={<AlertTriangle size={18} />}
-          tone="red"
-        />
-        <StatCard
           label="Atenção"
-          value={String(riscosAltos)}
-          detail="equipe precisa de ação"
+          value={String(riscosAltos + solicitacoesReprovadas)}
+          detail={`${riscosAltos} equipe(s) e ${solicitacoesReprovadas} solicitação(ões)`}
           icon={<Users size={18} />}
           tone="red"
         />
@@ -989,68 +1275,75 @@ function DashboardOrientador() {
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
         <Card>
-          <div className="mb-5 flex items-center justify-between gap-3">
+          <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Equipes orientadas</p>
-              <h2 className="mt-1 text-lg font-bold text-slate-900">Equipes que estou orientando</h2>
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Solicitações</p>
+              <h2 className="mt-1 text-lg font-bold text-slate-900">Projetos para consultar</h2>
+              <p className="mt-1 text-sm font-medium text-slate-500">
+                {aguardandoAprovacao} pendente(s), {solicitacoesAprovadas} aprovado(s)
+              </p>
             </div>
-            <SlidersHorizontal className="text-slate-300" />
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[180px_minmax(0,1fr)]">
+              <label className="min-w-0 space-y-2">
+                <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">Turma</span>
+                <select
+                  value={turmaFiltro}
+                  onChange={(event) => setTurmaFiltro(event.target.value)}
+                  className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-600 focus:ring-2 focus:ring-sectec-100"
+                >
+                  <option value="todas">Todas</option>
+                  {turmasSolicitacoes.map((turma) => (
+                    <option key={turma} value={turma}>
+                      {turma}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="flex flex-wrap items-end gap-2">
+                {([
+                  ["pendentes", "Pendentes"],
+                  ["reprovadas", "Reprovadas"],
+                  ["todas", "Todas"],
+                ] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setFiltroSolicitacao(value)}
+                    className={cx(
+                      "h-10 rounded-lg px-4 text-sm font-semibold transition",
+                      filtroSolicitacao === value
+                        ? "bg-sectec-700 text-white"
+                        : "border border-slate-200 bg-white text-slate-600 hover:border-sectec-200 hover:bg-sectec-50 hover:text-sectec-700"
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
 
           <div className="space-y-3">
-            {equipesFiltradas.length > 0 ? (
-              equipesFiltradas.map((equipe) => <EquipeRow key={equipe.id} equipe={equipe} onOpen={setEquipeAberta} />)
-            ) : (
-              <EmptyState text="Nenhuma equipe encontrada neste eixo." />
-            )}
-          </div>
-        </Card>
-
-        <div className="grid grid-cols-1 content-start gap-5">
-          {equipeAberta && (
-            <Card>
-              <div className="mb-4 flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Detalhes</p>
-                  <h2 className="mt-1 break-words text-lg font-bold text-slate-900">{equipeAberta.nome}</h2>
-                </div>
-                <Button variant="secondary" onClick={() => setEquipeAberta(null)} className="w-auto sm:w-auto">
-                  Fechar
-                </Button>
-              </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <DetailLine label="Turma" value={equipeAberta.turma} />
-                <DetailLine label="Eixo" value={equipeAberta.eixo} />
-                <DetailLine label="Líder" value={equipeAberta.lider} />
-                <DetailLine label="Integrantes" value={equipeAberta.integrantes} />
-              </div>
-            </Card>
-          )}
-
-          <Card>
-            <div className="mb-5 flex items-center justify-between">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Solicitações</p>
-                <h2 className="mt-1 text-lg font-bold text-slate-900">Pendentes para aprovar</h2>
-              </div>
-              <Badge tone="blue">{aguardandoAprovacao} novo</Badge>
-            </div>
-
-            <div className="space-y-3">
-              {projetosParaAnalise.length > 0 ? (
-                projetosParaAnalise.map((projeto) => (
-                  <div key={projeto.id} className="rounded-lg border border-slate-200 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
+            {projetosParaAnalise.length > 0 ? (
+              projetosParaAnalise.map((projeto) => (
+                <div key={projeto.id} className="rounded-lg border border-slate-200 p-4">
+                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
                         <p className="break-words font-semibold leading-5 text-slate-900">{projeto.titulo}</p>
-                        <p className="mt-1 break-words text-xs font-medium text-slate-500">
-                          {projeto.equipe} · {projeto.turma}
-                        </p>
+                        <Badge tone={projetoTone(projeto.status)}>{projetoLabel(projeto.status)}</Badge>
                       </div>
-                      <Badge tone={projetoTone(projeto.status)}>{projetoLabel(projeto.status)}</Badge>
+                      <p className="mt-1 break-words text-sm font-medium text-slate-500">
+                        {projeto.equipe} · {projeto.turma} · enviado em {projeto.enviadoEm}
+                      </p>
                     </div>
-                    <p className="mt-3 text-xs font-semibold text-slate-400">enviado em {projeto.enviadoEm}</p>
-                    <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <Button variant="secondary" onClick={() => abrirDetalheProjeto(projeto.projetoId)}>
+                        <Search size={15} />
+                        Detalhes
+                      </Button>
                       <Button variant="secondary" onClick={() => atualizarProjeto(projeto.id, "ajustes")}>
                         <Trash2 size={15} />
                         Reprovar
@@ -1061,40 +1354,59 @@ function DashboardOrientador() {
                       </Button>
                     </div>
                   </div>
-                ))
-              ) : (
-                <EmptyState text="Nenhum projeto aguardando análise neste eixo." />
-              )}
-            </div>
-          </Card>
+                </div>
+              ))
+            ) : (
+              <EmptyState text="Nenhum projeto encontrado para estes filtros." />
+            )}
+          </div>
+        </Card>
+
+        <div className="grid grid-cols-1 content-start gap-5">
+          <ProjetoDetalheCard
+            projeto={projetoDetalhe}
+            carregando={carregandoDetalhe}
+            erro={erroDetalhe}
+            onClose={fecharDetalheProjeto}
+          />
 
           <Card>
-            <div className="mb-5 flex items-center justify-between">
+            <div className="mb-5 flex items-center justify-between gap-3">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Agenda</p>
-                <h2 className="mt-1 text-lg font-bold text-slate-900">Próximas orientações</h2>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Equipes</p>
+                <h2 className="mt-1 text-lg font-bold text-slate-900">Minhas equipes</h2>
               </div>
-              <Clock3 className="text-slate-300" />
+              <Badge tone="blue">{equipesFiltradas.length}</Badge>
             </div>
 
-            <div className="space-y-4">
-              {agendaFiltrada.length > 0 ? (
-                agendaFiltrada.slice(0, 4).map((item) => (
-                  <div key={item.id} className="flex gap-4">
-                    <div className="w-16 shrink-0">
-                      <p className="text-sm font-bold text-slate-900">{item.hora}</p>
-                      <p className="text-xs font-semibold text-slate-400">{item.dia}</p>
+            <div className="space-y-3">
+              {equipesFiltradas.length > 0 ? (
+                equipesFiltradas.map((equipe) => (
+                  <div key={equipe.id} className="rounded-lg border border-slate-200 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="break-words font-bold text-slate-900">{equipe.nome}</p>
+                        <p className="mt-1 break-words text-sm font-medium text-slate-500">
+                          {equipe.turma} · líder: {equipe.lider}
+                        </p>
+                      </div>
+                      <Badge tone={riscoTone(equipe.risco)}>
+                        {equipe.risco === "alto" ? "atenção" : equipe.risco === "medio" ? "acompanhar" : "em dia"}
+                      </Badge>
                     </div>
-                    <div className="min-w-0 flex-1 border-l border-slate-200 pl-4">
-                      <p className="font-semibold leading-5 text-slate-900">{item.titulo}</p>
-                      <p className="mt-1 text-sm font-medium text-slate-500">
-                        {item.equipe} · {item.local}
-                      </p>
+                    <div className="mt-3">
+                      <Progress value={equipe.progresso} />
+                    </div>
+                    <div className="mt-4">
+                      <Button variant="secondary" onClick={() => abrirDetalheProjeto(equipe.projetoId)}>
+                        <Search size={15} />
+                        Detalhes
+                      </Button>
                     </div>
                   </div>
                 ))
               ) : (
-                <EmptyState text="Sem orientação marcada neste eixo." />
+                <EmptyState text="Nenhuma equipe aprovada para estes temas." />
               )}
             </div>
           </Card>
