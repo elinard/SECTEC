@@ -92,7 +92,7 @@ export class EventoController {
       }
     }
   })
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard) // Comentado para testes iniciais
   async sincronizar(
     @Body('temasIds') temasIds: number[],
     @GetUser('userId') orientadorId: number

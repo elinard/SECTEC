@@ -24,7 +24,7 @@ import { ApiOperation, ApiResponse, ApiTags, ApiBody, ApiBearerAuth } from '@nes
 
 @ApiTags('projetos')
 @ApiBearerAuth()
-//@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard)
 @Controller('projetos')
 export class ProjetosController {
   constructor(private readonly projetosService: ProjetosService) {}
@@ -42,7 +42,8 @@ export class ProjetosController {
     @GetUser('role') role: string
   ) {
      if (role !== 'aluno') {
-       throw new ForbiddenException('Apenas alunos podem criar projetos.');
+       throw new ForbiddenException('Apenas alunos podem criar projetos.' + role
+       + ' ' + userId);
      }
     return this.projetosService.create(createProjetoDto, userId);
   }
@@ -93,7 +94,7 @@ export class ProjetosController {
       case 'coordenador':
         return this.projetosService.findAllCoordenador();
       default:
-      throw new ForbiddenException('Cargo não identificado para listagem.');
+     throw new ForbiddenException('Cargo não identificado para listagem.');
     }
   }
 

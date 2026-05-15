@@ -141,7 +141,7 @@ export class ProjetosService {
    */
   private async enviarSolicitacaoIndividual(projeto: Projeto, userId: number, orientadorId: number): Promise<ProjetoOrientador> {
     // Suas validações existentes
-    await this.validarTemaNoEvento(projeto.temaId, projeto.evento.id);
+    await this.validarTemaNoEvento(projeto.tema.id, projeto.evento.id);
     await this.validarSolicitacaoDuplicada(projeto.id, orientadorId);
 
     const novaSolicitacao = this.projetoOrientadorRepository.create({
@@ -186,6 +186,7 @@ export class ProjetosService {
       relations: {
         evento: true,
         alunoAutor: true,
+        tema: true,
         projetoAlunos: { aluno: true },
       },
       select: this.getProjetoSelectFields(),
@@ -206,6 +207,7 @@ export class ProjetosService {
       relations: {
         evento: true,
         alunoAutor: true,
+        tema: true,
         projetoAlunos: { aluno: true },
       },
       select: this.getProjetoSelectFields(),
@@ -222,6 +224,7 @@ export class ProjetosService {
         projeto: {
           evento: true,
           alunoAutor: true,
+          tema: true,
           projetoAlunos: { aluno: true },
         }
       }
@@ -237,6 +240,7 @@ export class ProjetosService {
     return this.dataSource.getRepository(Evento).find({
       relations: {
         projetos: {
+          tema: true,
           alunoAutor: true,
           projetoAlunos: { aluno: true }
         }
@@ -252,16 +256,11 @@ export class ProjetosService {
   /**
    * Atualiza dados do projeto. Regras de permissão variam por Role.
    */
-async update(id: number, dto: UpdateProjetoDto, userId: number, role: string): Promise<Projeto> {
-  const projeto = await this.findOne(id); // Já traz o evento nas relations
+  async update(id: number, dto: UpdateProjetoDto, userId: number, role: string): Promise<Projeto> {
+  const projeto = await this.findOne(id);
 
-  // 1. Verificações de permissão
   if (role !== 'coordenador' && projeto.alunoAutor.id !== userId) {
     throw new ForbiddenException('Sem permissão para editar este projeto.');
-  }
-
-  if (dto.alunosIds && role !== 'coordenador') {
-    throw new ForbiddenException('Apenas coordenadores alteram integrantes.');
   }
 
   const queryRunner = this.dataSource.createQueryRunner();
@@ -269,49 +268,39 @@ async update(id: number, dto: UpdateProjetoDto, userId: number, role: string): P
   await queryRunner.startTransaction();
 
   try {
-    // 2. Definir qual evento usar: 
-    // Prioridade: 1. O que veio no DTO | 2. O que já estava no projeto | 3. O último do sistema
-    let eventoId = dto.evento || projeto.evento?.id;
-    
-    if (!eventoId) {
-      const ultimo = await this.buscarUltimoEvento();
-      eventoId = ultimo.id;
+    const { temaId, evento, alunosIds, ...restDto } = dto;
+
+    // 1. Criamos um objeto de atualização apenas com o que foi enviado
+    const updateData: any = {};
+
+    if (restDto.titulo) updateData.titulo = restDto.titulo;
+    if (restDto.descricao) updateData.descricao = restDto.descricao;
+    if (temaId) updateData.tema = { id: temaId };
+    if (evento) updateData.evento = { id: evento };
+
+    // 2. Só executamos o update se o objeto não estiver vazio
+    if (Object.keys(updateData).length > 0) {
+      await queryRunner.manager.update(Projeto, id, updateData);
     }
 
-    const dadosAtualizados = {
-      ...dto,
-      evento: { id: eventoId } as any,
-      alunoAutor: { id: projeto.alunoAutor.id } as any,
-    };
-
-    // Removemos propriedades que não pertencem à entidade antes do merge se necessário
-    delete (dadosAtualizados as any).temaId; 
-
-    this.projetoRepository.merge(projeto, dadosAtualizados);
-    
-    // Se o temaId mudou, precisamos atualizar a relação manualmente ou via merge
-    if (dto.temaId) {
-      projeto.temaId = { id: dto.temaId } as any;
-    }
-
-    await queryRunner.manager.save(projeto);
-
-    // 3. Atualizar integrantes (apenas coordenador)
-    if (dto.alunosIds && role === 'coordenador') {
-      await queryRunner.manager.delete(ProjetoAluno, { projeto: { id: projeto.id } });
-      await this.saveParticipantes(queryRunner, projeto.id, dto.alunosIds, projeto.alunoAutor.id);
+    // 3. Lógica de Integrantes (ProjetoAluno)
+    // Se vier alunosIds, o coordenador quer resetar a equipe
+    if (alunosIds && role === 'coordenador') {
+      await queryRunner.manager.delete(ProjetoAluno, { projeto: { id: id } });
+      await this.saveParticipantes(queryRunner, id, alunosIds, projeto.alunoAutor.id);
     }
 
     await queryRunner.commitTransaction();
-    
+
     await this.auditoriaService.registrar(
       userId,
       'PROJETO_ATUALIZADO',
-      `Projeto #${id} atualizado por usuario com cargo "${role}".`,
+      `Projeto #${id} atualizado via PATCH.`,
       id,
     );
 
     return this.findOne(id);
+
   } catch (err) {
     await queryRunner.rollbackTransaction();
     throw err;
@@ -319,6 +308,11 @@ async update(id: number, dto: UpdateProjetoDto, userId: number, role: string): P
     await queryRunner.release();
   }
 }
+
+
+
+
+
 
   /**
    * Remove um projeto do sistema.
@@ -345,7 +339,7 @@ async update(id: number, dto: UpdateProjetoDto, userId: number, role: string): P
 
   private validateGroupSize(alunosIds: number[] = []) {
     const total = alunosIds.length + 1;
-    if (total < 3 || total > 6) {
+    if (total < 3 || total > 7) {
       throw new BadRequestException(`O grupo deve ter entre 3 e 6 integrantes.`);
     }
   }
@@ -366,14 +360,19 @@ async update(id: number, dto: UpdateProjetoDto, userId: number, role: string): P
   }
 
   private async saveProjeto(qr: QueryRunner, dto: CreateProjetoDto, autorId: number): Promise<Projeto> {
-  const projeto = qr.manager.create(Projeto, {
-    ...dto,
+  // Criamos o objeto limpando qualquer ID que possa vir do Front por engano
+  const novoProjeto = qr.manager.create(Projeto, {
+    titulo: dto.titulo,
+    descricao: dto.descricao,
     evento: { id: dto.evento } as any,
-    tema: { id: dto.temaId } as any, // Garanta que o temaId também seja vinculado
+    tema: { id: dto.temaId } as any,
     alunoAutor: { id: autorId } as any,
   });
-  return qr.manager.save(projeto);
+
+  // Usamos save, mas garantimos que o objeto está "limpo"
+  return qr.manager.save(Projeto, novoProjeto);
 }
+
 
 
   private async saveParticipantes(qr: QueryRunner, projetoId: number, convidadosIds: number[] = [], autorId: number) {
@@ -396,11 +395,12 @@ async update(id: number, dto: UpdateProjetoDto, userId: number, role: string): P
 }
 
 
-  private async getUltimoProjetoDoAluno(userId: number): Promise<Projeto> {
+    private async getUltimoProjetoDoAluno(userId: number): Promise<Projeto> {
     const projeto = await this.projetoRepository.findOne({
       where: { alunoAutor: { id: userId } },
       order: { criadoEm: 'DESC' },
-      relations: ['evento'],
+      // ADICIONE O TEMA AQUI ⬇️
+      relations: ['evento', 'tema'], 
     });
 
     if (!projeto) {
@@ -409,13 +409,14 @@ async update(id: number, dto: UpdateProjetoDto, userId: number, role: string): P
     return projeto;
   }
 
+
   private async validarTemaNoEvento(temaId: number, eventoId: number) {
     const existe = await this.temaEventoRepository.exists({
       where: { id: temaId, evento: { id: eventoId } }
     });
 
     if (!existe) {
-      throw new BadRequestException('O tema do projeto não está disponível para este evento.');
+      throw new BadRequestException('O tema do projeto não está disponível para este evento.');     
     }
   }
 
@@ -440,9 +441,9 @@ async update(id: number, dto: UpdateProjetoDto, userId: number, role: string): P
       id: true,
       titulo: true,
       descricao: true,
-      temaId: true,
-      alunoAutor: { id: true, nome: true, role_cargo: true },
-      projetoAlunos: { id: true, aluno: { id: true, nome: true } },
+      tema: { id: true, nome: true }, // 👈 Adicionado
+      alunoAutor: { id: true, nome: true, role_cargo: true, ano: true, turma: true },
+      projetoAlunos: { id: true, aluno: { id: true, nome: true, ano: true, turma: true } },
     };
   }
 
