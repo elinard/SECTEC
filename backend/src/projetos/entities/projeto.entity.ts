@@ -13,6 +13,8 @@ import { TemaEvento } from '../../evento/entities/tema-evento.entity';
 import { User } from '../../users/entities/user.entity';
 import { ProjetoAluno } from './projeto-aluno.entity';
 import { ProjetoOrientador } from './projeto-orientador.entity';
+import { ProjectFile } from '../../pdf/entities/project-file.entity'; // ajuste o caminho aqui
+
 
 @Entity('projetos')
 @Unique(['alunoAutor', 'evento'])
@@ -49,4 +51,10 @@ export class Projeto {
 
   @CreateDateColumn({ name: 'criado_em' })
   criadoEm!: Date;
+  
+  
+    // 3. Adicionamos a relação inversa para o Projeto ter acesso à lista de PDFs dele
+  @OneToMany(() => ProjectFile, (projectFile) => projectFile.projeto)
+  arquivos!: ProjectFile[];
+
 }

@@ -13,9 +13,12 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles, UserRole } from '../auth/decorators/roles.decorator';
 import { GetUser } from '../auth/decorators/get-user.decorator';
+import { ApiOperation, ApiResponse, ApiTags, ApiBody, ApiBearerAuth } from
+'@nestjs/swagger';
 
 @Controller('orientacoes')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@ApiBearerAuth('token-jwt')
 @Roles(UserRole.ORIENTADOR)
 export class OrientacoesController {
   constructor(private readonly orientacoesService: OrientacoesService) {}

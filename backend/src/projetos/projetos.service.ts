@@ -5,10 +5,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, QueryRunner, Repository } from 'typeorm';
+// 1. Adicionado o "Between" na importação do 'typeorm'
+import { DataSource, In, QueryRunner, Repository, Between } from 'typeorm';
 
 import { AuditoriaService } from 'src/auditoria/auditoria.service';
-import { Evento } from 'src/evento/entities/evento.entity';
+// 2. Importado o Evento e o EventoStatus (ajuste o caminho se o enum estiver em outro arquivo)
+import { Evento, EventoStatus } from 'src/evento/entities/evento.entity';
 import { TemaEvento } from 'src/evento/entities/tema-evento.entity';
 import { User, UserRole } from 'src/users/entities/user.entity';
 import { CreateProjetoDto } from './dto/create-projeto.dto';
@@ -16,6 +18,7 @@ import { UpdateProjetoDto } from './dto/update-projeto.dto';
 import { ProjetoAluno } from './entities/projeto-aluno.entity';
 import { ProjetoOrientador } from './entities/projeto-orientador.entity';
 import { Projeto } from './entities/projeto.entity';
+
 
 @Injectable()
 export class ProjetosService {
@@ -40,7 +43,7 @@ export class ProjetosService {
 
     private readonly dataSource: DataSource,
     private readonly auditoriaService: AuditoriaService,
-  ) {}
+  ) { }
 
   async create(dto: CreateProjetoDto, userId: number): Promise<Projeto> {
     const ultimoEvento = await this.buscarUltimoEvento();
@@ -80,6 +83,53 @@ export class ProjetosService {
       await queryRunner.release();
     }
   }
+
+
+
+  async findProjetoAtualPorAluno(userId: number): Promise<Projeto | null> {
+    try {
+      const eventoAtual = await this.buscarUltimoEvento();
+
+      const projeto = await this.projetoRepository.findOne({
+        where: [
+          {
+            evento: { id: eventoAtual.id },
+            alunoAutor: { id: userId }
+          },
+          {
+            evento: { id: eventoAtual.id },
+            projetoAlunos: { aluno: { id: userId } }
+          }
+        ],
+        relations: this.getProjetoRelations(),
+        select: this.getProjetoSelectFields(),
+      });
+
+      if (!projeto) return null;
+
+      // Filtra os orientadores para trazer apenas quem aceitou. 
+      // Se ninguém aceitou, deixa o array vazio []
+      if (projeto.orientadores) {
+        projeto.orientadores = projeto.orientadores.filter(
+          (relacao) => relacao.status === 'aceito'
+        );
+      } else {
+        projeto.orientadores = [];
+      }
+
+      return projeto;
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+
+
+
+
 
   async enviarMultiplasSolicitacoes(userId: number, orientadoresIds: number[]) {
     const resultados: {
@@ -192,6 +242,16 @@ export class ProjetosService {
 
     if (!projeto) {
       throw new NotFoundException(`Projeto #${id} nao encontrado`);
+    }
+
+    // Filtra os orientadores para trazer apenas quem aceitou. 
+    // Se ninguém aceitou, deixa o array vazio []
+    if (projeto.orientadores) {
+      projeto.orientadores = projeto.orientadores.filter(
+        (relacao) => relacao.status === 'aceito'
+      );
+    } else {
+      projeto.orientadores = [];
     }
 
     return projeto;
@@ -496,15 +556,30 @@ export class ProjetosService {
   }
 
   private async buscarUltimoEvento(): Promise<Evento> {
-    const ultimoEvento = await this.eventoRepository.findOne({
-      where: {},
-      order: { criadoEm: 'DESC' },
+    const anoAtual = new Date().getFullYear();
+    const inicioAno = `${anoAtual}-01-01`;
+    const fimAno = `${anoAtual}-12-31`;
+
+    const evento = await this.eventoRepository.findOne({
+      where: {
+        // Agora o 'Between' vai funcionar porque foi importado
+        prazoInicial: Between(inicioAno as any, fimAno as any),
+        status: EventoStatus.ATIVO
+      },
+      order: {
+        criadoEm: 'DESC',
+      },
+      relations: ['temas'],
     });
 
-    if (!ultimoEvento) {
-      throw new NotFoundException('Nao ha nenhum evento cadastrado no sistema.');
+    // 3. Resolve o erro do TypeScript garantindo que o retorno nunca será null para quem chama
+    if (!evento) {
+      throw new NotFoundException(
+        `Nenhum evento ativo foi cadastrado ou encontrado para o ano de ${anoAtual}.`
+      );
     }
 
-    return ultimoEvento;
+    return evento;
   }
+
 }

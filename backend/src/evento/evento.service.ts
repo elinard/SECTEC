@@ -29,7 +29,7 @@ export class EventoService {
 
   async findAll() {
     return await this.eventoRepository.find({
-      relations: ['temas', 'temas.orientadores'],
+      relations: ['temas'],
       order: { criadoEm: 'DESC' }
     });
   }
@@ -37,7 +37,7 @@ export class EventoService {
   async findOne(id: number) {
     const evento = await this.eventoRepository.findOne({
       where: { id },
-      relations: ['temas', 'temas.orientadores', 'coordenador'],
+      relations: ['temas', 'coordenador'],
     });
 
     if (!evento) {
@@ -120,7 +120,7 @@ async findProfessoresPorTema(temaId: number) {
       order: {
         criadoEm: 'DESC',
       },
-      relations: ['temas', 'temas.orientadores'],
+      relations: ['temas'],
     });
   }
 

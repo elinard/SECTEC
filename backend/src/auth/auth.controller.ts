@@ -10,15 +10,19 @@ import {
 import { AuthService } from './auth.service';
 import { LocalAuthGuard } from './guards/local-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
-
+import { ApiTags, ApiOperation, ApiBody, ApiBearerAuth } from '@nestjs/swagger'; // <-- Novos imports
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { LoginDto } from './dto/login.dto'; // <-- Importa o DTO de Login
 
+@ApiTags('Autenticação')
 @Controller('auth')
 export class AuthController {
   constructor(private authService: AuthService) {}
 
   @UseGuards(LocalAuthGuard)
   @Post('login')
+  @ApiOperation({ summary: 'Realiza a autenticação e retorna o Token JWT' })
+  @ApiBody({ type: LoginDto }) // Força o Swagger a gerar o corpo de login
   async login(@Request() req) {
     return this.authService.login(req.user);
   }
