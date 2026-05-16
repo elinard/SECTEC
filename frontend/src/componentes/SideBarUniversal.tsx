@@ -71,6 +71,7 @@ export function Sidebar({
   const visibleItems = settingsItem
     ? filteredItems.filter((item) => item.id !== settingsItem.id)
     : filteredItems;
+  const showSettings = userRole !== "coordenador" && userRole !== "comissao";
 
   return (
     <motion.aside
@@ -263,37 +264,39 @@ export function Sidebar({
           </AnimatePresence>
         </motion.button>
 
-        <motion.div
-          whileHover={{ scale: expanded ? 1.02 : 1.1 }}
-          whileTap={{ scale: 0.97 }}
-        >
-          <Link
-            to={settingsItem?.href || "#"}
-            onClick={onClose}
-            className={`flex items-center gap-3 w-full rounded-xl text-sm font-semibold transition text-white/70 hover:bg-white/10 hover:text-white ${
-              !expanded ? "justify-center p-3" : "py-3 px-4"
-            }`}
-            title="Configurações"
+        {showSettings && (
+          <motion.div
+            whileHover={{ scale: expanded ? 1.02 : 1.1 }}
+            whileTap={{ scale: 0.97 }}
           >
-            <span className="opacity-80 shrink-0">
-              {settingsItem?.icon || <Settings size={20} />}
-            </span>
+            <Link
+              to={settingsItem?.href || "#"}
+              onClick={onClose}
+              className={`flex items-center gap-3 w-full rounded-xl text-sm font-semibold transition text-white/70 hover:bg-white/10 hover:text-white ${
+                !expanded ? "justify-center p-3" : "py-3 px-4"
+              }`}
+              title="Configurações"
+            >
+              <span className="opacity-80 shrink-0">
+                {settingsItem?.icon || <Settings size={20} />}
+              </span>
 
-          <AnimatePresence>
-            {expanded && (
-              <motion.span
-                initial={{ opacity: 0, x: -6 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -6 }}
-                transition={{ duration: 0.16 }}
-                className="whitespace-nowrap truncate"
-              >
-                {settingsItem?.label || "Configurações"}
-              </motion.span>
-            )}
-          </AnimatePresence>
-          </Link>
-        </motion.div>
+              <AnimatePresence>
+                {expanded && (
+                  <motion.span
+                    initial={{ opacity: 0, x: -6 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -6 }}
+                    transition={{ duration: 0.16 }}
+                    className="whitespace-nowrap truncate"
+                  >
+                    {settingsItem?.label || "Configurações"}
+                  </motion.span>
+                )}
+              </AnimatePresence>
+            </Link>
+          </motion.div>
+        )}
       </div>
     </motion.aside>
   );
@@ -344,6 +347,7 @@ export function MainLayout({
     [`${dashboardPrefix}/relatorios`]: "Relatórios",
     [`${dashboardPrefix}/usuarios`]: "Usuários",
     [`${dashboardPrefix}/eventos`]: "Eventos",
+    [`${dashboardPrefix}/projetos`]: "Projetos",
     [`${dashboardPrefix}/relatorio-alunos`]: "Status dos Alunos",
     [`${dashboardPrefix}/configuracoes`]: "Configurações",
   };
@@ -423,6 +427,14 @@ export function MainLayout({
     icon: <CalendarDays size={20} />,
     href: `${dashboardPrefix}/eventos`,
     isActive: location.pathname === `${dashboardPrefix}/eventos`,
+    roles: ["coordenador", "comissao"],
+  },
+  {
+    id: "coordenacao-projetos",
+    label: "Projetos",
+    icon: <ClipboardList size={20} />,
+    href: `${dashboardPrefix}/projetos`,
+    isActive: location.pathname === `${dashboardPrefix}/projetos`,
     roles: ["coordenador", "comissao"],
   },
   {

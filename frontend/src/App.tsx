@@ -173,6 +173,14 @@ function App() {
           }
         />
         <Route
+          path="/dashboard/coordenacao/projetos"
+          element={
+            <ProtectedRoute allowedRoles={["coordenador", "comissao"]}>
+              <Administrador />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/dashboard/coordenacao/configuracoes"
           element={
             <ProtectedRoute allowedRoles={["coordenador", "comissao"]}>

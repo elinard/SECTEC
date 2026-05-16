@@ -2,42 +2,43 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   PiArrowUpRight,
-  PiBellRinging,
   PiBookOpen,
   PiBuildings,
   PiCalendarBlank,
-  PiCaretRight,
-  PiChalkboardTeacher,
   PiCheckCircle,
-  PiClockCounterClockwise,
   PiFilePdf,
   PiFunnel,
-  PiGauge,
-  PiGitBranch,
-  PiGraduationCap,
-  PiLockKey,
   PiMagnifyingGlass,
   PiNotebook,
   PiPlus,
-  PiSealCheck,
-  PiShieldCheck,
-  PiSlidersHorizontal,
-  PiStudent,
   PiTextAlignLeft,
-  PiUserGear,
   PiUsersThree,
   PiWarningCircle,
   PiXCircle,
   PiUploadSimple,
   PiYoutubeLogo,
 } from "react-icons/pi";
-import { Eye } from "lucide-react";
-import { useLocation } from "react-router-dom";
+import {
+  AlertTriangle,
+  ArrowRight,
+  CalendarRange,
+  ClipboardCheck,
+  Eye,
+  FileWarning,
+  FolderKanban,
+  Loader2,
+  Pencil,
+  RefreshCw,
+  Save,
+  Trash2,
+  UsersRound,
+  X,
+} from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { MainLayout } from "../componentes/SideBarUniversal";
 import Swal from "sweetalert2";
 import { apiRequest, API_BASE_URL, type UsuarioApi } from "../lib/api";
 
-type FaseEvento = "Inscrição" | "Aceitação" | "Submissão" | "Avaliação";
 type StatusProjeto =
   | "Rascunho"
   | "Pendente de Orientação"
@@ -47,7 +48,6 @@ type StatusProjeto =
   | "Aprovado para Avaliação"
   | "Avaliado";
 type Prioridade = "baixa" | "media" | "alta";
-type PerfilUsuario = "Aluno" | "Orientador" | "Avaliador" | "Coordenador";
 
 type ProjetoAdmin = {
   id: number;
@@ -66,14 +66,6 @@ type ProjetoAdmin = {
   };
 };
 
-type UsuarioAdmin = {
-  id: number;
-  nome: string;
-  email: string;
-  perfil: PerfilUsuario;
-  status: "Ativo" | "Pendente" | "Bloqueado";
-};
-
 type TurmaAdmin = {
   id: number;
   nome: string;
@@ -84,24 +76,6 @@ type TurmaAdmin = {
   projetos: number;
   orientadoresVinculados: number;
   status: "Ativa" | "Fechada";
-};
-
-type SolicitacaoOrientador = {
-  id: number;
-  projeto: string;
-  orientador: string;
-  aluno: string;
-  eixo: string;
-  status: "Aguardando resposta" | "Aceito" | "Recusado";
-  prazo: string;
-};
-
-type LogAuditoria = {
-  id: number;
-  acao: string;
-  usuario: string;
-  detalhe: string;
-  quando: string;
 };
 
 type TemaEventoApi = {
@@ -142,6 +116,8 @@ type ProjetoCoordenacaoApi = {
   id: number;
   titulo: string;
   descricao?: string;
+  status?: string | null;
+  situacao?: string | null;
   criadoEm?: string;
   evento?: {
     id: number;
@@ -158,6 +134,7 @@ type ProjetoCoordenacaoApi = {
     id: number;
     nome: string;
   } | null;
+  temaId?: number | null;
   projetoAlunos?: Array<{
     aluno?: {
       id: number;
@@ -165,6 +142,17 @@ type ProjetoCoordenacaoApi = {
       email_institucional?: string | null;
       turma?: string | null;
       ano?: number | null;
+    } | null;
+  }>;
+  orientadores?: Array<{
+    id: number;
+    status?: string | null;
+    criadoEm?: string | null;
+    respondidoEm?: string | null;
+    orientador?: {
+      id: number;
+      nome: string;
+      email_institucional?: string | null;
     } | null;
   }>;
 };
@@ -180,9 +168,6 @@ type ProjetoCoordenacaoListagem = ProjetoCoordenacaoApi & {
   eventoTitulo?: string;
   eventoId?: number;
 };
-
-const faseAtual: FaseEvento = "Submissão";
-const prazoEncerrado = false;
 
 const projetosMock: ProjetoAdmin[] = [
   {
@@ -235,12 +220,6 @@ const projetosMock: ProjetoAdmin[] = [
   },
 ];
 
-const usuariosMock: UsuarioAdmin[] = [
-  { id: 1, nome: "Marcos Lima", email: "marcos@prof.ce.gov.br", perfil: "Orientador", status: "Ativo" },
-  { id: 2, nome: "Ana Beatriz", email: "ana@aluno.ce.gov.br", perfil: "Aluno", status: "Ativo" },
-  { id: 3, nome: "Rafaela Torres", email: "rafaela@prof.ce.gov.br", perfil: "Avaliador", status: "Pendente" },
-];
-
 const turmasMock: TurmaAdmin[] = [
   {
     id: 1,
@@ -275,40 +254,6 @@ const turmasMock: TurmaAdmin[] = [
     orientadoresVinculados: 2,
     status: "Ativa",
   },
-];
-
-const solicitacoesMock: SolicitacaoOrientador[] = [
-  {
-    id: 1,
-    projeto: "Filtro Inteligente de Água",
-    orientador: "Prof. Diego Ramos",
-    aluno: "Lucas Pereira",
-    eixo: "Ciências Aplicadas",
-    status: "Aguardando resposta",
-    prazo: "vence em 2 dias",
-  },
-  {
-    id: 2,
-    projeto: "Monitoramento Ambiental com IoT",
-    orientador: "Prof. Marcos Lima",
-    aluno: "João Felipe",
-    eixo: "Tecnologia e Sustentabilidade",
-    status: "Aceito",
-    prazo: "respondido hoje",
-  },
-];
-
-const logsMock: LogAuditoria[] = [
-  { id: 1, acao: "Prazo alterado", usuario: "Coordenação", detalhe: "Submissão prorrogada até 23:59", quando: "Hoje, 08:20" },
-  { id: 2, acao: "Projeto desbloqueado", usuario: "Coordenação", detalhe: "Edição liberada para correção de PDF", quando: "Ontem, 15:44" },
-  { id: 3, acao: "Orientador vinculado", usuario: "Sistema", detalhe: "Prof. Marcos aceitou orientação", quando: "08/05/2026" },
-];
-
-const fases: Array<{ nome: FaseEvento; periodo: string; descricao: string }> = [
-  { nome: "Inscrição", periodo: "01/05 - 12/05", descricao: "cadastro dos grupos" },
-  { nome: "Aceitação", periodo: "13/05 - 16/05", descricao: "resposta dos orientadores" },
-  { nome: "Submissão", periodo: "17/05 - 24/05", descricao: "PDF, resumo e vídeo" },
-  { nome: "Avaliação", periodo: "25/05 - 30/05", descricao: "bloqueio e banca" },
 ];
 
 const statusStyle: Record<StatusProjeto, string> = {
@@ -566,6 +511,157 @@ function formatarData(value: string) {
   return data.toLocaleDateString("pt-BR");
 }
 
+function extrairProjetosDaResposta(data: unknown): any[] {
+  if (!Array.isArray(data)) return [];
+
+  return data.flatMap((item: any) => {
+    if (Array.isArray(item.projetos)) {
+      return item.projetos.map((projeto: any) => ({
+        ...projeto,
+        eventoTitulo: projeto.evento?.titulo ?? item.titulo,
+        eventoId: projeto.evento?.id ?? item.id,
+      }));
+    }
+
+    return [item];
+  });
+}
+
+function getFaseAtual(evento: EventoApi | null) {
+  if (!evento) return "Nenhum evento vigente";
+
+  const hoje = new Date();
+
+  const fases = [
+    { label: "Inscrição", periodo: evento.inscricao },
+    { label: "Aceitação", periodo: evento.aceitacao },
+    { label: "Submissão", periodo: evento.submissao },
+    { label: "Avaliação", periodo: evento.avaliacao },
+  ];
+
+  const fase = fases.find(({ periodo }) => {
+    if (!periodo?.inicio || !periodo?.fim) return false;
+
+    const inicio = new Date(periodo.inicio);
+    const fim = new Date(periodo.fim);
+
+    return hoje >= inicio && hoje <= fim;
+  });
+
+  return fase?.label ?? "Fora do período configurado";
+}
+
+function formatarAnoEvento(evento: EventoApi | null) {
+  if (!evento?.prazoInicial) return "-";
+
+  const data = new Date(evento.prazoInicial);
+  return Number.isNaN(data.getTime()) ? "-" : String(data.getFullYear());
+}
+
+function buscarEventoDoAnoAtual(eventos: EventoApi[]) {
+  const anoAtual = new Date().getFullYear();
+
+  return eventos.find((evento) => {
+    const data = new Date(evento.prazoInicial);
+    return !Number.isNaN(data.getTime()) && data.getFullYear() === anoAtual;
+  }) ?? null;
+}
+
+function getStatusProjeto(projeto: ProjetoCoordenacaoListagem) {
+  return String(projeto.status ?? projeto.situacao ?? "").toLowerCase();
+}
+
+function extrairIdsAlunosDoProjeto(projeto: ProjetoCoordenacaoListagem) {
+  const ids = new Set<string>();
+
+  if (projeto.alunoAutor?.id !== undefined && projeto.alunoAutor?.id !== null) {
+    ids.add(String(projeto.alunoAutor.id));
+  }
+
+  projeto.projetoAlunos?.forEach((vinculo) => {
+    if (vinculo.aluno?.id !== undefined && vinculo.aluno?.id !== null) {
+      ids.add(String(vinculo.aluno.id));
+    }
+  });
+
+  return ids;
+}
+
+function calcularAlunosSemProjeto(alunos: UsuarioApi[], projetos: ProjetoCoordenacaoListagem[]) {
+  const idsComProjeto = new Set<string>();
+  const possuiRelacaoDeAluno = projetos.some((projeto) => extrairIdsAlunosDoProjeto(projeto).size > 0);
+
+  if (projetos.length > 0 && !possuiRelacaoDeAluno) return null;
+
+  projetos.forEach((projeto) => {
+    extrairIdsAlunosDoProjeto(projeto).forEach((id) => idsComProjeto.add(id));
+  });
+
+  return alunos.filter((aluno) => !idsComProjeto.has(String(aluno.id))).length;
+}
+
+function contarEventosSemTema(eventos: EventoApi[]) {
+  const eventosComTemasNoPayload = eventos.filter((evento) => Array.isArray(evento.temas));
+  if (eventos.length > 0 && eventosComTemasNoPayload.length === 0) return null;
+
+  return eventosComTemasNoPayload.filter((evento) => (evento.temas?.length ?? 0) === 0).length;
+}
+
+function valorOuIndisponivel(value: number | null) {
+  return value === null ? "Indisponível" : String(value);
+}
+
+function mensagemErroApi(error: unknown, fallback = "Não foi possível carregar os dados.") {
+  const tecnico = error instanceof Error ? error.message : "Erro desconhecido.";
+
+  return {
+    amigavel: fallback,
+    tecnico,
+  };
+}
+
+function getAutorProjeto(projeto: ProjetoCoordenacaoListagem) {
+  return projeto.alunoAutor ?? projeto.projetoAlunos?.[0]?.aluno ?? null;
+}
+
+function getIntegrantesProjeto(projeto: ProjetoCoordenacaoListagem) {
+  const autorId = projeto.alunoAutor?.id ? String(projeto.alunoAutor.id) : null;
+
+  return (projeto.projetoAlunos ?? [])
+    .map((vinculo) => vinculo.aluno)
+    .filter(Boolean)
+    .filter((aluno) => !autorId || String(aluno!.id) !== autorId);
+}
+
+function getOrientadoresProjeto(projeto: ProjetoCoordenacaoListagem) {
+  return projeto.orientadores ?? [];
+}
+
+function getStatusOrientacaoProjeto(projeto: ProjetoCoordenacaoListagem) {
+  const orientadores = getOrientadoresProjeto(projeto);
+  if (orientadores.some((item) => item.status === "aceito")) return "aceito";
+  if (orientadores.some((item) => item.status === "pendente")) return "pendente";
+  if (orientadores.some((item) => item.status === "recusado")) return "recusado";
+  return "sem-orientador";
+}
+
+function getDataCriacaoProjeto(projeto: ProjetoCoordenacaoListagem) {
+  return projeto.criadoEm ? formatarData(projeto.criadoEm) : "-";
+}
+
+function getEventoProjetoId(projeto: ProjetoCoordenacaoListagem) {
+  return projeto.eventoId ?? projeto.evento?.id ?? null;
+}
+
+function getTemaProjetoId(projeto: ProjetoCoordenacaoListagem) {
+  return projeto.temaId ?? projeto.tema?.id ?? null;
+}
+
+function getProjetoDescricaoCurta(projeto: ProjetoCoordenacaoListagem) {
+  if (!projeto.descricao) return "Sem descrição informada.";
+  return projeto.descricao.length > 150 ? `${projeto.descricao.slice(0, 150)}...` : projeto.descricao;
+}
+
 function EventosCoordenacao() {
   const [eventos, setEventos] = useState<EventoApi[]>([]);
   const [eventoAtual, setEventoAtual] = useState<EventoApi | null>(null);
@@ -575,6 +671,8 @@ function EventosCoordenacao() {
   const [eventoSelecionado, setEventoSelecionado] = useState<EventoApi | null>(null);
   const [detalhesEventoAberto, setDetalhesEventoAberto] = useState(false);
   const [projetosEventoSelecionado, setProjetosEventoSelecionado] = useState<ProjetoCoordenacaoListagem[]>([]);
+  const [salvandoEvento, setSalvandoEvento] = useState(false);
+  const [erroTecnico, setErroTecnico] = useState("");
   
   const formularioEventoRef = useRef<HTMLDivElement | null>(null);
   const [step, setStep] = useState(1);
@@ -597,6 +695,7 @@ function EventosCoordenacao() {
   async function carregarEventos() {
     setCarregando(true);
     setErro("");
+    setErroTecnico("");
     try {
       const dados = await apiRequest<EventoApi[]>("/evento");
       setEventos(dados);
@@ -619,7 +718,9 @@ function EventosCoordenacao() {
 
       setEventoAtual(vigente);
     } catch (error) {
-      setErro(error instanceof Error ? error.message : "Nao foi possivel carregar eventos.");
+      const erro = mensagemErroApi(error, "Não foi possível carregar os dados.");
+      setErro(`${erro.amigavel} Tente novamente em alguns instantes.`);
+      setErroTecnico(erro.tecnico);
     } finally {
       setCarregando(false);
     }
@@ -861,6 +962,7 @@ function EventosCoordenacao() {
     }
 
     try {
+      setSalvandoEvento(true);
       const payload: CreateEventoPayload = {
         titulo: formData.titulo.trim(),
         descricao: formData.descricao.trim() || undefined,
@@ -894,6 +996,8 @@ function EventosCoordenacao() {
         text: error instanceof Error ? error.message : "Tente novamente.",
         confirmButtonColor: "#15803d",
       });
+    } finally {
+      setSalvandoEvento(false);
     }
   }
 
@@ -1084,8 +1188,14 @@ function EventosCoordenacao() {
                       Próximo
                     </button>
                   ) : (
-                    <button type="button" onClick={handleGravarEvento} className="cursor-pointer inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-700">
-                      <PiCheckCircle size={18} /> {isEditing ? "Salvar alterações" : "Criar evento"}
+                    <button
+                      type="button"
+                      onClick={handleGravarEvento}
+                      disabled={salvandoEvento}
+                      className="cursor-pointer inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {salvandoEvento ? <Loader2 className="animate-spin" size={18} /> : <PiCheckCircle size={18} />}
+                      {salvandoEvento ? "Salvando..." : isEditing ? "Salvar alterações" : "Criar evento"}
                     </button>
                   )}
                 </div>
@@ -1115,7 +1225,19 @@ function EventosCoordenacao() {
           <h2 className="text-sm font-black uppercase text-slate-800 mb-5">Eventos cadastrados</h2>
           
           {carregando && <div className="text-sm font-medium text-slate-500">Carregando...</div>}
-          {!carregando && erro && <div className="text-sm font-medium text-red-600">{erro}</div>}
+          {!carregando && erro && (
+            <div className="space-y-3 rounded-2xl border border-red-100 bg-red-50 p-4">
+              <p className="text-sm font-black text-red-700">{erro}</p>
+              {erroTecnico && <p className="text-xs font-semibold text-slate-500">Erro técnico: {erroTecnico}</p>}
+              <button
+                type="button"
+                onClick={carregarEventos}
+                className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-black text-red-700 transition hover:bg-red-100"
+              >
+                <RefreshCw size={14} /> Tentar novamente
+              </button>
+            </div>
+          )}
           
           {!carregando && !erro && eventos.length === 0 && (
              <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -1130,7 +1252,13 @@ function EventosCoordenacao() {
           {!carregando && !erro && eventos.length > 0 && (
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {eventos.map((evento) => (
-                <article key={evento.id} className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-slate-300">
+                <motion.article
+                  key={evento.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.18 }}
+                  className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-sectec-200 hover:shadow-md"
+                >
                   <div className="flex justify-between items-start gap-2 mb-3">
                     <div className="flex items-center gap-2">
                        <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-600">{new Date(evento.prazoInicial).getFullYear()}</span>
@@ -1198,7 +1326,7 @@ function EventosCoordenacao() {
                     <input value={temaInputs[evento.id] || ""} onChange={(e) => setTemaInputs((prev) => ({ ...prev, [evento.id]: e.target.value }))} placeholder="Novo tema..." className="h-9 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100" />
                     <button type="button" onClick={() => handleAdicionarTema(evento.id)} className="cursor-pointer inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-800 text-white transition hover:bg-slate-700"><PiPlus size={14} /></button>
                   </div>
-                </article>
+                </motion.article>
               ))}
             </div>
           )}
@@ -1298,8 +1426,8 @@ function UsuariosCoordenacao() {
   const [detalhesAberto, setDetalhesAberto] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
-  const [uploadando, setUploadando] = useState(false);
-  const [uploadLabel, setUploadLabel] = useState("Adicionando");
+  const [erroTecnico, setErroTecnico] = useState("");
+  const [importandoTipo, setImportandoTipo] = useState<"alunos" | "orientadores" | null>(null);
   const inputAlunosRef = useRef<HTMLInputElement>(null);
   const inputOrientadoresRef = useRef<HTMLInputElement>(null);
 
@@ -1334,7 +1462,9 @@ function UsuariosCoordenacao() {
       setOrientadores(normalizarUsuarios(orientadoresResponse, "Orientador"));
       setComissao(normalizarUsuarios(comissaoResponse, "Comissão"));
     } catch (error) {
-      setErro(error instanceof Error ? error.message : "Nao foi possivel carregar os usuarios.");
+      const erro = mensagemErroApi(error, "Não foi possível carregar os dados.");
+      setErro(`${erro.amigavel} Tente novamente em alguns instantes.`);
+      setErroTecnico(erro.tecnico);
     } finally {
       setCarregando(false);
     }
@@ -1368,8 +1498,7 @@ function UsuariosCoordenacao() {
     const token = localStorage.getItem("token");
     const formData = new FormData();
     formData.append("file", file);
-    setUploadando(true);
-    setUploadLabel(tipo === "alunos" ? "Adicionando alunos" : "Adicionando orientadores");
+    setImportandoTipo(tipo);
 
     try {
       const rota = tipo === "alunos" ? "/users/upload-csv/alunos" : "/users/upload-csv/professores";
@@ -1400,7 +1529,7 @@ function UsuariosCoordenacao() {
         confirmButtonColor: "#15803d",
       });
     } finally {
-      setUploadando(false);
+      setImportandoTipo(null);
       if (tipo === "alunos" && inputAlunosRef.current) inputAlunosRef.current.value = "";
       if (tipo === "orientadores" && inputOrientadoresRef.current) inputOrientadoresRef.current.value = "";
     }
@@ -1533,7 +1662,7 @@ function UsuariosCoordenacao() {
       <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <PanelTitle icon={<PiUsersThree size={20} />} title="Usuarios" subtitle="Cadastro via CSV e comissão real carregada do backend." />
-          <div className="flex flex-wrap gap-2">
+          <div className="grid w-full gap-2 sm:grid-cols-2 lg:w-auto lg:grid-cols-1 xl:grid-cols-2">
             <input
               ref={inputAlunosRef}
               type="file"
@@ -1551,25 +1680,23 @@ function UsuariosCoordenacao() {
             <button
               type="button"
               onClick={() => inputAlunosRef.current?.click()}
-              className="cursor-pointer inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-sectec-200 bg-sectec-50 px-4 text-sm font-black text-sectec-700 transition hover:bg-sectec-100"
+              disabled={importandoTipo !== null}
+              className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <PiUploadSimple size={18} /> Importar CSV (alunos)
+              {importandoTipo === "alunos" ? <Loader2 className="animate-spin" size={18} /> : <PiUploadSimple size={18} />}
+              {importandoTipo === "alunos" ? "Importando alunos..." : "Importar CSV (alunos)"}
             </button>
             <button
               type="button"
               onClick={() => inputOrientadoresRef.current?.click()}
-              className="cursor-pointer inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:border-sectec-200 hover:bg-sectec-50 hover:text-sectec-700"
+              disabled={importandoTipo !== null}
+              className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <PiUploadSimple size={18} /> Importar CSV (orientadores)
+              {importandoTipo === "orientadores" ? <Loader2 className="animate-spin" size={18} /> : <PiUploadSimple size={18} />}
+              {importandoTipo === "orientadores" ? "Importando orientadores..." : "Importar CSV (orientadores)"}
             </button>
           </div>
         </div>
-
-        {uploadando && (
-          <div className="mt-4 rounded-2xl border border-sectec-200 bg-sectec-50 px-4 py-3 text-sm font-black text-sectec-700 shadow-sm">
-            {uploadLabel}...
-          </div>
-        )}
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {[
@@ -1649,13 +1776,27 @@ function UsuariosCoordenacao() {
 
           <div className="divide-y divide-slate-100">
             {carregando && (
-              <div className="px-4 py-6 text-sm font-semibold text-slate-500">Carregando usuarios...</div>
+              <div className="space-y-2 p-4">
+                {[1, 2, 3].map((item) => (
+                  <div key={item} className="h-10 animate-pulse rounded-xl bg-slate-100" />
+                ))}
+              </div>
             )}
             {!carregando && erro && (
-              <div className="px-4 py-6 text-sm font-semibold text-red-600">{erro}</div>
+              <div className="space-y-3 px-4 py-6">
+                <p className="text-sm font-black text-red-600">{erro}</p>
+                {erroTecnico && <p className="text-xs font-semibold text-slate-400">Erro técnico: {erroTecnico}</p>}
+                <button
+                  type="button"
+                  onClick={carregarUsuarios}
+                  className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs font-black text-red-700 transition hover:bg-red-100"
+                >
+                  <RefreshCw size={14} /> Tentar novamente
+                </button>
+              </div>
             )}
             {!carregando && !erro && listaFiltrada.length === 0 && (
-              <div className="px-4 py-6 text-sm font-semibold text-slate-500">Nenhum usuario encontrado.</div>
+              <div className="px-4 py-6 text-sm font-semibold text-slate-500">Nenhum usuário encontrado.</div>
             )}
             {!carregando && !erro && (
               <AnimatePresence mode="wait">
@@ -1718,7 +1859,7 @@ function UsuariosCoordenacao() {
               <button
                 type="button"
                 onClick={() => setPaginaAtual((prev) => Math.max(1, prev - 1))}
-                className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-600 transition hover:border-sectec-200 hover:bg-sectec-50 hover:text-sectec-700"
+                className="cursor-pointer rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-600 transition hover:border-sectec-200 hover:bg-sectec-50 hover:text-sectec-700 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={paginaSegura === 1}
               >
                 Anterior
@@ -1726,7 +1867,7 @@ function UsuariosCoordenacao() {
               <button
                 type="button"
                 onClick={() => setPaginaAtual((prev) => Math.min(totalPaginas, prev + 1))}
-                className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-600 transition hover:border-sectec-200 hover:bg-sectec-50 hover:text-sectec-700"
+                className="cursor-pointer rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-600 transition hover:border-sectec-200 hover:bg-sectec-50 hover:text-sectec-700 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={paginaSegura === totalPaginas}
               >
                 Proxima
@@ -1774,93 +1915,719 @@ function UsuariosCoordenacao() {
   );
 }
 
-function Administrador() {
-  const { pathname } = useLocation();
-  const [buscaProjeto, setBuscaProjeto] = useState("");
-  const [carregandoProjetos, setCarregandoProjetos] = useState(false);
-  const [erroProjetos, setErroProjetos] = useState("");
-  const [eventosComProjetos, setEventosComProjetos] = useState<EventoComProjetosApi[]>([]);
+function ProjetosCoordenacao() {
+  const [projetos, setProjetos] = useState<ProjetoCoordenacaoListagem[]>([]);
+  const [eventos, setEventos] = useState<EventoApi[]>([]);
+  const [alunos, setAlunos] = useState<UsuarioApi[]>([]);
+  const [busca, setBusca] = useState("");
+  const [eventoFiltro, setEventoFiltro] = useState("todos");
+  const [turmaFiltro, setTurmaFiltro] = useState("todas");
+  const [statusOrientacaoFiltro, setStatusOrientacaoFiltro] = useState("todos");
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState("");
+  const [erroTecnico, setErroTecnico] = useState("");
+  const [projetoSelecionado, setProjetoSelecionado] = useState<ProjetoCoordenacaoListagem | null>(null);
+  const [detalhesAberto, setDetalhesAberto] = useState(false);
+  const [edicaoAberta, setEdicaoAberta] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+  const [formProjeto, setFormProjeto] = useState({
+    titulo: "",
+    descricao: "",
+    temaId: "",
+    evento: "",
+    alunosIds: [] as number[],
+  });
+
+  async function carregarProjetos() {
+    setCarregando(true);
+    setErro("");
+    setErroTecnico("");
+
+    try {
+      const [projetosResponse, eventosResponse, alunosResponse] = await Promise.all([
+        apiRequest<unknown>("/projetos"),
+        apiRequest<EventoApi[]>("/evento").catch(() => []),
+        apiRequest<UsuarioApi[]>("/users/alunos").catch(() => []),
+      ]);
+
+      setProjetos(extrairProjetosDaResposta(projetosResponse) as ProjetoCoordenacaoListagem[]);
+      setEventos(eventosResponse);
+      setAlunos(alunosResponse);
+    } catch (error) {
+      const erro = mensagemErroApi(error, "Não foi possível carregar os dados.");
+      setErro(`${erro.amigavel} Tente novamente em alguns instantes.`);
+      setErroTecnico(erro.tecnico);
+    } finally {
+      setCarregando(false);
+    }
+  }
 
   useEffect(() => {
-    let ativo = true;
-
-    async function carregarProjetos() {
-      setCarregandoProjetos(true);
-      setErroProjetos("");
-
-      try {
-        const dados = await apiRequest<EventoComProjetosApi[]>("/projetos");
-        if (!ativo) return;
-        setEventosComProjetos(dados ?? []);
-      } catch (error) {
-        if (!ativo) return;
-        setErroProjetos(error instanceof Error ? error.message : "Não foi possível carregar os projetos.");
-      } finally {
-        if (ativo) {
-          setCarregandoProjetos(false);
-        }
-      }
-    }
-
     carregarProjetos();
-
-    return () => {
-      ativo = false;
-    };
   }, []);
 
-  const projetosCoordenacao = useMemo<ProjetoCoordenacaoListagem[]>(() => {
-    return eventosComProjetos.flatMap((evento) =>
-      (evento.projetos ?? []).map((projeto) => ({
-        ...projeto,
-        eventoTitulo: evento.titulo,
-        eventoId: evento.id,
-      })),
-    );
-  }, [eventosComProjetos]);
+  const eventosFiltro = useMemo(() => {
+    const mapa = new Map<string, string>();
+    projetos.forEach((projeto) => {
+      const id = getEventoProjetoId(projeto);
+      const titulo = projeto.eventoTitulo ?? projeto.evento?.titulo;
+      if (id && titulo) mapa.set(String(id), titulo);
+    });
+    return Array.from(mapa.entries()).map(([id, titulo]) => ({ id, titulo }));
+  }, [projetos]);
+
+  const turmasDisponiveis = useMemo(() => {
+    const turmas = new Set<string>();
+    projetos.forEach((projeto) => {
+      const autor = getAutorProjeto(projeto);
+      if (autor?.turma) turmas.add(autor.turma);
+      getIntegrantesProjeto(projeto).forEach((aluno) => {
+        if (aluno?.turma) turmas.add(aluno.turma);
+      });
+    });
+    return Array.from(turmas).sort();
+  }, [projetos]);
+
+  const statusOrientacaoDisponiveis = useMemo(() => {
+    const status = new Set<string>();
+    projetos.forEach((projeto) => {
+      getOrientadoresProjeto(projeto).forEach((orientacao) => {
+        if (orientacao.status) status.add(orientacao.status);
+      });
+    });
+    return Array.from(status).sort();
+  }, [projetos]);
 
   const projetosFiltrados = useMemo(() => {
-    const termo = buscaProjeto.trim().toLowerCase();
+    const termo = busca.trim().toLowerCase();
 
-    return projetosCoordenacao.filter((projeto) => {
-      if (!termo) return true;
+    return projetos.filter((projeto) => {
+      const autor = getAutorProjeto(projeto);
+      const integrantes = getIntegrantesProjeto(projeto);
+      const orientadores = getOrientadoresProjeto(projeto);
+      const eventoId = getEventoProjetoId(projeto);
+      const statusOrientacao = getStatusOrientacaoProjeto(projeto);
 
-      const autor = projeto.alunoAutor?.nome ?? projeto.projetoAlunos?.[0]?.aluno?.nome ?? "";
-      const tema = projeto.tema?.nome ?? "";
-      const evento = projeto.eventoTitulo ?? projeto.evento?.titulo ?? "";
-
-      return (
+      const bateBusca =
+        !termo ||
         projeto.titulo.toLowerCase().includes(termo) ||
         projeto.descricao?.toLowerCase().includes(termo) ||
-        autor.toLowerCase().includes(termo) ||
-        tema.toLowerCase().includes(termo) ||
-        evento.toLowerCase().includes(termo)
-      );
+        projeto.tema?.nome.toLowerCase().includes(termo) ||
+        autor?.nome.toLowerCase().includes(termo) ||
+        integrantes.some((aluno) => aluno?.nome.toLowerCase().includes(termo)) ||
+        orientadores.some((item) => item.orientador?.nome.toLowerCase().includes(termo));
+
+      const bateEvento = eventoFiltro === "todos" || String(eventoId) === eventoFiltro;
+      const bateTurma =
+        turmaFiltro === "todas" ||
+        autor?.turma === turmaFiltro ||
+        integrantes.some((aluno) => aluno?.turma === turmaFiltro);
+      const bateStatusOrientacao =
+        statusOrientacaoFiltro === "todos" || statusOrientacao === statusOrientacaoFiltro;
+
+      return bateBusca && bateEvento && bateTurma && bateStatusOrientacao;
     });
-  }, [buscaProjeto, projetosCoordenacao]);
+  }, [busca, eventoFiltro, projetos, statusOrientacaoFiltro, turmaFiltro]);
+
+  const eventoSelecionadoNoForm = eventos.find((evento) => String(evento.id) === formProjeto.evento);
+  const temasDoEventoSelecionado = eventoSelecionadoNoForm?.temas ?? [];
+
+  function abrirDetalhesProjeto(projeto: ProjetoCoordenacaoListagem) {
+    setProjetoSelecionado(projeto);
+    setDetalhesAberto(true);
+  }
+
+  function abrirEdicaoProjeto(projeto: ProjetoCoordenacaoListagem) {
+    const autorId = projeto.alunoAutor?.id ? String(projeto.alunoAutor.id) : null;
+    const alunosIds = getIntegrantesProjeto(projeto)
+      .map((aluno) => Number(aluno?.id))
+      .filter((id) => Number.isFinite(id) && String(id) !== autorId);
+
+    setProjetoSelecionado(projeto);
+    setFormProjeto({
+      titulo: projeto.titulo,
+      descricao: projeto.descricao ?? "",
+      temaId: String(getTemaProjetoId(projeto) ?? ""),
+      evento: String(getEventoProjetoId(projeto) ?? ""),
+      alunosIds,
+    });
+    setEdicaoAberta(true);
+  }
+
+  function alternarAlunoIntegrante(id: number) {
+    setFormProjeto((prev) => ({
+      ...prev,
+      alunosIds: prev.alunosIds.includes(id)
+        ? prev.alunosIds.filter((item) => item !== id)
+        : [...prev.alunosIds, id],
+    }));
+  }
+
+  async function salvarProjeto() {
+    if (!projetoSelecionado) return;
+
+    const autorId = projetoSelecionado.alunoAutor?.id ? Number(projetoSelecionado.alunoAutor.id) : null;
+    const alunosIds = formProjeto.alunosIds.filter((id) => id !== autorId);
+    const totalGrupo = alunosIds.length + 1;
+
+    if (!formProjeto.titulo.trim() || !formProjeto.descricao.trim() || !formProjeto.temaId || !formProjeto.evento) {
+      await Swal.fire({
+        icon: "warning",
+        title: "Preencha os campos obrigatórios",
+        confirmButtonColor: "#15803d",
+      });
+      return;
+    }
+
+    if (totalGrupo < 3 || totalGrupo > 7) {
+      await Swal.fire({
+        icon: "warning",
+        title: "Grupo inválido",
+        text: "O grupo deve ter entre 3 e 7 pessoas contando o autor.",
+        confirmButtonColor: "#15803d",
+      });
+      return;
+    }
+
+    setSalvando(true);
+    try {
+      await apiRequest(`/projetos/${projetoSelecionado.id}`, {
+        method: "PATCH",
+        body: {
+          titulo: formProjeto.titulo.trim(),
+          descricao: formProjeto.descricao.trim(),
+          temaId: Number(formProjeto.temaId),
+          evento: Number(formProjeto.evento),
+          alunosIds,
+        },
+      });
+
+      await Swal.fire({
+        icon: "success",
+        title: "Projeto atualizado",
+        showConfirmButton: false,
+        timer: 1300,
+        timerProgressBar: true,
+      });
+      setEdicaoAberta(false);
+      setProjetoSelecionado(null);
+      await carregarProjetos();
+    } catch (error) {
+      await Swal.fire({
+        icon: "error",
+        title: "Erro ao salvar projeto",
+        text: error instanceof Error ? error.message : "Tente novamente.",
+        confirmButtonColor: "#15803d",
+      });
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  async function excluirProjeto(projeto: ProjetoCoordenacaoListagem) {
+    const result = await Swal.fire({
+      icon: "warning",
+      title: "Excluir projeto?",
+      text: `Essa ação removerá "${projeto.titulo}".`,
+      showCancelButton: true,
+      confirmButtonText: "Excluir",
+      cancelButtonText: "Cancelar",
+      confirmButtonColor: "#dc2626",
+      cancelButtonColor: "#64748b",
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+      await apiRequest(`/projetos/${projeto.id}`, { method: "DELETE" });
+      await Swal.fire({
+        icon: "success",
+        title: "Projeto excluído",
+        showConfirmButton: false,
+        timer: 1200,
+        timerProgressBar: true,
+      });
+      await carregarProjetos();
+    } catch (error) {
+      await Swal.fire({
+        icon: "error",
+        title: "Erro ao excluir projeto",
+        text: error instanceof Error ? error.message : "Tente novamente.",
+        confirmButtonColor: "#15803d",
+      });
+    }
+  }
+
+  function renderOrientadores(projeto: ProjetoCoordenacaoListagem) {
+    const orientadores = getOrientadoresProjeto(projeto);
+
+    if (orientadores.length === 0) {
+      return <p className="text-sm font-semibold text-slate-500">Nenhum orientador aceito/vinculado.</p>;
+    }
+
+    return (
+      <div className="space-y-2">
+        {orientadores.map((item) => (
+          <div key={item.id} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+            <p className="text-sm font-black text-slate-900">{item.orientador?.nome ?? "Orientador não identificado"}</p>
+            <p className="mt-1 text-xs font-semibold text-slate-500">
+              {item.status ?? "sem status"} · {item.orientador?.email_institucional ?? "-"}
+            </p>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <AdminPageShell>
+      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <PanelTitle icon={<PiNotebook size={20} />} title="Projetos" subtitle="Gestão real de projetos cadastrados, agrupados ou não por evento." />
+          <button
+            type="button"
+            onClick={carregarProjetos}
+            disabled={carregando}
+            className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {carregando ? <Loader2 className="animate-spin" size={17} /> : <RefreshCw size={17} />}
+            Atualizar
+          </button>
+        </div>
+
+        <div className="mt-5 grid gap-3 lg:grid-cols-[1fr_220px_180px_210px]">
+          <label className="relative block">
+            <PiMagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
+            <input
+              value={busca}
+              onChange={(event) => setBusca(event.target.value)}
+              placeholder="Buscar por título, autor, integrante ou tema"
+              className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100"
+            />
+          </label>
+
+          <select
+            value={eventoFiltro}
+            onChange={(event) => setEventoFiltro(event.target.value)}
+            className="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-black text-slate-600 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100"
+          >
+            <option value="todos">Todos os eventos</option>
+            {eventosFiltro.map((evento) => (
+              <option key={evento.id} value={evento.id}>{evento.titulo}</option>
+            ))}
+          </select>
+
+          {turmasDisponiveis.length > 0 && (
+            <select
+              value={turmaFiltro}
+              onChange={(event) => setTurmaFiltro(event.target.value)}
+              className="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-black text-slate-600 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100"
+            >
+              <option value="todas">Todas as turmas</option>
+              {turmasDisponiveis.map((turma) => (
+                <option key={turma} value={turma}>{turma}</option>
+              ))}
+            </select>
+          )}
+
+          {statusOrientacaoDisponiveis.length > 0 && (
+            <select
+              value={statusOrientacaoFiltro}
+              onChange={(event) => setStatusOrientacaoFiltro(event.target.value)}
+              className="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-black text-slate-600 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100"
+            >
+              <option value="todos">Todas orientações</option>
+              {statusOrientacaoDisponiveis.map((status) => (
+                <option key={status} value={status}>{status}</option>
+              ))}
+              <option value="sem-orientador">Sem orientador</option>
+            </select>
+          )}
+        </div>
+
+        <div className="mt-6">
+          {carregando && (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {[1, 2, 3].map((item) => (
+                <div key={item} className="h-56 animate-pulse rounded-3xl bg-slate-100" />
+              ))}
+            </div>
+          )}
+
+          {!carregando && erro && (
+            <div className="space-y-3 rounded-2xl border border-red-100 bg-red-50 p-4">
+              <p className="text-sm font-black text-red-700">{erro}</p>
+              {erroTecnico && <p className="text-xs font-semibold text-slate-500">Erro técnico: {erroTecnico}</p>}
+              <button
+                type="button"
+                onClick={carregarProjetos}
+                className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-black text-red-700 transition hover:bg-red-100"
+              >
+                <RefreshCw size={14} /> Tentar novamente
+              </button>
+            </div>
+          )}
+
+          {!carregando && !erro && projetosFiltrados.length === 0 && (
+            <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-10 text-center">
+              <h3 className="text-sm font-black text-slate-900">Nenhum projeto encontrado.</h3>
+              <p className="mt-1 text-sm font-semibold text-slate-500">Ajuste os filtros ou cadastre projetos pelo fluxo dos alunos.</p>
+            </div>
+          )}
+
+          {!carregando && !erro && projetosFiltrados.length > 0 && (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {projetosFiltrados.map((projeto, index) => {
+                const autor = getAutorProjeto(projeto);
+                const integrantes = getIntegrantesProjeto(projeto);
+                const orientadores = getOrientadoresProjeto(projeto);
+
+                return (
+                  <motion.article
+                    key={projeto.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.18, delay: index * 0.03 }}
+                    className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                  >
+                    <div className="flex h-20 items-center justify-between bg-gradient-to-br from-emerald-700 to-slate-900 px-5 text-white">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10 text-lg font-black">
+                        {projeto.titulo.charAt(0).toUpperCase()}
+                      </div>
+                      <span className="rounded-full bg-white/10 px-3 py-1 text-[11px] font-black uppercase text-white/75">
+                        Banner visual
+                      </span>
+                    </div>
+
+                    <div className="p-5">
+                      <h3 className="line-clamp-2 text-base font-black text-slate-950">{projeto.titulo}</h3>
+                      <p className="mt-2 line-clamp-3 text-sm font-medium leading-6 text-slate-500">{getProjetoDescricaoCurta(projeto)}</p>
+
+                      <div className="mt-4 space-y-2 text-xs font-semibold text-slate-500">
+                        <p><strong className="text-slate-700">Evento:</strong> {projeto.eventoTitulo ?? projeto.evento?.titulo ?? "Sem evento"}</p>
+                        <p><strong className="text-slate-700">Tema:</strong> {projeto.tema?.nome ?? "Sem tema"}</p>
+                        <p><strong className="text-slate-700">Autor:</strong> {autor?.nome ?? "Sem autor"}</p>
+                        <p><strong className="text-slate-700">Integrantes:</strong> {integrantes.length || "Sem integrantes adicionais"}</p>
+                        <p><strong className="text-slate-700">Orientação:</strong> {orientadores.length ? getStatusOrientacaoProjeto(projeto) : "Nenhum orientador aceito/vinculado"}</p>
+                        <p><strong className="text-slate-700">Criação:</strong> {getDataCriacaoProjeto(projeto)}</p>
+                      </div>
+
+                      <div className="mt-5 flex flex-wrap gap-2">
+                        <button type="button" onClick={() => abrirDetalhesProjeto(projeto)} className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 transition hover:bg-slate-50">
+                          <Eye size={15} /> Ver
+                        </button>
+                        <button type="button" onClick={() => abrirEdicaoProjeto(projeto)} className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 transition hover:bg-emerald-100">
+                          <Pencil size={15} /> Editar
+                        </button>
+                        <button type="button" onClick={() => excluirProjeto(projeto)} className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs font-black text-red-700 transition hover:bg-red-100">
+                          <Trash2 size={15} /> Excluir
+                        </button>
+                      </div>
+                    </div>
+                  </motion.article>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <PainelDetalhes aberto={detalhesAberto} titulo={projetoSelecionado?.titulo ?? "Detalhes do projeto"} onClose={() => setDetalhesAberto(false)}>
+        {projetoSelecionado && (
+          <div className="space-y-5">
+            <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+              <p className="text-xs font-black uppercase tracking-widest text-slate-500">Visão geral</p>
+              <h3 className="mt-2 text-lg font-black text-slate-900">{projetoSelecionado.titulo}</h3>
+              <p className="mt-2 text-sm font-medium leading-6 text-slate-600">{projetoSelecionado.descricao || "Sem descrição"}</p>
+              <p className="mt-3 text-xs text-slate-500">Evento: <strong className="text-slate-700">{projetoSelecionado.eventoTitulo ?? projetoSelecionado.evento?.titulo ?? "Sem evento"}</strong></p>
+              <p className="mt-1 text-xs text-slate-500">Tema: <strong className="text-slate-700">{projetoSelecionado.tema?.nome ?? "Sem tema"}</strong></p>
+              <p className="mt-1 text-xs text-slate-500">Criado em: <strong className="text-slate-700">{getDataCriacaoProjeto(projetoSelecionado)}</strong></p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-100 p-4">
+              <p className="text-xs font-black uppercase tracking-widest text-slate-500">Aluno autor</p>
+              <p className="mt-2 text-sm font-black text-slate-900">{getAutorProjeto(projetoSelecionado)?.nome ?? "Sem autor identificado"}</p>
+              <p className="mt-1 text-xs font-semibold text-slate-500">{getAutorProjeto(projetoSelecionado)?.turma ?? "-"} {getAutorProjeto(projetoSelecionado)?.ano ? `· ${getAutorProjeto(projetoSelecionado)?.ano}` : ""}</p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-100 p-4">
+              <p className="text-xs font-black uppercase tracking-widest text-slate-500">Integrantes</p>
+              <div className="mt-3 space-y-2">
+                {getIntegrantesProjeto(projetoSelecionado).length === 0 ? (
+                  <p className="text-sm font-semibold text-slate-500">Sem integrantes adicionais.</p>
+                ) : (
+                  getIntegrantesProjeto(projetoSelecionado).map((aluno) => (
+                    <div key={aluno!.id} className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-sm font-black text-slate-900">{aluno!.nome}</p>
+                      <p className="mt-1 text-xs font-semibold text-slate-500">{aluno!.turma ?? "-"} {aluno!.ano ? `· ${aluno!.ano}` : ""}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-100 p-4">
+              <p className="text-xs font-black uppercase tracking-widest text-slate-500">Orientadores</p>
+              <div className="mt-3">{renderOrientadores(projetoSelecionado)}</div>
+              <p className="mt-3 text-xs font-semibold text-slate-400">Troca de orientador ainda não está disponível pelo backend.</p>
+            </div>
+          </div>
+        )}
+      </PainelDetalhes>
+
+      <PainelDetalhes aberto={edicaoAberta} titulo="Editar projeto" onClose={() => setEdicaoAberta(false)}>
+        {projetoSelecionado && (
+          <div className="space-y-4">
+            <label className="block text-xs font-black uppercase tracking-widest text-slate-500">
+              Título
+              <input value={formProjeto.titulo} onChange={(e) => setFormProjeto((prev) => ({ ...prev, titulo: e.target.value }))} className="mt-2 h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 outline-none focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100" />
+            </label>
+
+            <label className="block text-xs font-black uppercase tracking-widest text-slate-500">
+              Descrição
+              <textarea value={formProjeto.descricao} onChange={(e) => setFormProjeto((prev) => ({ ...prev, descricao: e.target.value }))} className="mt-2 h-28 w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-700 outline-none focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100" />
+            </label>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block text-xs font-black uppercase tracking-widest text-slate-500">
+                Evento
+                <select value={formProjeto.evento} onChange={(e) => setFormProjeto((prev) => ({ ...prev, evento: e.target.value, temaId: "" }))} className="mt-2 h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-black text-slate-600 outline-none focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100">
+                  <option value="">Selecione</option>
+                  {eventos.map((evento) => (
+                    <option key={evento.id} value={evento.id}>{evento.titulo}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block text-xs font-black uppercase tracking-widest text-slate-500">
+                Tema
+                <select value={formProjeto.temaId} onChange={(e) => setFormProjeto((prev) => ({ ...prev, temaId: e.target.value }))} className="mt-2 h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-black text-slate-600 outline-none focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100">
+                  <option value="">Selecione</option>
+                  {projetoSelecionado.tema && !temasDoEventoSelecionado.some((tema) => tema.id === projetoSelecionado.tema?.id) && (
+                    <option value={projetoSelecionado.tema.id}>{projetoSelecionado.tema.nome}</option>
+                  )}
+                  {temasDoEventoSelecionado.map((tema) => (
+                    <option key={tema.id} value={tema.id}>{tema.nome}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 p-4">
+              <p className="text-xs font-black uppercase tracking-widest text-slate-500">Integrantes</p>
+              <p className="mt-1 text-xs font-semibold text-slate-400">Autor não entra em alunosIds. Grupo total: {formProjeto.alunosIds.length + 1}/7.</p>
+              <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
+                {alunos.length === 0 ? (
+                  <p className="text-sm font-semibold text-slate-500">Lista de alunos indisponível.</p>
+                ) : (
+                  alunos
+                    .filter((aluno) => String(aluno.id) !== String(projetoSelecionado.alunoAutor?.id))
+                    .map((aluno) => (
+                      <label key={aluno.id} className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 transition hover:bg-sectec-50">
+                        <span>
+                          <span className="block text-sm font-black text-slate-800">{aluno.nome}</span>
+                          <span className="block text-xs font-semibold text-slate-500">{aluno.turma ?? "-"} {aluno.ano ? `· ${aluno.ano}` : ""}</span>
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={formProjeto.alunosIds.includes(Number(aluno.id))}
+                          onChange={() => alternarAlunoIntegrante(Number(aluno.id))}
+                          className="h-4 w-4 accent-sectec-700"
+                        />
+                      </label>
+                    ))
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-amber-100 bg-amber-50 p-3 text-xs font-semibold text-amber-800">
+              Banner real e troca direta de orientador dependem de suporte no backend.
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+              <button type="button" onClick={() => setEdicaoAberta(false)} className="inline-flex cursor-pointer items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-black text-slate-700 transition hover:bg-slate-50">
+                <X size={16} /> Cancelar
+              </button>
+              <button type="button" onClick={salvarProjeto} disabled={salvando} className="inline-flex cursor-pointer items-center gap-2 rounded-2xl bg-sectec-700 px-4 py-3 text-sm font-black text-white transition hover:bg-sectec-800 disabled:cursor-not-allowed disabled:opacity-60">
+                {salvando ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
+                {salvando ? "Salvando..." : "Salvar"}
+              </button>
+            </div>
+          </div>
+        )}
+      </PainelDetalhes>
+    </AdminPageShell>
+  );
+}
+
+function Administrador() {
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const projetosResumoRef = useRef<HTMLElement | null>(null);
+  const pendenciasRef = useRef<HTMLElement | null>(null);
+  const [carregandoDashboard, setCarregandoDashboard] = useState(true);
+  const [erroDashboard, setErroDashboard] = useState("");
+  const [eventoVigente, setEventoVigente] = useState<EventoApi | null>(null);
+  const [eventos, setEventos] = useState<EventoApi[]>([]);
+  const [alunos, setAlunos] = useState<UsuarioApi[]>([]);
+  const [orientadores, setOrientadores] = useState<UsuarioApi[]>([]);
+  const [comissao, setComissao] = useState<UsuarioApi[]>([]);
+  const [projetosCoordenacao, setProjetosCoordenacao] = useState<ProjetoCoordenacaoListagem[]>([]);
+  const [pdfsCorrompidos, setPdfsCorrompidos] = useState<number | null>(null);
+
+  async function requestOrDefault<T>(path: string, fallback: T) {
+    try {
+      return await apiRequest<T>(path);
+    } catch {
+      return fallback;
+    }
+  }
+
+  async function carregarDashboard() {
+    setCarregandoDashboard(true);
+    setErroDashboard("");
+
+    try {
+      const eventosResponse = await requestOrDefault<EventoApi[]>("/evento", []);
+      let vigente = await requestOrDefault<EventoApi | null>("/evento/atual/vigente", null);
+
+      if (!vigente?.id) {
+        vigente = buscarEventoDoAnoAtual(eventosResponse);
+      }
+
+      const [alunosResponse, orientadoresResponse, comissaoResponse, projetosResponse, pdfsResponse] = await Promise.all([
+        requestOrDefault<UsuarioApi[]>("/users/alunos", []),
+        requestOrDefault<UsuarioApi[]>("/users/orientadores", []),
+        requestOrDefault<UsuarioApi[]>("/users/comissao", []),
+        requestOrDefault<unknown>("/projetos", []),
+        requestOrDefault<unknown>("/pdf/corrompidos", null),
+      ]);
+
+      const projetosExtraidos = extrairProjetosDaResposta(projetosResponse) as ProjetoCoordenacaoListagem[];
+      const totalPdfsCorrompidos = Array.isArray(pdfsResponse)
+        ? pdfsResponse.length
+        : Array.isArray((pdfsResponse as { data?: unknown[] } | null)?.data)
+        ? (pdfsResponse as { data: unknown[] }).data.length
+        : pdfsResponse === null
+        ? null
+        : 0;
+
+      setEventos(eventosResponse);
+      setEventoVigente(vigente);
+      setAlunos(alunosResponse);
+      setOrientadores(orientadoresResponse);
+      setComissao(comissaoResponse);
+      setProjetosCoordenacao(projetosExtraidos);
+      setPdfsCorrompidos(totalPdfsCorrompidos);
+    } catch (error) {
+      const erro = mensagemErroApi(error, "Não foi possível carregar o painel da coordenação.");
+      setErroDashboard(`${erro.amigavel} Erro técnico: ${erro.tecnico}`);
+    } finally {
+      setCarregandoDashboard(false);
+    }
+  }
+
+  useEffect(() => {
+    carregarDashboard();
+  }, []);
 
   const totalProjetos = projetosCoordenacao.length;
-  const totalEventos = eventosComProjetos.length;
-  const totalTemas = new Set(projetosCoordenacao.map((projeto) => projeto.tema?.id).filter((id): id is number => typeof id === "number")).size;
+  const totalUsuarios = alunos.length + orientadores.length + comissao.length;
+  const faseAtualReal = getFaseAtual(eventoVigente);
+  const alunosSemProjeto = useMemo(() => calcularAlunosSemProjeto(alunos, projetosCoordenacao), [alunos, projetosCoordenacao]);
+  const eventosSemTema = useMemo(() => contarEventosSemTema(eventos), [eventos]);
+  const projetosComStatus = projetosCoordenacao.filter((projeto) => getStatusProjeto(projeto));
+  const projetosPendentes = projetosComStatus.filter((projeto) => {
+    const status = getStatusProjeto(projeto);
+    return status.includes("pend") || status.includes("rascunho") || status.includes("aguard") || status.includes("revis");
+  }).length;
+  const projetosAprovados = projetosComStatus.filter((projeto) => {
+    const status = getStatusProjeto(projeto);
+    return status.includes("aprov") || status.includes("aceito") || status.includes("avaliado");
+  }).length;
+  const projetosDoEventoVigente = eventoVigente?.id
+    ? projetosCoordenacao.filter((projeto) => (projeto.eventoId ?? projeto.evento?.id) === eventoVigente.id).length
+    : null;
+  const eventosComProjetos = new Set(
+    projetosCoordenacao
+      .map((projeto) => projeto.eventoId ?? projeto.evento?.id)
+      .filter((id): id is number => typeof id === "number"),
+  ).size;
+  const ultimaAtualizacao = new Date().toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 
-  function handleVerDetalhesProjeto(projeto: ProjetoCoordenacaoListagem) {
-    const autor = projeto.alunoAutor ?? projeto.projetoAlunos?.[0]?.aluno;
+  const scrollPara = (ref: React.RefObject<HTMLElement | null>) => {
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
-    Swal.fire({
-      title: escapeHtml(projeto.titulo),
-      html: `
-        <div style="text-align:left">
-          <p><strong>Evento:</strong> ${escapeHtml(projeto.eventoTitulo || projeto.evento?.titulo || "Sem evento")}</p>
-          <p><strong>Autor:</strong> ${escapeHtml(autor?.nome || "Sem autor identificado")}</p>
-          <p><strong>E-mail:</strong> ${escapeHtml(autor?.email_institucional || "-")}</p>
-          <p><strong>Turma:</strong> ${escapeHtml(autor?.turma || "-")}${autor?.ano ? ` · ${autor.ano}` : ""}</p>
-          <p><strong>Tema:</strong> ${escapeHtml(projeto.tema?.nome || "Sem tema")}</p>
-          <p><strong>Descrição:</strong> ${escapeHtml(projeto.descricao || "Sem descrição")}</p>
-          <p><strong>Criado em:</strong> ${projeto.criadoEm ? formatarData(projeto.criadoEm) : "-"}</p>
+  function DashboardCard({
+    icon,
+    title,
+    value,
+    subtitle,
+    children,
+    cardRef,
+    index = 0,
+    onClick,
+  }: {
+    icon: React.ReactNode;
+    title: string;
+    value: string | number;
+    subtitle?: string;
+    children?: React.ReactNode;
+    cardRef?: React.Ref<HTMLElement>;
+    index?: number;
+    onClick?: () => void;
+  }) {
+    return (
+      <motion.article
+        ref={cardRef}
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        whileHover={{ y: -3 }}
+        transition={{ duration: 0.22, delay: index * 0.04 }}
+        onClick={onClick}
+        className={`rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md ${
+          onClick ? "cursor-pointer" : ""
+        }`}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">{title}</p>
+            <strong className="mt-3 block text-2xl font-black text-slate-950">{value}</strong>
+            {subtitle && <p className="mt-2 text-sm font-semibold leading-5 text-slate-500">{subtitle}</p>}
+          </div>
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-sectec-50 text-sectec-700">
+            {icon}
+          </span>
         </div>
-      `,
-      confirmButtonColor: "#15803d",
-    });
+        {children && <div className="mt-5 space-y-2">{children}</div>}
+      </motion.article>
+    );
+  }
+
+  function DetailItem({ label, value }: { label: string; value: string | number }) {
+    return (
+      <div className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50 px-3 py-2 text-sm">
+        <span className="font-semibold text-slate-500">{label}</span>
+        <span className="text-right font-black text-slate-800">{value}</span>
+      </div>
+    );
+  }
+
+  function QuickAction({ label, onClick }: { label: string; onClick: () => void }) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-black text-slate-700 shadow-sm transition hover:border-sectec-200 hover:bg-sectec-50 hover:text-sectec-800"
+      >
+        {label}
+        <ArrowRight size={16} />
+      </button>
+    );
   }
 
   if (pathname.endsWith("/turmas")) return <TurmasCoordenacao />;
@@ -1868,311 +2635,120 @@ function Administrador() {
   if (pathname.endsWith("/notas")) return <NotasCoordenacao />;
   if (pathname.endsWith("/usuarios")) return <UsuariosCoordenacao />;
   if (pathname.endsWith("/eventos")) return <EventosCoordenacao />;
+  if (pathname.endsWith("/projetos")) return <ProjetosCoordenacao />;
 
   return (
     <MainLayout userRole="coordenador">
-      <main className="min-h-screen bg-[#f4f9f6] px-4 py-5 sm:px-7 sm:py-7">
-        <div className="mx-auto grid max-w-[1500px] gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(340px,0.75fr)]">
-          <section className="grid gap-5">
-            <div className="grid min-h-[310px] overflow-hidden rounded-[28px] border border-sectec-900/10 bg-white shadow-sm lg:grid-cols-[1fr_310px]">
-              <div className="relative bg-[#0b4d2c] p-6 text-white sm:p-8">
-                <div className="absolute inset-y-0 right-0 w-1/3 bg-[linear-gradient(135deg,transparent_0_35%,rgba(255,255,255,.08)_35%_36%,transparent_36%_62%,rgba(255,255,255,.08)_62%_63%,transparent_63%)]" />
-                <div className="relative flex h-full flex-col justify-between gap-8">
-                  <div>
-                    <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-white/70">
-                      <PiShieldCheck size={15} /> Coordenação SECTEC
-                    </div>
-                    <h1 className="max-w-2xl text-3xl font-black leading-tight tracking-tight sm:text-4xl">
-                      Operação administrativa da feira
-                    </h1>
-                    <p className="mt-4 max-w-2xl text-sm leading-6 text-white/70">
-                      Gestão de fases, orientação, turmas, permissões e auditoria em uma tela única, com foco em decisão rápida.
-                    </p>
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <div className="border-l border-white/20 pl-4">
-                      <p className="text-[11px] font-black uppercase tracking-widest text-white/45">Projetos</p>
-                      <strong className="mt-1 block text-2xl font-black">{totalProjetos}</strong>
-                    </div>
-                    <div className="border-l border-white/20 pl-4">
-                      <p className="text-[11px] font-black uppercase tracking-widest text-white/45">Eventos</p>
-                      <strong className="mt-1 block text-2xl font-black">{totalEventos}</strong>
-                    </div>
-                    <div className="border-l border-white/20 pl-4">
-                      <p className="text-[11px] font-black uppercase tracking-widest text-white/45">Temas</p>
-                      <strong className="mt-1 block text-2xl font-black">{totalTemas}</strong>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white p-5 sm:p-6">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Fase atual</p>
-                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-sectec-50 text-sectec-700">
-                    {prazoEncerrado ? <PiLockKey size={22} /> : <PiCalendarBlank size={22} />}
-                  </span>
-                </div>
-                <strong className="mt-5 block text-3xl font-black text-slate-950">{faseAtual}</strong>
-                <p className="mt-2 text-sm leading-6 text-slate-500">
-                  {prazoEncerrado ? "Campos bloqueados por prazo." : "Edição liberada com rastreio de auditoria."}
+      <main className="min-h-screen bg-slate-50 px-4 py-5 sm:px-7 sm:py-7">
+        <div className="mx-auto w-full max-w-[1500px] space-y-5">
+          <motion.section
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.28 }}
+            className="rounded-[2rem] bg-gradient-to-br from-emerald-800 via-emerald-700 to-slate-950 p-6 text-white shadow-sm sm:p-8"
+          >
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <span className="inline-flex rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-white/75">
+                  Coordenação SECTEC
+                </span>
+                <h1 className="mt-5 text-3xl font-black tracking-tight sm:text-4xl">Painel da Coordenação</h1>
+                <p className="mt-3 max-w-3xl text-sm font-medium leading-6 text-white/70 sm:text-base">
+                  Resumo operacional da SECTEC com evento vigente, usuários, projetos e pendências.
                 </p>
-
-                <div className="mt-6 space-y-3">
-                  {fases.map((fase, index) => {
-                    const ativa = fase.nome === faseAtual;
-                    const concluida = fases.findIndex((item) => item.nome === faseAtual) > index;
-
-                    return (
-                      <div key={fase.nome} className="grid grid-cols-[28px_1fr] gap-3">
-                        <div className="flex flex-col items-center">
-                          <span
-                            className={`flex h-7 w-7 items-center justify-center rounded-full border text-xs font-black ${
-                              ativa || concluida
-                                ? "border-sectec-600 bg-sectec-600 text-white"
-                                : "border-slate-200 bg-white text-slate-400"
-                            }`}
-                          >
-                            {concluida ? <PiCheckCircle size={15} /> : index + 1}
-                          </span>
-                          {index < fases.length - 1 && <span className="mt-2 h-8 w-px bg-slate-200" />}
-                        </div>
-                        <div>
-                          <p className={`text-sm font-black ${ativa ? "text-sectec-800" : "text-slate-700"}`}>{fase.nome}</p>
-                          <p className="text-[11px] font-semibold text-slate-400">{fase.periodo} · {fase.descricao}</p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                <p className="mt-4 text-xs font-black uppercase tracking-widest text-white/45">
+                  Última atualização: {ultimaAtualizacao}
+                </p>
               </div>
+
+              <button
+                type="button"
+                onClick={carregarDashboard}
+                disabled={carregandoDashboard}
+                className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white px-5 py-3 text-sm font-black text-emerald-800 shadow-sm transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto"
+              >
+                {carregandoDashboard ? <Loader2 className="animate-spin" size={17} /> : <RefreshCw size={17} />}
+                {carregandoDashboard ? "Atualizando..." : "Atualizar dados"}
+              </button>
             </div>
 
-            <section className="grid gap-5 lg:grid-cols-[0.78fr_1.22fr]">
-              <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="flex items-center justify-between gap-3">
-                  <PanelTitle icon={<PiBuildings size={20} />} title="Turmas" subtitle="Distribuição por curso, série e orientação." />
-                  <button
-                    type="button"
-                    onClick={() => handleAcaoIndisponivel("Criar turma")}
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sectec-700 text-white transition hover:bg-sectec-800"
-                    aria-label="Nova turma"
-                  >
-                    <PiPlus size={18} />
-                  </button>
-                </div>
+            {erroDashboard && (
+              <div className="mt-5 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-semibold text-white/85">
+                {erroDashboard}
+              </div>
+            )}
+          </motion.section>
 
-                <div className="mt-5 divide-y divide-slate-100">
-                  {turmasMock.map((turma) => (
-                    <button
-                      key={turma.id}
-                      type="button"
-                      onClick={() => handleAcaoIndisponivel(`Gerenciar ${turma.nome}`)}
-                      className="grid w-full grid-cols-[1fr_auto] gap-3 py-4 text-left transition first:pt-0 last:pb-0 hover:bg-slate-50"
-                    >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-sectec-50 text-sectec-700">
-                            <PiBookOpen size={17} />
-                          </span>
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-black text-slate-900">{turma.nome}</p>
-                            <p className="truncate text-xs font-medium text-slate-500">{turma.curso}</p>
-                          </div>
-                        </div>
-                        <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-                          <span className="rounded-xl bg-slate-50 px-2 py-2 text-xs font-black text-slate-700">{turma.alunos} alunos</span>
-                          <span className="rounded-xl bg-slate-50 px-2 py-2 text-xs font-black text-slate-700">{turma.projetos} proj.</span>
-                          <span className="rounded-xl bg-slate-50 px-2 py-2 text-xs font-black text-slate-700">{turma.orientadoresVinculados} orient.</span>
-                        </div>
-                      </div>
-                      <PiCaretRight className="mt-2 text-slate-300" size={18} />
-                    </button>
-                  ))}
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <DashboardCard
+              index={0}
+              icon={<CalendarRange size={22} />}
+              title="Evento vigente"
+              value={eventoVigente?.titulo ?? "Nenhum evento"}
+              subtitle={`Ano ${formatarAnoEvento(eventoVigente)} · ${eventoVigente ? formatarPeriodo({ inicio: eventoVigente.prazoInicial, fim: eventoVigente.prazoFinal }) : "Período não definido"}`}
+            >
+              <DetailItem label="Fase atual" value={faseAtualReal} />
+              <DetailItem label="Temas" value={eventoVigente?.temas?.length ?? "Indisponível"} />
+            </DashboardCard>
+
+            <DashboardCard index={1} icon={<UsersRound size={22} />} title="Usuários ativos" value={totalUsuarios} subtitle="Usuários carregados dos endpoints de perfis." onClick={() => navigate("/dashboard/coordenacao/usuarios")}>
+              <DetailItem label="Alunos" value={alunos.length} />
+              <DetailItem label="Orientadores" value={orientadores.length} />
+              <DetailItem label="Comissão" value={comissao.length} />
+            </DashboardCard>
+
+            <DashboardCard
+              index={2}
+              cardRef={projetosResumoRef}
+              icon={<FolderKanban size={22} />}
+              title="Projetos cadastrados"
+              value={totalProjetos}
+              subtitle={
+                projetosDoEventoVigente !== null
+                  ? `${projetosDoEventoVigente} no evento vigente`
+                  : eventosComProjetos > 0
+                  ? `Distribuídos em ${eventosComProjetos} evento(s)`
+                  : "Sem vínculo de evento no payload"
+              }
+            >
+              <DetailItem label="Pendentes" value={projetosComStatus.length ? projetosPendentes : "Status não informado"} />
+              <DetailItem label="Aprovados" value={projetosComStatus.length ? projetosAprovados : "Status não informado"} />
+            </DashboardCard>
+
+            <DashboardCard index={3} cardRef={pendenciasRef} icon={<AlertTriangle size={22} />} title="Pendências críticas" value={valorOuIndisponivel(alunosSemProjeto)} subtitle="Alunos sem projeto calculados a partir dos vínculos recebidos.">
+              <DetailItem label="Alunos sem projeto" value={valorOuIndisponivel(alunosSemProjeto)} />
+              <DetailItem label="PDFs corrompidos" value={valorOuIndisponivel(pdfsCorrompidos)} />
+              <DetailItem label="Eventos sem tema" value={valorOuIndisponivel(eventosSemTema)} />
+            </DashboardCard>
+          </section>
+
+          <section className="grid gap-5 lg:grid-cols-[1fr_0.8fr]">
+            <DashboardCard icon={<ClipboardCheck size={22} />} title="Fase atual da SECTEC" value={faseAtualReal} subtitle={eventoVigente?.titulo ?? "Sem evento vigente encontrado"}>
+              {getFasesEvento(eventoVigente ?? ({} as EventoApi)).map((fase) => (
+                <DetailItem key={fase.label} label={fase.label} value={formatarPeriodo(fase.periodo)} />
+              ))}
+            </DashboardCard>
+
+            <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Ações rápidas</p>
+                  <h2 className="mt-3 text-xl font-black text-slate-950">Ir para gestão</h2>
+                  <p className="mt-2 text-sm font-semibold leading-5 text-slate-500">Atalhos para áreas existentes dentro da coordenação.</p>
                 </div>
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-sectec-50 text-sectec-700">
+                  <FileWarning size={22} />
+                </span>
               </div>
 
-              <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                  <PanelTitle icon={<PiGitBranch size={20} />} title="Projetos em trânsito" subtitle="Dados reais agrupados por evento, vindos do backend." />
-                  <label className="relative block">
-                    <PiMagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
-                    <input
-                      value={buscaProjeto}
-                      onChange={(event) => setBuscaProjeto(event.target.value)}
-                      placeholder="Buscar projeto, autor, tema ou evento"
-                      className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100 sm:w-72"
-                    />
-                  </label>
-                </div>
-
-                <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200">
-                  <div className="hidden grid-cols-[1.1fr_0.8fr_0.7fr_44px] bg-slate-50 px-4 py-3 text-[11px] font-black uppercase tracking-widest text-slate-400 lg:grid">
-                    <span>Projeto</span>
-                    <span>Evento</span>
-                    <span>Autor</span>
-                    <span />
-                  </div>
-
-                  <div className="divide-y divide-slate-100">
-                    {carregandoProjetos && (
-                      <div className="px-4 py-6 text-sm font-semibold text-slate-500">Carregando projetos reais...</div>
-                    )}
-                    {!carregandoProjetos && erroProjetos && (
-                      <div className="px-4 py-6 text-sm font-semibold text-red-600">{erroProjetos}</div>
-                    )}
-                    {!carregandoProjetos && !erroProjetos && projetosFiltrados.length === 0 && (
-                      <div className="px-4 py-10 text-center text-sm font-semibold text-slate-500">
-                        Nenhum projeto encontrado no backend.
-                      </div>
-                    )}
-                    {!carregandoProjetos && !erroProjetos && projetosFiltrados.map((projeto) => (
-                      <article key={projeto.id} className="grid gap-4 px-4 py-4 transition hover:bg-slate-50 lg:grid-cols-[1.1fr_0.8fr_0.7fr_44px] lg:items-center">
-                        <div className="min-w-0">
-                          <h3 className="font-black text-slate-900">{projeto.titulo}</h3>
-                          <p className="mt-1 text-sm font-semibold text-slate-500 line-clamp-2">{projeto.descricao || "Sem descrição informada."}</p>
-                        </div>
-
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-black text-slate-700">{projeto.eventoTitulo || projeto.evento?.titulo || "Sem evento"}</p>
-                          <p className="mt-1 text-xs text-slate-400">ID {projeto.eventoId ?? projeto.evento?.id ?? "-"}</p>
-                        </div>
-
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-black text-slate-700">{projeto.alunoAutor?.nome || projeto.projetoAlunos?.[0]?.aluno?.nome || "-"}</p>
-                          <p className="mt-1 text-xs text-slate-400">{projeto.tema?.nome || "Sem tema"}</p>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => handleVerDetalhesProjeto(projeto)}
-                          className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition hover:border-sectec-200 hover:bg-sectec-50 hover:text-sectec-700"
-                          aria-label={`Abrir ${projeto.titulo}`}
-                        >
-                          <Eye size={18} />
-                        </button>
-                      </article>
-                    ))}
-                  </div>
-                </div>
+              <div className="mt-5 grid gap-2 sm:grid-cols-2">
+                <QuickAction label="Ver eventos" onClick={() => navigate("/dashboard/coordenacao/eventos")} />
+                <QuickAction label="Ver usuários" onClick={() => navigate("/dashboard/coordenacao/usuarios")} />
+                <QuickAction label="Ver projetos" onClick={() => scrollPara(projetosResumoRef)} />
+                <QuickAction label="Ver PDFs/integridade" onClick={() => scrollPara(pendenciasRef)} />
               </div>
             </section>
           </section>
-
-          <aside className="grid content-start gap-5">
-            <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
-              <PanelTitle icon={<PiGauge size={20} />} title="Saúde operacional" subtitle="Indicadores em formato de controle, não vitrine." />
-              <div className="mt-5 space-y-4">
-                {[
-                  { label: "Submissões completas", value: `${totalProjetos} projetos`, width: "50%", icon: <PiSealCheck /> },
-                  { label: "Orientações pendentes", value: "1 crítica", width: "30%", icon: <PiWarningCircle /> },
-                  { label: "Usuários provisionados", value: `${usuariosMock.length} contas`, width: "70%", icon: <PiUsersThree /> },
-                ].map((item) => (
-                  <div key={item.label}>
-                    <div className="mb-2 flex items-center justify-between text-xs font-black">
-                      <span className="flex items-center gap-2 text-slate-600">{item.icon} {item.label}</span>
-                      <span className="text-slate-900">{item.value}</span>
-                    </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                      <div className="h-full rounded-full bg-sectec-600" style={{ width: item.width }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="flex items-center justify-between gap-3">
-                <PanelTitle icon={<PiSlidersHorizontal size={20} />} title="Prazos" subtitle="Janelas que controlam edição e bloqueio." />
-                <button
-                  type="button"
-                  onClick={() => handleAcaoIndisponivel("Editar prazos do evento")}
-                  className="rounded-xl border border-sectec-200 bg-sectec-50 px-3 py-2 text-xs font-black text-sectec-700 transition hover:bg-sectec-100"
-                >
-                  Editar
-                </button>
-              </div>
-              <div className="mt-5 grid grid-cols-2 gap-2">
-                {fases.map((fase) => (
-                  <div key={fase.nome} className={`rounded-2xl border p-3 ${fase.nome === faseAtual ? "border-sectec-200 bg-sectec-50" : "border-slate-100 bg-slate-50"}`}>
-                    <p className="text-xs font-black text-slate-800">{fase.nome}</p>
-                    <p className="mt-1 text-[11px] font-semibold text-slate-400">{fase.periodo}</p>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
-              <PanelTitle icon={<PiChalkboardTeacher size={20} />} title="Fila de orientação" subtitle="Solicitações que podem travar projeto." />
-              <div className="mt-5 space-y-3">
-                {solicitacoesMock.map((solicitacao) => (
-                  <article key={solicitacao.id} className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <h3 className="text-sm font-black text-slate-900">{solicitacao.projeto}</h3>
-                        <p className="mt-1 text-xs font-semibold text-slate-500">{solicitacao.aluno} · {solicitacao.eixo}</p>
-                        <p className="mt-1 text-xs text-slate-400">{solicitacao.orientador} · {solicitacao.prazo}</p>
-                      </div>
-                      <PiBellRinging className={solicitacao.status === "Aguardando resposta" ? "text-amber-600" : "text-emerald-600"} size={19} />
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </section>
-
-            <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="flex items-center justify-between gap-3">
-                <PanelTitle icon={<PiUserGear size={20} />} title="Permissões" subtitle="Perfis ativos no evento." />
-                <button
-                  type="button"
-                  onClick={() => handleAcaoIndisponivel("Criar usuário")}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white transition hover:bg-slate-800"
-                  aria-label="Novo usuário"
-                >
-                  <PiPlus size={17} />
-                </button>
-              </div>
-              <div className="mt-5 space-y-2">
-                {usuariosMock.map((usuario) => (
-                  <article key={usuario.id} className="grid grid-cols-[38px_1fr_auto] items-center gap-3 rounded-2xl bg-slate-50 px-3 py-3">
-                    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-sectec-700 shadow-sm">
-                      {usuario.perfil === "Aluno" ? <PiStudent /> : usuario.perfil === "Orientador" ? <PiChalkboardTeacher /> : <PiGraduationCap />}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-black text-slate-900">{usuario.nome}</p>
-                      <p className="truncate text-[11px] text-slate-400">{usuario.email}</p>
-                    </div>
-                    <span className="text-right text-[11px] font-black uppercase text-slate-500">{usuario.perfil}</span>
-                  </article>
-                ))}
-              </div>
-            </section>
-
-            <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
-              <PanelTitle icon={<PiClockCounterClockwise size={20} />} title="Auditoria" subtitle="Eventos recentes da coordenação." />
-              <div className="mt-5 space-y-4">
-                {logsMock.map((log, index) => (
-                  <article key={log.id} className="grid grid-cols-[28px_1fr] gap-3">
-                    <div className="flex flex-col items-center">
-                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-sectec-50 text-sectec-700">
-                        {index === 0 ? <PiNotebook size={14} /> : index === 1 ? <PiXCircle size={14} /> : <PiCheckCircle size={14} />}
-                      </span>
-                      {index < logsMock.length - 1 && <span className="mt-2 h-10 w-px bg-slate-200" />}
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between gap-2">
-                        <h3 className="text-sm font-black text-slate-900">{log.acao}</h3>
-                        <span className="text-[11px] font-bold text-slate-400">{log.quando}</span>
-                      </div>
-                      <p className="mt-1 text-xs font-bold text-slate-500">{log.usuario}</p>
-                      <p className="mt-1 text-xs leading-5 text-slate-500">{log.detalhe}</p>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </section>
-          </aside>
         </div>
       </main>
     </MainLayout>
