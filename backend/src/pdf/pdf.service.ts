@@ -1,108 +1,190 @@
 // src/pdf/pdf.service.ts
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ProjectFile, FileStatus } from './entities/project-file.entity';
-// IMPORTANTE: Importe a sua entidade de Projeto aqui (ajuste o caminho se necessário)
-import { Projeto } from '../projetos/entities/projeto.entity'; 
-import { GoogleDriveService } from './google-drive.service';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import { extname } from 'path';
+
+import { Projeto } from '../projetos/entities/projeto.entity';
+import { GoogleDriveService } from './google-drive.service';
+import { ProjectFile, FileStatus } from './entities/project-file.entity';
 
 @Injectable()
 export class PdfService {
   constructor(
     @InjectRepository(ProjectFile)
-    private readonly projectFileRepository: Repository<ProjectFile>,
-    // 1. Injetamos o repositório de Projeto para conseguir buscar o título pelo ID
+    public readonly projectFileRepository: Repository<ProjectFile>,
+
     @InjectRepository(Projeto)
     private readonly projetoRepository: Repository<Projeto>,
+
     private readonly googleDriveService: GoogleDriveService,
   ) {}
 
+  // =========================================================================
+  // GESTÃO DE UPLOAD (MÉTODOS CORE)
+  // =========================================================================
+
+  /**
+   * Realiza o upload do PDF de um projeto existente para o Google Drive.
+   * Renomeia o arquivo seguindo o padrão institucional (ANO-MES-TITULO-ID.pdf),
+   * calcula o hash SHA-256 de segurança e limpa o armazenamento local após o término.
+   */
   async uploadExistingProjectPdf(
     file: Express.Multer.File,
     dto: { materialId: number; projetoId: number; uploadedBy: number }
   ): Promise<ProjectFile> {
-    
+    const filePath = file.path;
     const fileSizeBytes = file.size;
     const originalName = file.originalname;
-    const filePath = file.path;
-
-    // 2. Busca o projeto no banco de dados para pegar o título
-    const projeto = await this.projetoRepository.findOne({ where: { id: dto.projetoId } });
-    if (!projeto) {
-      // Se não achar o projeto, limpa o arquivo temporário do Multer para não entupir o Termux
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-      throw new NotFoundException(`Projeto com ID ${dto.projetoId} não foi encontrado.`);
-    }
-
-    // 3. Gerar Ano e Mês atual (Garante 2 dígitos para o mês, ex: "05")
-    const hoje = new Date();
-    const ano = hoje.getFullYear();
-    const mes = String(hoje.getMonth() + 1).padStart(2, '0');
-
-    // 4. Tratar o título do projeto (remover espaços extras e caracteres problemáticos se necessário)
-    // Exemplo: "Sistema Comercial" vira "Sistema-Comercial" ou mantem com espaços (o Drive aceita espaços de boa)
-    const tituloProjetoClean = projeto.titulo.replace(/\s+/g, '-'); 
-
-    // 5. Montar o novo nome baseado na regra: ANO-MES-TITULO-ID.pdf
-    const extensao = extname(originalName);
-    const novoNomeDrive = `${ano}-${mes}-${tituloProjetoClean}-${dto.projetoId}${extensao}`;
-
-    // Calcular Hash SHA-256 via Stream
-    const checksumSha256 = await this.calculateFileHash(filePath);
-
-    const projectFile = this.projectFileRepository.create({
-      materialId: dto.materialId,
-      projetoId: dto.projetoId,
-      uploadedBy: dto.uploadedBy,
-      originalName: originalName, // Mantemos o nome original guardado no Banco de Dados por segurança
-      driveFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID || '',
-      fileSizeBytes: fileSizeBytes,
-      checksumSha256: checksumSha256,
-      status: FileStatus.PENDING,
-      version: 1,
-    });
-
-    const savedFile = await this.projectFileRepository.save(projectFile);
 
     try {
-      const fileStream = fs.createReadStream(filePath);
-      
-      // 6. Passamos o 'novoNomeDrive' em vez do 'originalName' para o Google Drive
-      const driveResponse = await this.googleDriveService.uploadFile(
-        novoNomeDrive,
-        fileStream,
-        file.mimetype,
-        savedFile.driveFolderId
-      );
+      // 1. Valida a existência do projeto antes de qualquer operação pesada
+      const projeto = await this.projetoRepository.findOne({ where: { id: dto.projetoId } });
+      if (!projeto) {
+        throw new NotFoundException(`Projeto com ID ${dto.projetoId} nao foi encontrado.`);
+      }
 
-      savedFile.driveFileId = driveResponse.id || null;
-      savedFile.driveWebViewLink = driveResponse.webViewLink || null;
-      savedFile.status = FileStatus.VALID;
+      // 2. Formata a data atual para compor o nome padrão
+      const hoje = new Date();
+      const ano = hoje.getFullYear();
+      const mes = String(hoje.getMonth() + 1).padStart(2, '0');
 
-      return await this.projectFileRepository.save(savedFile);
+      // 3. Sanitiza o título do projeto removendo espaços extras
+      const tituloProjetoClean = projeto.titulo.replace(/\s+/g, '-');
+      const extensao = extname(originalName);
+      const novoNomeDrive = `${ano}-${mes}-${tituloProjetoClean}-${dto.projetoId}${extensao}`;
 
-    } catch (error) {
-      savedFile.status = FileStatus.CORRUPTED;
-      await this.projectFileRepository.save(savedFile);
-      throw new Error(`Falha ao enviar para o Drive: ${error.message}`);
+      // 4. Calcula o Checksum de integridade do arquivo
+      const checksumSha256 = await this.calculateFileHash(filePath);
+
+      // 5. Registra o arquivo inicialmente com status PENDENTE
+      const projectFile = this.projectFileRepository.create({
+        materialId: dto.materialId,
+        projetoId: dto.projetoId,
+        uploadedBy: dto.uploadedBy,
+        originalName: originalName,
+        driveFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID || '',
+        fileSizeBytes: fileSizeBytes,
+        checksumSha256: checksumSha256,
+        status: FileStatus.PENDING,
+        version: 1,
+      });
+
+      const savedFile = await this.projectFileRepository.save(projectFile);
+
+      // 6. Transmite o arquivo para o Google Drive via Stream
+      try {
+        const fileStream = fs.createReadStream(filePath);
+        const driveResponse = await this.googleDriveService.uploadFile(
+          novoNomeDrive,
+          fileStream,
+          file.mimetype,
+          savedFile.driveFolderId
+        );
+
+        savedFile.driveFileId = driveResponse.id || null;
+        savedFile.driveWebViewLink = driveResponse.webViewLink || null;
+        savedFile.status = FileStatus.VALID;
+
+        return await this.projectFileRepository.save(savedFile);
+      } catch (uploadError) {
+        // Marca o arquivo como corrompido/falho no banco caso o Drive rejeite
+        savedFile.status = FileStatus.CORRUPTED;
+        await this.projectFileRepository.save(savedFile);
+        throw new Error(`Falha ao enviar para o Drive: ${uploadError.message}`);
+      }
     } finally {
-      // Limpa o arquivo temporário local do Termux/Servidor
+      // 7. Garante que o arquivo temporário local será apagado, protegendo o storage do ambiente
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
       }
     }
   }
-  
-  
-  
-  
-  
+
   /**
-   * Busca as informações do arquivo no banco e o stream de download no Google Drive
+   * Substitui o binário de um arquivo existente mantendo o mesmo ID do Google Drive.
+   * Alinha metadados locais, recalcula hash de integridade e atualiza a versão da entrega.
+   */
+  async substituirProjectPdf(
+    file: Express.Multer.File,
+    dto: { materialId: number; projetoId: number; uploadedBy: number }
+  ): Promise<ProjectFile> {
+    const filePath = file.path;
+    const fileSizeBytes = file.size;
+    const originalName = file.originalname;
+
+    // 1. Busca o registro do arquivo anterior independente do status para reaproveitar o ID do Drive
+    const arquivoAntigo = await this.projectFileRepository.findOne({
+      where: {
+        projetoId: dto.projetoId,
+        materialId: dto.materialId,
+      },
+      order: { criadoEm: 'DESC' },
+    });
+
+    if (!arquivoAntigo || !arquivoAntigo.driveFileId) {
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      throw new NotFoundException(
+        `Não foi encontrado nenhum arquivo anterior válido no banco para substituir neste material.`,
+      );
+    }
+
+    try {
+      // 2. Formata o nome padrão padronizado institucionalmente
+      const projeto = await this.projetoRepository.findOne({ where: { id: dto.projetoId } });
+      const hoje = new Date();
+      const ano = hoje.getFullYear();
+      const mes = String(hoje.getMonth() + 1).padStart(2, '0');
+      const tituloProjetoClean = projeto ? projeto.titulo.replace(/\s+/g, '-') : 'projeto';
+      const extensao = extname(originalName);
+      const novoNomeDrive = `${ano}-${mes}-${tituloProjetoClean}-${dto.projetoId}${extensao}`;
+
+      // 3. Calcula o novo Checksum de integridade
+      const novoChecksum = await this.calculateFileHash(filePath);
+
+      // 4. Prepara a stream do novo arquivo temporário
+      const fileStream = fs.createReadStream(filePath);
+
+      // 5. Atualiza o arquivo diretamente no Google Drive (Sobrescreve o binário na nuvem)
+      await this.googleDriveService.updateFile(
+        arquivoAntigo.driveFileId,
+        novoNomeDrive,
+        fileStream,
+        file.mimetype
+      );
+
+      // 6. Atualiza os dados do registro no seu banco de dados local
+      arquivoAntigo.originalName = originalName;
+      arquivoAntigo.fileSizeBytes = fileSizeBytes;
+      arquivoAntigo.checksumSha256 = novoChecksum;
+      arquivoAntigo.uploadedBy = dto.uploadedBy;
+      arquivoAntigo.version = (arquivoAntigo.version || 1) + 1; // Incrementa a versão do envio
+      arquivoAntigo.status = FileStatus.VALID;
+
+      return await this.projectFileRepository.save(arquivoAntigo);
+
+    } catch (error) {
+      // Rollback de segurança: se quebrar, sinaliza o arquivo como corrompido
+      arquivoAntigo.status = FileStatus.CORRUPTED;
+      await this.projectFileRepository.save(arquivoAntigo);
+      throw new BadRequestException(`Falha ao atualizar o arquivo na nuvem: ${error.message}`);
+    } finally {
+      // 7. Limpa o storage temporário do ambiente local
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    }
+  }
+
+  // =========================================================================
+  // GESTÃO DE DOWNLOAD e CONSULTA (READ)
+  // =========================================================================
+
+  /**
+   * Localiza o registro do PDF válido mais recente no banco de dados 
+   * e retorna o stream de download vindo diretamente do Google Drive.
    */
   async downloadProjectPdf(projetoId: number, materialId: number) {
     const projectFile = await this.projectFileRepository.findOne({
@@ -111,12 +193,12 @@ export class PdfService {
         materialId: materialId,
         status: FileStatus.VALID,
       },
-      order: { criadoEm: 'DESC' }, // Garante que pega a versão mais recente
+      order: { criadoEm: 'DESC' },
     });
 
     if (!projectFile || !projectFile.driveFileId) {
       throw new NotFoundException(
-        `Nenhum PDF válido foi encontrado para o projeto ID ${projetoId} e material ID ${materialId}.`,
+        `Nenhum PDF valido foi encontrado para o projeto ID ${projetoId} e material ID ${materialId}.`,
       );
     }
 
@@ -127,19 +209,17 @@ export class PdfService {
       originalName: projectFile.originalName,
     };
   }
-  
-  
-  
-  
-  
-  
+
+  // =========================================================================
+  // UTILITÁRIOS PRIVADOS (HELPERS)
+  // =========================================================================
 
   private calculateFileHash(filePath: string): Promise<string> {
     return new Promise((resolve, reject) => {
       const hash = crypto.createHash('sha256');
       const stream = fs.createReadStream(filePath);
-      
-      stream.on('data', (data) => hash.update(data));
+
+      stream.on('data', (chunk) => hash.update(chunk));
       stream.on('end', () => resolve(hash.digest('hex')));
       stream.on('error', (err) => reject(err));
     });

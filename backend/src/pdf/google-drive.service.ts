@@ -86,4 +86,54 @@ export class GoogleDriveService {
       throw new Error(`Erro ao buscar stream no Google Drive: ${error.message}`);
     }
   }
+  
+  
+  
+  async updateFile(
+  driveFileId: string,
+  fileName: string,
+  fileStream: Readable,
+  mimeType: string,
+) {
+  try {
+    // Atualiza os metadados (nome) e o corpo do arquivo (mídia)
+    const response = await this.drive.files.update({
+      fileId: driveFileId,
+      requestBody: {
+        name: fileName, // Mantém ou atualiza o nome padrão padrãoizado
+      },
+      media: {
+        mimeType: mimeType,
+        body: fileStream,
+      },
+      fields: 'id, webViewLink',
+    });
+
+    return {
+      id: response.data.id,
+      webViewLink: response.data.webViewLink,
+    };
+  } catch (error) {
+    throw new Error(`Erro ao atualizar arquivo no Google Drive: ${error.message}`);
+  }
+}
+
+
+
+
+
+
+  /**
+   * Remove permanentemente um arquivo da nuvem do Google Drive
+   * @param driveFileId ID do arquivo a ser deletado
+   */
+  async deleteFile(driveFileId: string): Promise<void> {
+    try {
+      await this.drive.files.delete({
+        fileId: driveFileId,
+      });
+    } catch (error) {
+      throw new Error(`Erro ao deletar arquivo no Google Drive: ${error.message}`);
+    }
+  }
 }

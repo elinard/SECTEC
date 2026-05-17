@@ -11,6 +11,7 @@ import { Projeto } from '../../projetos/entities/projeto.entity';
 export enum TipoMaterial {
   PDF  = 'pdf',
   LINK = 'link',
+  RELATORIO = 'pdf_relatorio'
 }
 
 export enum StatusMaterial {
