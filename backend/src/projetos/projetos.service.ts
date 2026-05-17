@@ -601,6 +601,7 @@ export class ProjetosService {
       tema: true,
       projetoAlunos: { aluno: true },
       orientadores: { orientador: true },
+      materiais: true,
     } as const;
   }
 
@@ -630,6 +631,15 @@ export class ProjetosService {
         criadoEm: true,
         respondidoEm: true,
         orientador: { id: true, nome: true, email_institucional: true },
+      },
+      
+      materiais: {
+        id: true,
+        tipo: true,
+        status: true,
+        conteudo: true,
+        opiniao: true,
+        criadoEm: true,
       },
     };
   }

@@ -8,7 +8,8 @@ import {
   Delete,
   UseGuards,
   ForbiddenException,
-  ParseIntPipe
+  ParseIntPipe,
+  Req
 } from '@nestjs/common';
 import { ProjetosService } from './projetos.service';
 

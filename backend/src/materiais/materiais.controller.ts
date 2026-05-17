@@ -4,11 +4,14 @@ import {
   Post, 
   Delete,
   Param,
+  Patch,
   ParseIntPipe,
   UseInterceptors, 
   UploadedFile, 
-  Body, 
-  UseGuards 
+  Body,
+  Get,
+  UseGuards,
+  Req
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { 
@@ -28,6 +31,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles, UserRole } from '../auth/decorators/roles.decorator';
 import { GetUser } from '../auth/decorators/get-user.decorator';
+import { AvaliarMaterialDto } from './dto/avaliar-material.dto';
 
 @ApiTags('Materiais do Projeto')
 @Controller('materiais')
@@ -56,16 +60,42 @@ export class MateriaisController {
   async criarMaterial(
     @UploadedFile() file: Express.Multer.File,
     @Body() body: CreateMaterialDto,
-    @GetUser('id') userId: number,
+    @GetUser('userId') userId: number,
   ) {
     return await this.materiaisService.criarMaterial(file, body, userId);
   }
 
   @Delete(':id/cancelar')
-  @Roles(UserRole.ALUNO) // Garante que apenas o aluno dono do fluxo realize o cancelamento
+  @Roles(UserRole.ALUNO)
   @ApiOperation({ summary: 'Cancela o envio de um material antes da avaliação dentro da janela de 1 hora' })
   @ApiParam({ name: 'id', description: 'ID numérico do material a ser cancelado', type: Number })
-  async cancelarMaterial(@Param('id', ParseIntPipe) materialId: number) {
-    return await this.materiaisService.cancelarMaterial(materialId);
+  async cancelarMaterial(
+    @Param('id', ParseIntPipe) materialId: number,
+    @GetUser('userId') userId: number, // 👈 CORREÇÃO: Captura a chave correta do JWT
+  ) {
+    return await this.materiaisService.cancelarMaterial(materialId, userId);
   }
+
+  
+  
+  
+    @Patch(':id/avaliar')
+  @ApiOperation({ summary: 'Aprova ou recusa o material postado por um aluno' })
+  @ApiParam({ name: 'id', description: 'ID numérico do material a ser avaliado', type: Number })
+  async avaliarMaterial(
+    @Param('id', ParseIntPipe) materialId: number,
+    @Body() body: AvaliarMaterialDto,
+  ) {
+    return await this.materiaisService.avaliarMaterial(materialId, body);
+  }
+    
+    
+    
+  @Get('pendentes-orientador')
+  @Roles(UserRole.ORIENTADOR) // Garante que apenas professores acessem
+  @ApiOperation({ summary: 'Lista os materiais em análise dos projetos orientados pelo professor' })
+  async listarPendentes(@GetUser('userId') orientadorId: number) {
+    return await this.materiaisService.listarMateriaisPendentesPorOrientador(orientadorId);
+  }
+
 }

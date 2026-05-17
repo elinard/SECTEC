@@ -14,7 +14,7 @@ import { User } from '../../users/entities/user.entity';
 import { ProjetoAluno } from './projeto-aluno.entity';
 import { ProjetoOrientador } from './projeto-orientador.entity';
 import { ProjectFile } from '../../pdf/entities/project-file.entity'; // ajuste o caminho aqui
-
+import { ProjetoMaterial } from '../../materiais/entities/projeto-material.entity';
 
 @Entity('projetos')
 @Unique(['alunoAutor', 'evento'])
@@ -57,4 +57,6 @@ export class Projeto {
   @OneToMany(() => ProjectFile, (projectFile) => projectFile.projeto)
   arquivos!: ProjectFile[];
 
+  @OneToMany(() => ProjetoMaterial, (material) => material.projeto)
+  materiais!: ProjetoMaterial[];
 }

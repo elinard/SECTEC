@@ -742,6 +742,7 @@ var ProjetosService = /** @class */ (function () {
             tema: true,
             projetoAlunos: { aluno: true },
             orientadores: { orientador: true },
+            materiais: true,
         };
     };
     ProjetosService.prototype.getProjetoSelectFields = function () {
@@ -770,6 +771,14 @@ var ProjetosService = /** @class */ (function () {
                 criadoEm: true,
                 respondidoEm: true,
                 orientador: { id: true, nome: true, email_institucional: true },
+            },
+            materiais: {
+                id: true,
+                tipo: true,
+                status: true,
+                conteudo: true,
+                opiniao: true,
+                criadoEm: true,
             },
         };
     };

@@ -4,9 +4,9 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import * as fs from 'fs';
 
 import {
@@ -17,6 +17,10 @@ import {
 import { Projeto } from '../projetos/entities/projeto.entity';
 import { PdfService } from '../pdf/pdf.service';
 import { CreateMaterialDto } from './dto/create-material.dto';
+import { AvaliarMaterialDto, DecisaoAvaliacao } from
+'./dto/avaliar-material.dto'; // <- Importe o DTO e o Enum
+import { Repository, Between } from 'typeorm'; // 🚀 ADICIONE O BETWEEN AQUI
+import { EventoStatus } from '../evento/entities/evento.entity'; // 🚀 ADICIONE ESTA LINHA
 
 @Injectable()
 export class MateriaisService {
@@ -71,16 +75,27 @@ export class MateriaisService {
    * @param materialId ID numérico do material a ser cancelado.
    * @returns Resposta de confirmação da remoção.
    */
-  async cancelarMaterial(materialId: number): Promise<{ mensagem: string }> {
+  async cancelarMaterial(materialId: number, userId: number): Promise<{ mensagem: string }> {
     // 1. Busca o material alvo no banco de dados
     const material = await this.materiaisRepository.findOne({
       where: { id: materialId },
+      relations: ['projeto', 'projeto.alunoAutor'],
     });
 
     if (!material) {
       throw new NotFoundException(`Material com ID ${materialId} não foi encontrado.`);
     }
 
+	if (material.projeto && material.projeto.alunoAutor.id !== userId) {
+		console.log('ID do Aluno Logado (JWT):', typeof userId, userId);
+console.log('ID do Autor no Banco:', typeof material.projeto.alunoAutor.id, material.projeto.alunoAutor.id);
+
+  throw new ForbiddenException(
+    'Você não tem permissão para cancelar este material, pois não é o autor do projeto.',
+  );
+}
+	
+	
     // 2. Impede o cancelamento caso o orientador já tenha alterado o status (aprovado/recusado)
     if (material.status !== StatusMaterial.EM_ANALISE) {
       throw new ConflictException(
@@ -94,6 +109,9 @@ export class MateriaisService {
     const umaHoraMs = 1000 * 60 * 60;
 
     if (tempoDecorridoMs > umaHoraMs) {
+    	console.log(material.criadoEm);
+    	console.log(tempoDecorridoMs);
+    	console.log(umaHoraMs);
       throw new BadRequestException(
         'O prazo limite de 1 hora para o cancelamento deste material expirou.',
       );
@@ -133,6 +151,8 @@ export class MateriaisService {
   /**
    * Trata o fluxo de reentrega de um material que foi previamente recusado pelo orientador.
    */
+  // src/materiais/materiais.service.ts -> Método: processarSubstituicaoMaterial
+
   private async processarSubstituicaoMaterial(
     material: ProjetoMaterial,
     projeto: Projeto,
@@ -140,7 +160,6 @@ export class MateriaisService {
     dto: CreateMaterialDto,
     userId: number,
   ) {
-    // Se o material existente não estiver recusado, ele não pode ser alterado
     if (material.status !== StatusMaterial.RECUSADO) {
       this.removerArquivoTemporario(file);
       throw new ConflictException(
@@ -148,33 +167,43 @@ export class MateriaisService {
       );
     }
 
-    // Reseta o estado do material para nova análise institucional
-    material.status = StatusMaterial.EM_ANALISE;
-    material.opiniao = 'Aguardando avaliação da nova versão do material pelo orientador.';
-    material.conteudo = dto.conteudo || `Arquivo ${dto.tipo} atualizado enviado para avaliação.`;
+    // 1. CORREÇÃO CRÍTICA: Em vez de usar .save() no objeto carregado (que arrasta relações zumbis),
+    // usamos o .update() cirúrgico passando apenas as colunas que pertencem estritamente a esta tabela.
+    await this.materiaisRepository.update(material.id, {
+      status: StatusMaterial.EM_ANALISE,
+      opiniao: '',
+      conteudo: dto.conteudo || `Arquivo ${dto.tipo} atualizado enviado para avaliação.`,
+      criadoEm: new Date(),
+    });
 
-    const materialAtualizado = await this.materiaisRepository.save(material);
+    // Recarrega o material limpo, sem nenhuma propriedade mutada que confunda o ORM
+    const materialAtualizado = await this.materiaisRepository.findOne({
+      where: { id: material.id }
+    });
 
-    // Se o tipo exigir arquivo, atualiza o binário no Google Drive
+    if (!materialAtualizado) {
+      throw new NotFoundException('Erro ao recarregar o material atualizado.');
+    }
+
     if (this.verificarSeTipoExigeArquivo(dto.tipo) && file) {
       try {
         let dadosArquivoDrive;
 
-        // Tenta localizar o registro do arquivo anterior gerado para este material
         const possuiArquivoNoBanco = await this.pdfService.projectFileRepository.findOne({
-          where: { materialId: materialAtualizado.id },
+          where: { 
+            materialId: materialAtualizado.id,
+            projetoId: projeto.id 
+          },
           order: { criadoEm: 'DESC' }
         });
 
-        // SE o arquivo existia no banco E possui ID do drive válido, executa a atualização direta
         if (possuiArquivoNoBanco && possuiArquivoNoBanco.driveFileId) {
           dadosArquivoDrive = await this.pdfService.substituirProjectPdf(file, {
             materialId: materialAtualizado.id,
             projetoId: projeto.id,
             uploadedBy: userId,
-          });
+          }, projeto);
         } else {
-          // SE não possuía ou estava quebrado, faz uma nova postagem do zero (Fallback seguro)
           dadosArquivoDrive = await this.pdfService.uploadExistingProjectPdf(file, {
             materialId: materialAtualizado.id,
             projetoId: projeto.id,
@@ -189,7 +218,10 @@ export class MateriaisService {
         };
       } catch (error) {
         await this.tratarFalhaEnvioDrive(materialAtualizado, `Falha na substituição do arquivo na nuvem: ${error.message}`);
-        throw new BadRequestException('Material updated locally, but disk or cloud substitution failed.');
+        throw new BadRequestException({
+          message: 'Material updated locally, but disk or cloud substitution failed.',
+          detalheDoErroReal: error.message
+        });
       }
     }
 
@@ -198,6 +230,7 @@ export class MateriaisService {
       material: materialAtualizado,
     };
   }
+
 
   /**
    * Trata o fluxo de primeira entrega de um material para o projeto.
@@ -314,4 +347,120 @@ export class MateriaisService {
       fs.unlinkSync(file.path);
     }
   }
+  
+    /**
+   * Permite ao orientador avaliar um material acadêmico enviado pelo aluno.
+   * Altera o status para APROVADO ou RECUSADO. Caso seja recusado, exige uma opinião descritiva.
+   * 
+   * @param materialId ID do material enviado.
+   * @param dto Dados da avaliação (Decisão e Opinião).
+   */
+  async avaliarMaterial(materialId: number, dto: AvaliarMaterialDto) {
+    // 1. Busca o material alvo no banco de dados
+    const material = await this.materiaisRepository.findOne({
+      where: { id: materialId },
+    });
+
+    if (!material) {
+      throw new NotFoundException(`Material com ID ${materialId} não foi encontrado.`);
+    }
+
+    // 2. Só permite avaliar materiais que estão atualmente pendentes (Em análise)
+    if (material.status !== StatusMaterial.EM_ANALISE) {
+      throw new ConflictException(
+        `Este material não pode ser avaliado pois já encontra-se com o status '${material.status}'.`,
+      );
+    }
+
+    // 3. Aplica a alteração de estado com base na decisão do DTO
+    if (dto.decisao === DecisaoAvaliacao.APROVAR) {
+      material.status = StatusMaterial.APROVADO;
+      material.opiniao = 'Material avaliado e aprovado pelo orientador responsável.';
+    } else {
+      material.status = StatusMaterial.RECUSADO;
+      material.opiniao = dto.opiniao!; // Garantido pelo ValidateIf do class-validator
+    }
+
+    // 4. Salva a nova situação do material no banco
+    const materialAvaliado = await this.materiaisRepository.save(material);
+
+    return {
+      mensagem: `Material avaliado com sucesso! Status atualizado para: ${materialAvaliado.status}.`,
+      material: materialAvaliado,
+    };
+  }
+  
+  
+  
+  
+    /**
+   * Retorna todos os projetos do evento atual nos quais o professor logado é o orientador aceito,
+   * trazendo anexados apenas os materiais que estão aguardando avaliação (status 'em_analise').
+   * 
+   * @param orientadorId ID do professor extraído do token JWT.
+   */
+  async listarMateriaisPendentesPorOrientador(orientadorId: number): Promise<Projeto[]> {
+    const anoAtual = new Date().getFullYear();
+    const inicioAno = `${anoAtual}-01-01 00:00:00`;
+    const fimAno = `${anoAtual}-12-31 23:59:59`;
+
+    // Buscamos os projetos direto da tabela de projetos aplicando os filtros cruzados
+    const projetosComMateriaisPendentes = await this.projetoRepository.find({
+      where: {
+        // 1. Filtra apenas projetos do evento ativo do ano corrente
+        evento: {
+          status: EventoStatus.ATIVO,
+          inscricao: {
+            inicio: Between(new Date(inicioAno), new Date(fimAno)),
+          },
+        },
+        // 2. Garante a segurança: o orientador logado precisa ter dado "aceito" na solicitação
+        orientadores: {
+          orientador: { id: orientadorId },
+          status: 'aceito',
+        },
+        // 3. Só traz o projeto se ele tiver pelo menos um material pendente
+        materiais: {
+          status: StatusMaterial.EM_ANALISE,
+        },
+      },
+      // Carrega as relações necessárias para o orientador saber o que está avaliando
+      relations: {
+        alunoAutor: true,
+        materiais: true,
+      },
+      // Seleciona campos limpos para não expor senhas ou dados desnecessários
+      select: {
+        id: true,
+        titulo: true,
+        descricao: true,
+        alunoAutor: {
+          id: true,
+          nome: true,
+          turma: true,
+          ano: true,
+        },
+        materiais: {
+          id: true,
+          tipo: true,
+          status: true,
+          conteudo: true,
+          criadoEm: true,
+        },
+      },
+      // Ordena pelos materiais mais antigos primeiro (fila de prioridade por chegada)
+      order: {
+        materiais: {
+          criadoEm: 'ASC',
+        },
+      },
+    });
+
+    return projetosComMateriaisPendentes;
+  }
+
+
+
+
+
 }

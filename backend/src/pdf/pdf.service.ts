@@ -107,9 +107,16 @@ export class PdfService {
    * Substitui o binário de um arquivo existente mantendo o mesmo ID do Google Drive.
    * Alinha metadados locais, recalcula hash de integridade e atualiza a versão da entrega.
    */
+  // src/pdf/pdf.service.ts
+
+  /**
+   * Substitui o binário de um arquivo existente mantendo o mesmo ID do Google Drive.
+   * Alinha metadados locais, recalcula hash de integridade e atualiza a versão da entrega.
+   */
   async substituirProjectPdf(
     file: Express.Multer.File,
-    dto: { materialId: number; projetoId: number; uploadedBy: number }
+    dto: { materialId: number; projetoId: number; uploadedBy: number },
+    projeto: Projeto, // <- ADICIONE O OBJETO PROJETO COMO PARÂMETRO AQUI
   ): Promise<ProjectFile> {
     const filePath = file.path;
     const fileSizeBytes = file.size;
@@ -132,12 +139,11 @@ export class PdfService {
     }
 
     try {
-      // 2. Formata o nome padrão padronizado institucionalmente
-      const projeto = await this.projetoRepository.findOne({ where: { id: dto.projetoId } });
+      // 2. Removemos a query repetida e usamos o objeto projeto limpo que veio por parâmetro
       const hoje = new Date();
       const ano = hoje.getFullYear();
       const mes = String(hoje.getMonth() + 1).padStart(2, '0');
-      const tituloProjetoClean = projeto ? projeto.titulo.replace(/\s+/g, '-') : 'projeto';
+      const tituloProjetoClean = projeto.titulo ? projeto.titulo.replace(/\s+/g, '-') : 'projeto';
       const extensao = extname(originalName);
       const novoNomeDrive = `${ano}-${mes}-${tituloProjetoClean}-${dto.projetoId}${extensao}`;
 
@@ -147,7 +153,7 @@ export class PdfService {
       // 4. Prepara a stream do novo arquivo temporário
       const fileStream = fs.createReadStream(filePath);
 
-      // 5. Atualiza o arquivo diretamente no Google Drive (Sobrescreve o binário na nuvem)
+      // 5. Atualiza o arquivo diretamente no Google Drive
       await this.googleDriveService.updateFile(
         arquivoAntigo.driveFileId,
         novoNomeDrive,
@@ -156,27 +162,37 @@ export class PdfService {
       );
 
       // 6. Atualiza os dados do registro no seu banco de dados local
-      arquivoAntigo.originalName = originalName;
-      arquivoAntigo.fileSizeBytes = fileSizeBytes;
-      arquivoAntigo.checksumSha256 = novoChecksum;
-      arquivoAntigo.uploadedBy = dto.uploadedBy;
-      arquivoAntigo.version = (arquivoAntigo.version || 1) + 1; // Incrementa a versão do envio
-      arquivoAntigo.status = FileStatus.VALID;
+      await this.projectFileRepository.update(arquivoAntigo.id, {
+        originalName: originalName,
+        fileSizeBytes: fileSizeBytes,
+        checksumSha256: novoChecksum,
+        uploadedBy: dto.uploadedBy,
+        version: (arquivoAntigo.version || 1) + 1,
+        status: FileStatus.VALID
+      });
 
-      return await this.projectFileRepository.save(arquivoAntigo);
+      // Busca o registro atualizado para retornar no fluxo correto
+      const arquivoAtualizado = await this.projectFileRepository.findOne({
+        where: { id: arquivoAntigo.id }
+      });
 
-    } catch (error) {
-      // Rollback de segurança: se quebrar, sinaliza o arquivo como corrompido
-      arquivoAntigo.status = FileStatus.CORRUPTED;
-      await this.projectFileRepository.save(arquivoAntigo);
-      throw new BadRequestException(`Falha ao atualizar o arquivo na nuvem: ${error.message}`);
-    } finally {
-      // 7. Limpa o storage temporário do ambiente local
+      return arquivoAtualizado!;
+
+} catch (error) {
+  // Executa um update cirúrgico apenas no status, ignorando validações de colunas ausentes no objeto
+  await this.projectFileRepository.update(arquivoAntigo.id, { 
+    status: FileStatus.CORRUPTED 
+  });
+  
+  throw new BadRequestException(`Erro interno no fluxo de substituição: ${error.message}`);
+}
+ finally {
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
       }
     }
   }
+
 
   // =========================================================================
   // GESTÃO DE DOWNLOAD e CONSULTA (READ)

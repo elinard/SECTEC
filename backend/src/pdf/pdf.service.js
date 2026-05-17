@@ -145,9 +145,14 @@ var PdfService = /** @class */ (function () {
      * Substitui o binário de um arquivo existente mantendo o mesmo ID do Google Drive.
      * Alinha metadados locais, recalcula hash de integridade e atualiza a versão da entrega.
      */
-    PdfService.prototype.substituirProjectPdf = function (file, dto) {
+    // src/pdf/pdf.service.ts
+    /**
+     * Substitui o binário de um arquivo existente mantendo o mesmo ID do Google Drive.
+     * Alinha metadados locais, recalcula hash de integridade e atualiza a versão da entrega.
+     */
+    PdfService.prototype.substituirProjectPdf = function (file, dto, projeto) {
         return __awaiter(this, void 0, Promise, function () {
-            var filePath, fileSizeBytes, originalName, arquivoAntigo, projeto, hoje, ano, mes, tituloProjetoClean, extensao, novoNomeDrive, novoChecksum, fileStream, error_1;
+            var filePath, fileSizeBytes, originalName, arquivoAntigo, hoje, ano, mes, tituloProjetoClean, extensao, novoNomeDrive, novoChecksum, fileStream, arquivoAtualizado, error_1;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -171,43 +176,50 @@ var PdfService = /** @class */ (function () {
                         _a.label = 2;
                     case 2:
                         _a.trys.push([2, 7, 9, 10]);
-                        return [4 /*yield*/, this.projetoRepository.findOne({ where: { id: dto.projetoId } })];
-                    case 3:
-                        projeto = _a.sent();
                         hoje = new Date();
                         ano = hoje.getFullYear();
                         mes = String(hoje.getMonth() + 1).padStart(2, '0');
-                        tituloProjetoClean = projeto ? projeto.titulo.replace(/\s+/g, '-') : 'projeto';
+                        tituloProjetoClean = projeto.titulo ? projeto.titulo.replace(/\s+/g, '-') : 'projeto';
                         extensao = (0, path_1.extname)(originalName);
                         novoNomeDrive = "".concat(ano, "-").concat(mes, "-").concat(tituloProjetoClean, "-").concat(dto.projetoId).concat(extensao);
                         return [4 /*yield*/, this.calculateFileHash(filePath)];
-                    case 4:
+                    case 3:
                         novoChecksum = _a.sent();
                         fileStream = fs.createReadStream(filePath);
-                        // 5. Atualiza o arquivo diretamente no Google Drive (Sobrescreve o binário na nuvem)
+                        // 5. Atualiza o arquivo diretamente no Google Drive
                         return [4 /*yield*/, this.googleDriveService.updateFile(arquivoAntigo.driveFileId, novoNomeDrive, fileStream, file.mimetype)];
-                    case 5:
-                        // 5. Atualiza o arquivo diretamente no Google Drive (Sobrescreve o binário na nuvem)
+                    case 4:
+                        // 5. Atualiza o arquivo diretamente no Google Drive
                         _a.sent();
                         // 6. Atualiza os dados do registro no seu banco de dados local
-                        arquivoAntigo.originalName = originalName;
-                        arquivoAntigo.fileSizeBytes = fileSizeBytes;
-                        arquivoAntigo.checksumSha256 = novoChecksum;
-                        arquivoAntigo.uploadedBy = dto.uploadedBy;
-                        arquivoAntigo.version = (arquivoAntigo.version || 1) + 1; // Incrementa a versão do envio
-                        arquivoAntigo.status = project_file_entity_1.FileStatus.VALID;
-                        return [4 /*yield*/, this.projectFileRepository.save(arquivoAntigo)];
-                    case 6: return [2 /*return*/, _a.sent()];
+                        return [4 /*yield*/, this.projectFileRepository.update(arquivoAntigo.id, {
+                                originalName: originalName,
+                                fileSizeBytes: fileSizeBytes,
+                                checksumSha256: novoChecksum,
+                                uploadedBy: dto.uploadedBy,
+                                version: (arquivoAntigo.version || 1) + 1,
+                                status: project_file_entity_1.FileStatus.VALID
+                            })];
+                    case 5:
+                        // 6. Atualiza os dados do registro no seu banco de dados local
+                        _a.sent();
+                        return [4 /*yield*/, this.projectFileRepository.findOne({
+                                where: { id: arquivoAntigo.id }
+                            })];
+                    case 6:
+                        arquivoAtualizado = _a.sent();
+                        return [2 /*return*/, arquivoAtualizado];
                     case 7:
                         error_1 = _a.sent();
-                        // Rollback de segurança: se quebrar, sinaliza o arquivo como corrompido
-                        arquivoAntigo.status = project_file_entity_1.FileStatus.CORRUPTED;
-                        return [4 /*yield*/, this.projectFileRepository.save(arquivoAntigo)];
+                        // Executa um update cirúrgico apenas no status, ignorando validações de colunas ausentes no objeto
+                        return [4 /*yield*/, this.projectFileRepository.update(arquivoAntigo.id, {
+                                status: project_file_entity_1.FileStatus.CORRUPTED
+                            })];
                     case 8:
+                        // Executa um update cirúrgico apenas no status, ignorando validações de colunas ausentes no objeto
                         _a.sent();
-                        throw new common_1.BadRequestException("Falha ao atualizar o arquivo na nuvem: ".concat(error_1.message));
+                        throw new common_1.BadRequestException("Erro interno no fluxo de substitui\u00E7\u00E3o: ".concat(error_1.message));
                     case 9:
-                        // 7. Limpa o storage temporário do ambiente local
                         if (fs.existsSync(filePath)) {
                             fs.unlinkSync(filePath);
                         }

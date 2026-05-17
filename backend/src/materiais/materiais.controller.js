@@ -71,11 +71,31 @@ var MateriaisController = /** @class */ (function () {
             });
         });
     };
-    MateriaisController.prototype.cancelarMaterial = function (materialId) {
+    MateriaisController.prototype.cancelarMaterial = function (materialId, userId) {
         return __awaiter(this, void 0, void 0, function () {
             return __generator(this, function (_a) {
                 switch (_a.label) {
-                    case 0: return [4 /*yield*/, this.materiaisService.cancelarMaterial(materialId)];
+                    case 0: return [4 /*yield*/, this.materiaisService.cancelarMaterial(materialId, userId)];
+                    case 1: return [2 /*return*/, _a.sent()];
+                }
+            });
+        });
+    };
+    MateriaisController.prototype.avaliarMaterial = function (materialId, body) {
+        return __awaiter(this, void 0, void 0, function () {
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0: return [4 /*yield*/, this.materiaisService.avaliarMaterial(materialId, body)];
+                    case 1: return [2 /*return*/, _a.sent()];
+                }
+            });
+        });
+    };
+    MateriaisController.prototype.listarPendentes = function (orientadorId) {
+        return __awaiter(this, void 0, void 0, function () {
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0: return [4 /*yield*/, this.materiaisService.listarMateriaisPendentesPorOrientador(orientadorId)];
                     case 1: return [2 /*return*/, _a.sent()];
                 }
             });
@@ -99,16 +119,30 @@ var MateriaisController = /** @class */ (function () {
         })),
         __param(0, (0, common_1.UploadedFile)()),
         __param(1, (0, common_1.Body)()),
-        __param(2, (0, get_user_decorator_1.GetUser)('id'))
+        __param(2, (0, get_user_decorator_1.GetUser)('userId'))
     ], MateriaisController.prototype, "criarMaterial", null);
     __decorate([
         (0, common_1.Delete)(':id/cancelar'),
-        (0, roles_decorator_1.Roles)(roles_decorator_1.UserRole.ALUNO) // Garante que apenas o aluno dono do fluxo realize o cancelamento
-        ,
+        (0, roles_decorator_1.Roles)(roles_decorator_1.UserRole.ALUNO),
         (0, swagger_1.ApiOperation)({ summary: 'Cancela o envio de um material antes da avaliação dentro da janela de 1 hora' }),
         (0, swagger_1.ApiParam)({ name: 'id', description: 'ID numérico do material a ser cancelado', type: Number }),
-        __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe))
+        __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
+        __param(1, (0, get_user_decorator_1.GetUser)('userId'))
     ], MateriaisController.prototype, "cancelarMaterial", null);
+    __decorate([
+        (0, common_1.Patch)(':id/avaliar'),
+        (0, swagger_1.ApiOperation)({ summary: 'Aprova ou recusa o material postado por um aluno' }),
+        (0, swagger_1.ApiParam)({ name: 'id', description: 'ID numérico do material a ser avaliado', type: Number }),
+        __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
+        __param(1, (0, common_1.Body)())
+    ], MateriaisController.prototype, "avaliarMaterial", null);
+    __decorate([
+        (0, common_1.Get)('pendentes-orientador'),
+        (0, roles_decorator_1.Roles)(roles_decorator_1.UserRole.ORIENTADOR) // Garante que apenas professores acessem
+        ,
+        (0, swagger_1.ApiOperation)({ summary: 'Lista os materiais em análise dos projetos orientados pelo professor' }),
+        __param(0, (0, get_user_decorator_1.GetUser)('userId'))
+    ], MateriaisController.prototype, "listarPendentes", null);
     MateriaisController = __decorate([
         (0, swagger_1.ApiTags)('Materiais do Projeto'),
         (0, common_1.Controller)('materiais'),
