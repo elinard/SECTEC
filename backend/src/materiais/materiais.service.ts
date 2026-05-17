@@ -474,7 +474,28 @@ console.log('ID do Autor no Banco:', typeof material.projeto.alunoAutor.id, mate
   }
 
 
+async listarPorProjeto(projetoId: number) {
+  const materiais = await this.materiaisRepository.find({
+    where: { projeto: { id: projetoId } },
+    order: { criadoEm: 'DESC' },
+  });
 
+  // Busca os arquivos do Drive para cada material
+  const materiaisComLink = await Promise.all(
+    materiais.map(async (material) => {
+      const arquivo = await this.pdfService.projectFileRepository.findOne({
+        where: { materialId: material.id },
+        order: { criadoEm: 'DESC' },
+      });
+      return {
+        ...material,
+        driveLink: arquivo?.driveWebViewLink ?? null,
+      };
+    })
+  );
+
+  return materiaisComLink;
+}
 
 
 }

@@ -25,16 +25,21 @@ export class AuthService {
   ) {}
 
   async validateUser(email: string, pass: string): Promise<any> {
-    const user = await this.usersService.findOneByEmail(email);
+  const user = await this.usersService.findOneByEmail(email);
 
-    if (!user) throw new UnauthorizedException('Email nao encontrado');
-
-    const isPasswordValid = await this.hashingProvider.compare(pass, user.senha);
-    if (!isPasswordValid) throw new UnauthorizedException('Senha invalida');
-
-    const { senha, ...result } = user;
-    return result;
+  if (!user) {
+    throw new UnauthorizedException('Credenciais inválidas');
   }
+
+  const isPasswordValid = await this.hashingProvider.compare(pass, user.senha);
+
+  if (!isPasswordValid) {
+    throw new UnauthorizedException('Credenciais inválidas');
+  }
+
+  const { senha, ...result } = user;
+  return result;
+}
 
   async login(user: any) {
     const payload = {

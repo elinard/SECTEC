@@ -11,6 +11,7 @@ import { Evento, EventoStatus } from 'src/evento/entities/evento.entity';
 import { ComissaoEvento } from 'src/evento/entities/comissao-evento.entity';
 import { HashingProvider } from '../common/providers/hashing.provider';
 import { parse } from 'csv-parse/sync';
+import { ProjetoOrientador } from 'src/projetos/entities/projeto-orientador.entity';
 
 interface ICsvRow {
   nome: string;
@@ -35,7 +36,13 @@ export class UsersService {
     private comissaoRepository: Repository<ComissaoEvento>,
 
     private hashingProvider: HashingProvider,
-  ) {}
+
+    @InjectRepository(ProjetoOrientador)
+
+    private projetoOrientadorRepository: Repository<ProjetoOrientador>,
+  ) { }
+
+
 
   async findOneByEmail(email: string): Promise<User | null> {
     return this.usersRepository
@@ -60,12 +67,26 @@ export class UsersService {
   }
 
   async findAllOrientadores() {
-    return this.usersRepository.find({
-      where: { role_cargo: UserRole.ORIENTADOR, ativo: true },
-      select: ['id', 'nome', 'email_institucional'],
-      relations: ['temasSelecionados'],
-    });
-  }
+  const orientadores = await this.usersRepository.find({
+    where: { role_cargo: UserRole.ORIENTADOR, ativo: true },
+    select: ['id', 'nome', 'email_institucional'],
+    relations: ['temasSelecionados'],
+  });
+
+  const counts = await this.projetoOrientadorRepository
+    .createQueryBuilder('po')
+    .select('po.orientador_id', 'orientadorId')
+    .addSelect('COUNT(*)', 'total')
+    .where('po.status = :status', { status: 'aceito' })
+    .groupBy('po.orientador_id')
+    .getRawMany();
+
+  const countMap = new Map<number, number>(
+    counts.map((c) => [Number(c.orientadorId), Number(c.total)])
+  );
+
+  return orientadores.filter((o) => (countMap.get(o.id) ?? 0) < 4);
+}
 
   async processarCsv(file: Express.Multer.File, tipo: UserRole) {
     if (!file || !file.buffer) {

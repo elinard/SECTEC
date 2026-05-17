@@ -104,5 +104,10 @@ export class MateriaisController {
   async findMateriaisPorOrientador(@GetUser('userId') orientadorId: number) {
     return await this.materiaisService.findMateriaisPorOrientador(orientadorId);
   }
-
+  @Get('projeto/:projetoId')
+@Roles(UserRole.ALUNO)
+@ApiOperation({ summary: 'Lista os materiais de um projeto específico' })
+async listarPorProjeto(@Param('projetoId', ParseIntPipe) projetoId: number) {
+  return this.materiaisService.listarPorProjeto(projetoId);
+}
 }

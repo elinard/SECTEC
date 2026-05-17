@@ -13,6 +13,7 @@ type Orientador = { id: string; nome: string; disciplina: string; temasIds: stri
 type Projeto = {
   id: string; titulo: string; descricao: string; eixo: string; temaId?: number;
   membros: Membro[]; orientadorId: string; status: StatusProjeto; linkYoutube?: string;
+  autorId?: string; // 👈 adiciona aqui
 };
 type TemaApi = {
   id: string | number;
@@ -54,6 +55,16 @@ type ProjetoApi = {
     status: "pendente" | "aceito" | "recusado";
     orientador?: UsuarioApi;
   }>;
+};
+
+type Material = {
+  id: number;
+  tipo: string;
+  status: 'em_analise' | 'aprovado' | 'recusado';
+  conteudo: string;
+  opiniao: string;
+  criadoEm: string;
+  driveLink?: string | null; // 👈 adiciona
 };
 
 const FASE_PADRAO: FaseAtual = 1;
@@ -145,20 +156,20 @@ function escapeHtml(value: string) {
 function mostrarAlertaTurma({ titulo, texto, detalhe }: { titulo: string; texto: string; detalhe?: string }) {
   Swal.fire({
     html: `
-      <div class="sectec-alert-content">
-        <div class="sectec-alert-icon" aria-hidden="true">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-            <path d="M12 8v5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
-            <circle cx="12" cy="17" r="1.2" fill="currentColor"/>
-            <path d="M10.3 4.2 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 4.2a2 2 0 0 0-3.4 0Z" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/>
-          </svg>
+        <div class="sectec-alert-content">
+          <div class="sectec-alert-icon" aria-hidden="true">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+              <path d="M12 8v5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+              <circle cx="12" cy="17" r="1.2" fill="currentColor"/>
+              <path d="M10.3 4.2 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 4.2a2 2 0 0 0-3.4 0Z" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <p class="sectec-alert-kicker">Regra da equipe</p>
+          <h2>${escapeHtml(titulo)}</h2>
+          <p>${escapeHtml(texto)}</p>
+          ${detalhe ? `<div class="sectec-alert-detail">${escapeHtml(detalhe)}</div>` : ""}
         </div>
-        <p class="sectec-alert-kicker">Regra da equipe</p>
-        <h2>${escapeHtml(titulo)}</h2>
-        <p>${escapeHtml(texto)}</p>
-        ${detalhe ? `<div class="sectec-alert-detail">${escapeHtml(detalhe)}</div>` : ""}
-      </div>
-    `,
+      `,
     showConfirmButton: true,
     confirmButtonText: "Entendi",
     buttonsStyling: false,
@@ -264,11 +275,17 @@ function buildFasesFeira(evento?: EventoApi | null): typeof FASES_FEIRA {
 // FUNÇÃO ATUALIZADA: Agora usa o objeto tema diretamente da API
 function mapProjetoApiToProjeto(projeto: ProjetoApi, temasDisponiveis: TemaApi[] = []): Projeto {
   const membrosMap = new Map<string, Membro>();
+
+  // 👇 autor primeiro
   const autor = membroFromUsuario(projeto.alunoAutor);
   if (autor) membrosMap.set(autor.id, autor);
+
+  // 👇 depois os integrantes
   projeto.projetoAlunos?.forEach((item) => {
     const membro = membroFromUsuario(item.aluno);
-    if (membro) membrosMap.set(membro.id, membro);
+    if (membro && !membrosMap.has(membro.id)) {
+      membrosMap.set(membro.id, membro);
+    }
   });
 
   const orientacaoAceita = projeto.orientadores?.find((item) => item.status === "aceito");
@@ -286,8 +303,10 @@ function mapProjetoApiToProjeto(projeto: ProjetoApi, temasDisponiveis: TemaApi[]
     eixo: temaNome,
     temaId,
     membros: Array.from(membrosMap.values()),
+    // 👇 salva o id do autor para identificar o líder corretamente
     orientadorId: primeiraOrientacao?.orientador?.id ? String(primeiraOrientacao.orientador.id) : "",
     status: statusFromProjetoApi(projeto),
+    autorId: autor?.id, // 👈 adiciona isso
   };
 }
 
@@ -322,7 +341,7 @@ function FeiraTimeline({ faseAtual, fases }: { faseAtual: FaseAtual; fases: type
             return (
               <div key={fase} className="flex gap-4 relative">
                 <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 z-10 text-xs font-bold border-2
-                  ${done ? "bg-sectec-600 border-sectec-600 text-white" : active ? "bg-white border-sectec-600 text-sectec-700" : "bg-white border-slate-200 text-slate-400"}`}>
+                    ${done ? "bg-sectec-600 border-sectec-600 text-white" : active ? "bg-white border-sectec-600 text-sectec-700" : "bg-white border-slate-200 text-slate-400"}`}>
                   {done ? "✓" : fase}
                 </div>
                 <div className="min-w-0 pb-1">
@@ -380,29 +399,37 @@ function Dashboard() {
     () => localStorage.getItem(avisoSenhaDispensadoKey) === "true"
   );
 
+  const [materiais, setMateriais] = useState<Material[]>([]);
+  const [enviandoMaterial, setEnviandoMaterial] = useState(false);
+
+  const ehAutor = projeto?.autorId === ALUNO_LOGADO.id;
+
   useEffect(() => {
     let active = true;
     async function carregarDados() {
       setCarregandoDados(true);
       setErroDados("");
       try {
-        const [alunos, orientadores, ocupadosIds, eventos, eventoVigente, projetos] = await Promise.all([
+        const [alunos, orientadores, ocupadosIds, eventos, eventoVigente, meuProjeto] = await Promise.all([
           apiRequest<UsuarioApi[]>("/users/alunos"),
           apiRequest<UsuarioApi[]>("/users/orientadores"),
           apiRequest<Array<string | number>>("/projetos/alunos-ocupados").catch(() => []),
           apiRequest<EventoApi[]>("/evento").catch(() => []),
           apiRequest<EventoApi | null>("/evento/atual/vigente").catch(() => null),
-          apiRequest<ProjetoApi[]>("/projetos").catch(() => []),
+          apiRequest<ProjetoApi | null>("/projetos/meu-projeto").catch(() => null),
         ]);
         if (!active) return;
-        
+
         // Debug: verificar o que a API retornou
-        if (projetos[0]) {
-          console.log('📦 Projeto retornado da API:', projetos[0]);
-          console.log('📝 Tema do projeto:', projetos[0].tema);
-          console.log('📛 Nome do tema:', projetos[0].tema?.nome);
+        if (meuProjeto) {
+          console.log('📦 Projeto retornado da API:', meuProjeto);
+          console.log('📝 Tema do projeto:', meuProjeto.tema);
+          console.log('📛 Nome do tema:', meuProjeto.tema?.nome);
+          console.log('📦 Projeto completo:', meuProjeto);       // 👈 adiciona
+          console.log('👥 projetoAlunos:', meuProjeto.projetoAlunos); // 👈 adiciona
+          console.log('👤 alunoAutor:', meuProjeto.alunoAutor);  // 👈 adiciona
         }
-        
+
         const eventoAtualApi = eventoVigente ?? [...eventos].sort((a, b) => Number(b.id) - Number(a.id))[0] ?? null;
         const temas = eventoAtualApi?.temas ?? [];
         const ocupadosNormalizados = ocupadosIds.map(String);
@@ -433,9 +460,14 @@ function Dashboard() {
             temasIds: (o.temasSelecionados ?? []).map((tema) => String(tema.id)),
           }))
         );
-        
+
         // ATUALIZADO: Agora passa apenas o projeto, sem o parâmetro temas
-        setProjeto(projetos[0] ? mapProjetoApiToProjeto(projetos[0], temas) : null);
+        setProjeto(meuProjeto ? mapProjetoApiToProjeto(meuProjeto, temas) : null);
+        if (meuProjeto) {
+          apiRequest<Material[]>(`/materiais/projeto/${meuProjeto.id}`)
+            .then(setMateriais)
+            .catch(() => { });
+        }
       } catch (error) {
         if (!active) return;
         setErroDados(
@@ -556,18 +588,18 @@ function Dashboard() {
     if (membros.length < MIN_MEMBROS) {
       Swal.fire({
         html: `
-          <div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:8px 0">
-            <div style="width:52px;height:52px;border-radius:14px;background:#f0fdf4;border:2px solid #a7f3d0;display:flex;align-items:center;justify-content:center">
-              <svg width="24" height="24" fill="none" stroke="#15803d" stroke-width="2.5" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-              </svg>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:8px 0">
+              <div style="width:52px;height:52px;border-radius:14px;background:#f0fdf4;border:2px solid #a7f3d0;display:flex;align-items:center;justify-content:center">
+                <svg width="24" height="24" fill="none" stroke="#15803d" stroke-width="2.5" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                </svg>
+              </div>
+              <div>
+                <p style="font-size:16px;font-weight:700;color:#0f172a;margin:0 0 6px">Equipe incompleta</p>
+                <p style="font-size:13px;color:#64748b;margin:0">A equipe precisa ter no mínimo <strong style="color:#15803d">${MIN_MEMBROS} membros</strong>.<br/>Você adicionou <strong>${membros.length}</strong> até agora.</p>
+              </div>
             </div>
-            <div>
-              <p style="font-size:16px;font-weight:700;color:#0f172a;margin:0 0 6px">Equipe incompleta</p>
-              <p style="font-size:13px;color:#64748b;margin:0">A equipe precisa ter no mínimo <strong style="color:#15803d">${MIN_MEMBROS} membros</strong>.<br/>Você adicionou <strong>${membros.length}</strong> até agora.</p>
-            </div>
-          </div>
-        `,
+          `,
         showConfirmButton: true,
         confirmButtonText: "Entendi",
         confirmButtonColor: "#15803d",
@@ -598,13 +630,13 @@ function Dashboard() {
 
       const projetoSalvo = editandoProjeto && projeto
         ? await apiRequest<ProjetoApi>(`/projetos/${projeto.id}`, {
-            method: "PATCH",
-            body: { titulo, descricao, temaId },
-          })
+          method: "PATCH",
+          body: { titulo, descricao, temaId },
+        })
         : await apiRequest<ProjetoApi>("/projetos", {
-            method: "POST",
-            body: { titulo, descricao, temaId, alunosIds },
-          });
+          method: "POST",
+          body: { titulo, descricao, temaId, alunosIds },
+        });
 
       if (solicitacoes.length > 0) {
         await apiRequest("/projetos/solicitar-orientador", {
@@ -719,7 +751,7 @@ function Dashboard() {
                   {(["painel", "submissao"] as const).map((a) => (
                     <button key={a} onClick={() => setAba(a)}
                       className={`px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm font-medium border-b-2 -mb-px transition-colors
-                        ${aba === a ? "border-sectec-600 text-sectec-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
+                          ${aba === a ? "border-sectec-600 text-sectec-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
                       {a === "painel" ? "Painel do Projeto" : (
                         <Tooltip text={SUBMISSAO_TOOLTIP}><span>Submissão</span></Tooltip>
                       )}
@@ -744,7 +776,7 @@ function Dashboard() {
                                 </span>
                               </Tooltip>
                             </div>
-                            {projeto.membros[0]?.id === ALUNO_LOGADO.id && (
+                            {ehAutor && (
                               <button
                                 type="button"
                                 onClick={abrirEdicaoProjeto}
@@ -790,7 +822,7 @@ function Dashboard() {
                                   {m.turma ? ` · Turma ${m.turma}` : ""}
                                 </p>
                               </div>
-                              {m.id === ALUNO_LOGADO.id && (
+                              {m.id === projeto.autorId && (
                                 <span className="text-[9px] bg-sectec-100 text-sectec-700 font-semibold px-1.5 py-0.5 rounded-full shrink-0">líder</span>
                               )}
                             </div>
@@ -807,7 +839,7 @@ function Dashboard() {
                             </div>
                             <div className="min-w-0">
                               <p className="text-sm font-medium text-slate-700 truncate">{orientador.nome}</p>
-                              <p className="break-words text-xs text-slate-400">{orientador.disciplina}</p>
+                              <p className="break-words text-xs text-slate-400">{orientador.nome}</p>
                             </div>
                           </div>
                         ) : (
@@ -825,19 +857,14 @@ function Dashboard() {
                 )}
 
                 {aba === "submissao" && (
-                  <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
-                    {projeto.status === "Submetido" ? (
-                      <div className="flex flex-col items-center py-10 text-center">
-                        <div className="w-14 h-14 rounded-full bg-sectec-100 flex items-center justify-center mb-4">
-                          <CheckCircle size={28} className="text-sectec-600" />
-                        </div>
-                        <h3 className="text-lg font-bold text-slate-900 mb-1">Projeto submetido!</h3>
-                        <p className="text-sm text-slate-500">Aguarde a avaliação da banca examinadora.</p>
-                      </div>
-                    ) : (
-                      <>
+                  <div className="w-full max-w-lg space-y-4">
+
+                    {/* ── Envio de materiais — só o autor pode enviar ── */}
+                    {ehAutor && (
+                      <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
                         <h2 className="text-sm sm:text-base font-semibold text-slate-900 mb-1">Submissão do Projeto</h2>
                         <p className="text-xs sm:text-sm text-slate-500 mb-5">Envie o relatório final em PDF e o link do vídeo no YouTube.</p>
+
                         {faseAtual !== 3 && (
                           <div className="flex gap-3 bg-slate-50 border border-slate-200 rounded-xl p-4 mb-5">
                             <Lock size={15} className="text-slate-400 mt-0.5 shrink-0" />
@@ -846,6 +873,7 @@ function Dashboard() {
                             </p>
                           </div>
                         )}
+
                         {faseAtual === 3 && !projetoAceito && (
                           <div className="flex gap-3 bg-yellow-50 border border-yellow-200 rounded-xl p-4 mb-5">
                             <TriangleAlert size={15} className="text-yellow-500 mt-0.5 shrink-0" />
@@ -854,19 +882,22 @@ function Dashboard() {
                             </p>
                           </div>
                         )}
-                        <form onSubmit={handleSubmeter} className="space-y-4">
+
+                        <div className="space-y-4">
                           <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1.5">Relatório Final (PDF) *</label>
-                            <input ref={inputPdfRef} type="file" accept=".pdf" disabled={!submissaoDesbloqueada} onChange={(e) => setArquivoPdf(e.target.files?.[0] ?? null)} className="hidden" />
+                            <input ref={inputPdfRef} type="file" accept=".pdf" disabled={!submissaoDesbloqueada}
+                              onChange={(e) => setArquivoPdf(e.target.files?.[0] ?? null)} className="hidden" />
                             <button type="button" disabled={!submissaoDesbloqueada} onClick={() => inputPdfRef.current?.click()}
-                              className={`w-full border-2 border-dashed rounded-xl p-4 sm:p-5 flex flex-col items-center gap-2 transition-colors
-                                ${submissaoDesbloqueada ? "border-slate-200 hover:border-sectec-400 hover:bg-sectec-50 cursor-pointer" : "border-slate-100 bg-slate-50 cursor-not-allowed opacity-60"}`}>
+                              className={`w-full border-2 border-dashed rounded-xl p-4 flex flex-col items-center gap-2 transition-colors
+                ${submissaoDesbloqueada ? "border-slate-200 hover:border-sectec-400 hover:bg-sectec-50 cursor-pointer" : "border-slate-100 bg-slate-50 cursor-not-allowed opacity-60"}`}>
                               {arquivoPdf
-                                ? <><FileText size={20} className="text-sectec-600" /><span className="text-xs sm:text-sm font-medium text-sectec-700 text-center break-all">{arquivoPdf.name}</span></>
-                                : <><Upload size={20} className="text-slate-400" /><span className="text-xs sm:text-sm text-slate-500">{submissaoDesbloqueada ? "Toque para selecionar o PDF" : "Campo bloqueado"}</span></>
+                                ? <><FileText size={20} className="text-sectec-600" /><span className="text-xs font-medium text-sectec-700 break-all">{arquivoPdf.name}</span></>
+                                : <><Upload size={20} className="text-slate-400" /><span className="text-xs text-slate-500">{submissaoDesbloqueada ? "Toque para selecionar o PDF" : "Campo bloqueado"}</span></>
                               }
                             </button>
                           </div>
+
                           <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1.5">Link do YouTube *</label>
                             <div className="relative">
@@ -874,18 +905,152 @@ function Dashboard() {
                               <input type="url" inputMode="url" disabled={!submissaoDesbloqueada} value={linkYoutube}
                                 onChange={(e) => setLinkYoutube(e.target.value)} placeholder="https://youtube.com/watch?v=..."
                                 className={`w-full pl-9 pr-3 py-2.5 border rounded-lg text-sm transition
-                                  ${!submissaoDesbloqueada ? "bg-slate-50 border-slate-100 text-slate-400 cursor-not-allowed"
-                                  : !youtubeValido && linkYoutube ? "border-red-300 focus:outline-none focus:ring-2 focus:ring-red-100"
-                                  : "border-slate-200 focus:outline-none focus:border-sectec-600 focus:ring-2 focus:ring-sectec-100"}`} />
+                  ${!submissaoDesbloqueada ? "bg-slate-50 border-slate-100 text-slate-400 cursor-not-allowed"
+                                    : !youtubeValido && linkYoutube ? "border-red-300 focus:outline-none focus:ring-2 focus:ring-red-100"
+                                      : "border-slate-200 focus:outline-none focus:border-sectec-600 focus:ring-2 focus:ring-sectec-100"}`} />
                             </div>
                             {!youtubeValido && linkYoutube && <p className="text-xs text-red-500 mt-1">Link inválido.</p>}
                           </div>
-                          <button type="submit" disabled={!submissaoDesbloqueada || !arquivoPdf || !linkYoutube || !youtubeValido}
-                            className="w-full py-2.5 text-sm font-semibold text-white bg-sectec-700 rounded-lg hover:bg-sectec-800 transition disabled:opacity-50 disabled:cursor-not-allowed">
-                            Enviar Projeto
+
+                          <button
+                            type="button"
+                            disabled={!submissaoDesbloqueada || (!arquivoPdf && !linkYoutube) || enviandoMaterial}
+                            onClick={async () => {
+                              if (!projeto) return;
+                              setEnviandoMaterial(true);
+                              try {
+                                if (arquivoPdf) {
+                                  const formData = new FormData();
+                                  formData.append('file', arquivoPdf);
+                                  formData.append('projetoId', projeto.id);
+                                  formData.append('tipo', 'pdf');
+                                  const token = localStorage.getItem('token');
+                                  const res = await fetch('http://localhost:3000/api/materiais', {
+                                    method: 'POST',
+                                    headers: { Authorization: `Bearer ${token}` },
+                                    body: formData,
+                                  });
+                                  if (!res.ok) throw new Error('Erro ao enviar PDF');
+                                  const material = await res.json();
+                                  setMateriais(prev => [material.material ?? material, ...prev]);
+                                  setArquivoPdf(null);
+                                }
+                                if (linkYoutube && youtubeValido) {
+                                  const formData = new FormData();
+                                  formData.append('projetoId', projeto.id);
+                                  formData.append('tipo', 'link');
+                                  formData.append('conteudo', linkYoutube);
+                                  const token = localStorage.getItem('token');
+                                  const res = await fetch('http://localhost:3000/materiais', {
+                                    method: 'POST',
+                                    headers: { Authorization: `Bearer ${token}` },
+                                    body: formData,
+                                  });
+                                  if (!res.ok) throw new Error('Erro ao enviar link');
+                                  const material = await res.json();
+                                  setMateriais(prev => [material.material ?? material, ...prev]);
+                                  setLinkYoutube('');
+                                }
+                                Swal.fire({ icon: 'success', title: 'Material enviado!', text: 'Aguarde a análise do orientador.', confirmButtonColor: '#15803d' });
+                              } catch (e) {
+                                Swal.fire({ icon: 'error', title: 'Erro ao enviar', text: e instanceof Error ? e.message : 'Tente novamente.', confirmButtonColor: '#15803d' });
+                              } finally {
+                                setEnviandoMaterial(false);
+                              }
+                            }}
+                            className="w-full py-2.5 text-sm font-semibold text-white bg-sectec-700 rounded-lg hover:bg-sectec-800 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                          >
+                            {enviandoMaterial && (
+                              <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                              </svg>
+                            )}
+                            {enviandoMaterial ? 'Enviando...' : 'Enviar Material'}
                           </button>
-                        </form>
-                      </>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── Mensagem para integrantes ── */}
+                    {!ehAutor && (
+                      <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
+                        <h2 className="text-sm sm:text-base font-semibold text-slate-900 mb-1">Submissão do Projeto</h2>
+                        <div className="flex gap-3 bg-blue-50 border border-blue-200 rounded-xl p-4 mt-4">
+                          <Lock size={15} className="text-blue-400 mt-0.5 shrink-0" />
+                          <p className="text-xs sm:text-sm text-blue-700">
+                            Apenas o <strong>autor do projeto</strong> pode enviar materiais. Você pode acompanhar o status dos materiais enviados abaixo.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── Histórico de materiais — todos veem ── */}
+                    {materiais.length > 0 && (
+                      <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
+                        <h3 className="text-sm font-semibold text-slate-900 mb-4">Materiais Enviados</h3>
+                        <div className="space-y-3">
+                          {materiais.map((m) => (
+                            <div key={m.id} className={`rounded-xl border p-4 ${m.status === 'aprovado' ? 'border-green-200 bg-green-50'
+                              : m.status === 'recusado' ? 'border-red-200 bg-red-50'
+                                : 'border-slate-200 bg-slate-50'
+                              }`}>
+                              <div className="flex items-start justify-between gap-3 mb-2">
+                                <div className="flex items-center gap-2">
+                                  {m.tipo === 'pdf' || m.tipo === 'pdf_relatorio'
+                                    ? <FileText size={15} className="text-slate-500 shrink-0" />
+                                    : <Video size={15} className="text-slate-500 shrink-0" />
+                                  }
+                                  <span className="text-xs font-semibold text-slate-700 uppercase">
+                                    {m.tipo === 'link' ? 'Vídeo' : 'PDF'}
+                                  </span>
+                                </div>
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${m.status === 'aprovado' ? 'bg-green-100 text-green-700'
+                                  : m.status === 'recusado' ? 'bg-red-100 text-red-700'
+                                    : 'bg-yellow-100 text-yellow-700'
+                                  }`}>
+                                  {m.status === 'aprovado' ? '✓ Aprovado'
+                                    : m.status === 'recusado' ? '✗ Recusado'
+                                      : '⏳ Em análise'}
+                                </span>
+                              </div>
+
+                              {m.tipo === 'link' ? (
+
+                                <a href={m.conteudo} target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs text-blue-600 hover:text-blue-800 hover:underline break-all mb-2 flex items-center gap-1"
+                                >
+                                  <Video size={12} className="shrink-0" />
+                                  {m.conteudo}
+                                </a>
+                              ) : m.id ? (
+
+                                <a href={`http://localhost:3000/api/files/download/projeto/${projeto?.id}/material/${m.id}`} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-800 hover:underline break-all mb-2 flex items-center gap-1">
+                                  <FileText size={12} className="shrink-0" />
+                                  Visualizar PDF
+                                </a>
+                              ) : (
+                                <p className="text-xs text-slate-500 mb-2 italic">PDF enviado — link indisponível</p>
+                              )}
+                              {(m.status === 'aprovado' || m.status === 'recusado') && m.opiniao && (
+                                <div className={`rounded-lg px-3 py-2 text-xs mt-2 ${m.status === 'aprovado' ? 'bg-green-100 text-green-800'
+                                  : 'bg-red-100 text-red-800'
+                                  }`}>
+                                  <span className="font-semibold">
+                                    {m.status === 'aprovado' ? '💬 Comentário do orientador:' : '❌ Motivo da recusa:'}
+                                  </span>
+                                  <p className="mt-1">{m.opiniao}</p>
+                                </div>
+                              )}
+
+                              <p className="text-[10px] text-slate-400 mt-2">
+                                Enviado em {new Date(m.criadoEm).toLocaleDateString('pt-BR')}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     )}
                   </div>
                 )}
@@ -897,334 +1062,321 @@ function Dashboard() {
             <FeiraTimeline faseAtual={faseAtual} fases={fasesFeira} />
           </div>
         </div>
-      </div>
+      </div >
 
       {/* ── MODAL PROGRESSIVO ── */}
-      {modalAberto && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
-          <div className="flex max-h-[95dvh] w-full flex-col rounded-t-2xl bg-white shadow-2xl sm:max-h-[90vh] sm:max-w-2xl sm:rounded-2xl">
+      {
+        modalAberto && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
+            <div className="flex max-h-[95dvh] w-full flex-col rounded-t-2xl bg-white shadow-2xl sm:max-h-[90vh] sm:max-w-2xl sm:rounded-2xl">
 
-            {/* Header */}
-            <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-200">
-              <div>
-                <h2 className="text-sm font-semibold text-slate-900 sm:text-base">
-                  {editandoProjeto ? "Editar Projeto Científico" : "Novo Projeto Científico"}
-                </h2>
-                <p className="text-xs text-slate-500 mt-0.5 hidden sm:block">
-                  {etapa === 1 && "Preencha os dados do projeto"}
-                  {etapa === 2 && "Escolha até 3 orientadores para solicitar"}
-                  {etapa === 3 && "Monte a equipe do projeto"}
-                </p>
+              {/* Header */}
+              <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-200">
+                <div>
+                  <h2 className="text-sm font-semibold text-slate-900 sm:text-base">
+                    {editandoProjeto ? "Editar Projeto Científico" : "Novo Projeto Científico"}
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5 hidden sm:block">
+                    {etapa === 1 && "Preencha os dados do projeto"}
+                    {etapa === 2 && "Escolha até 3 orientadores para solicitar"}
+                    {etapa === 3 && "Monte a equipe do projeto"}
+                  </p>
+                </div>
+                <button onClick={fecharModal} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 active:bg-slate-200 transition-colors">
+                  <X size={17} />
+                </button>
               </div>
-              <button onClick={fecharModal} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 active:bg-slate-200 transition-colors">
-                <X size={17} />
-              </button>
-            </div>
 
-            {/* Stepper */}
-            <div className="flex items-center px-4 sm:px-6 pt-4 pb-2">
-              {STEP_LABELS.map((label, i) => {
-                const step = (i + 1) as Etapa;
-                const done = etapa > step;
-                const active = etapa === step;
-                return (
-                  <div key={step} className="flex items-center flex-1 last:flex-none">
-                    <div className="flex flex-col items-center gap-1">
-                      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all
-                        ${done ? "bg-sectec-600 border-sectec-600 text-white"
-                          : active ? "bg-white border-sectec-600 text-sectec-700"
-                          : "bg-white border-slate-200 text-slate-400"}`}>
-                        {done ? (
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                            <path d="M2 6l2.5 2.5L10 3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        ) : step}
+              {/* Stepper */}
+              <div className="flex items-center px-4 sm:px-6 pt-4 pb-2">
+                {STEP_LABELS.map((label, i) => {
+                  const step = (i + 1) as Etapa;
+                  const done = etapa > step;
+                  const active = etapa === step;
+                  return (
+                    <div key={step} className="flex items-center flex-1 last:flex-none">
+                      <div className="flex flex-col items-center gap-1">
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all
+                          ${done ? "bg-sectec-600 border-sectec-600 text-white"
+                            : active ? "bg-white border-sectec-600 text-sectec-700"
+                              : "bg-white border-slate-200 text-slate-400"}`}>
+                          {done ? (
+                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                              <path d="M2 6l2.5 2.5L10 3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          ) : step}
+                        </div>
+                        <span className={`text-[10px] font-semibold ${active ? "text-sectec-700" : done ? "text-slate-500" : "text-slate-300"}`}>
+                          {label}
+                        </span>
                       </div>
-                      <span className={`text-[10px] font-semibold ${active ? "text-sectec-700" : done ? "text-slate-500" : "text-slate-300"}`}>
-                        {label}
-                      </span>
+                      {i < STEP_LABELS.length - 1 && (
+                        <div className={`flex-1 h-0.5 mx-2 mb-4 rounded transition-all ${done ? "bg-sectec-600" : "bg-slate-200"}`} />
+                      )}
                     </div>
-                    {i < STEP_LABELS.length - 1 && (
-                      <div className={`flex-1 h-0.5 mx-2 mb-4 rounded transition-all ${done ? "bg-sectec-600" : "bg-slate-200"}`} />
+                  );
+                })}
+              </div>
+
+              {/* Body */}
+              <div className="min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
+
+                {/* ── Etapa 1: Dados do Projeto ── */}
+                {etapa === 1 && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Título *</label>
+                      <input
+                        value={titulo}
+                        onChange={(e) => setTitulo(e.target.value)}
+                        placeholder="Ex: Captação de energia solar em ambientes urbanos"
+                        className="w-full min-w-0 rounded-lg border border-slate-200 px-3 py-2.5 text-sm transition focus:border-sectec-600 focus:outline-none focus:ring-2 focus:ring-sectec-100"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        Descrição / Resumo *
+                        <span className={`ml-2 text-xs font-normal ${descricao.trim().length < 30 ? "text-amber-500" : "text-sectec-600"}`}>
+                          ({descricao.trim().length} / mín. 30 caracteres)
+                        </span>
+                      </label>
+                      <textarea
+                        rows={4}
+                        value={descricao}
+                        onChange={(e) => setDescricao(e.target.value)}
+                        placeholder="Descreva o objetivo e a metodologia do projeto..."
+                        className="w-full min-w-0 resize-none rounded-lg border border-slate-200 px-3 py-2.5 text-sm transition focus:border-sectec-600 focus:outline-none focus:ring-2 focus:ring-sectec-100"
+                      />
+                    </div>
+
+                    <div className="relative">
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Eixo Temático *</label>
+                      <select
+                        value={eixo}
+                        onChange={(e) => handleEixoChange(e.target.value)}
+                        className="w-full min-w-0 appearance-none rounded-lg border border-slate-200 bg-white px-3 py-2.5 pr-9 text-sm transition focus:border-sectec-600 focus:outline-none focus:ring-2 focus:ring-sectec-100"
+                      >
+                        <option value="">Selecione um eixo</option>
+                        {eixosDisponiveis.map((e) => <option key={String(e.id)} value={String(e.id)}>{e.nome}</option>)}
+                      </select>
+                      <ChevronDown size={13} className="absolute right-3 bottom-3 text-slate-400 pointer-events-none" />
+                    </div>
+
+                    {eixo && (
+                      <div className="flex items-start gap-2 rounded-xl bg-sectec-50 border border-sectec-100 px-3 py-2.5 text-xs text-sectec-700">
+                        <FlaskConical size={13} className="mt-0.5 shrink-0" />
+                        <span>
+                          Eixo selecionado: <strong>{eixoSelecionado?.nome ?? "não informado"}</strong>. No próximo passo você verá apenas orientadores disponíveis para este eixo.
+                          {orientadoresFiltradosPorEixo.length === 0 && " Nenhum orientador escolheu este eixo ainda."}
+                        </span>
+                      </div>
                     )}
                   </div>
-                );
-              })}
-            </div>
+                )}
 
-            {/* Body */}
-            <div className="min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
-
-              {/* ── Etapa 1: Dados do Projeto ── */}
-              {etapa === 1 && (
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Título *</label>
-                    <input
-                      value={titulo}
-                      onChange={(e) => setTitulo(e.target.value)}
-                      placeholder="Ex: Captação de energia solar em ambientes urbanos"
-                      className="w-full min-w-0 rounded-lg border border-slate-200 px-3 py-2.5 text-sm transition focus:border-sectec-600 focus:outline-none focus:ring-2 focus:ring-sectec-100"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">
-                      Descrição / Resumo *
-                      <span className={`ml-2 text-xs font-normal ${descricao.trim().length < 30 ? "text-amber-500" : "text-sectec-600"}`}>
-                        ({descricao.trim().length} / mín. 30 caracteres)
-                      </span>
-                    </label>
-                    <textarea
-                      rows={4}
-                      value={descricao}
-                      onChange={(e) => setDescricao(e.target.value)}
-                      placeholder="Descreva o objetivo e a metodologia do projeto..."
-                      className="w-full min-w-0 resize-none rounded-lg border border-slate-200 px-3 py-2.5 text-sm transition focus:border-sectec-600 focus:outline-none focus:ring-2 focus:ring-sectec-100"
-                    />
-                  </div>
-
-                  <div className="relative">
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Eixo Temático *</label>
-                    <select
-                      value={eixo}
-                      onChange={(e) => handleEixoChange(e.target.value)}
-                      className="w-full min-w-0 appearance-none rounded-lg border border-slate-200 bg-white px-3 py-2.5 pr-9 text-sm transition focus:border-sectec-600 focus:outline-none focus:ring-2 focus:ring-sectec-100"
-                    >
-                      <option value="">Selecione um eixo</option>
-                      {eixosDisponiveis.map((e) => <option key={String(e.id)} value={String(e.id)}>{e.nome}</option>)}
-                    </select>
-                    <ChevronDown size={13} className="absolute right-3 bottom-3 text-slate-400 pointer-events-none" />
-                  </div>
-
-                  {eixo && (
-                    <div className="flex items-start gap-2 rounded-xl bg-sectec-50 border border-sectec-100 px-3 py-2.5 text-xs text-sectec-700">
-                      <FlaskConical size={13} className="mt-0.5 shrink-0" />
-                      <span>
-                        Eixo selecionado: <strong>{eixoSelecionado?.nome ?? "não informado"}</strong>. No próximo passo você verá apenas orientadores disponíveis para este eixo.
-                        {orientadoresFiltradosPorEixo.length === 0 && " Nenhum orientador escolheu este eixo ainda."}
+                {/* ── Etapa 2: Orientadores ── */}
+                {etapa === 2 && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-slate-500">
+                        Orientadores disponíveis para <strong className="text-sectec-700">{eixoSelecionado?.nome ?? "este eixo"}</strong>
+                      </p>
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full
+                        ${solicitacoes.length === 0 ? "bg-slate-100 text-slate-500"
+                          : solicitacoes.length < 3 ? "bg-sectec-100 text-sectec-700"
+                            : "bg-yellow-100 text-yellow-700"}`}>
+                        {solicitacoes.length}/3 solicitados
                       </span>
                     </div>
-                  )}
-                </div>
-              )}
 
-              {/* ── Etapa 2: Orientadores ── */}
-              {etapa === 2 && (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs text-slate-500">
-                      Orientadores disponíveis para <strong className="text-sectec-700">{eixoSelecionado?.nome ?? "este eixo"}</strong>
-                    </p>
-                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full
-                      ${solicitacoes.length === 0 ? "bg-slate-100 text-slate-500"
-                        : solicitacoes.length < 3 ? "bg-sectec-100 text-sectec-700"
-                        : "bg-yellow-100 text-yellow-700"}`}>
-                      {solicitacoes.length}/3 solicitados
-                    </span>
-                  </div>
-
-                  {carregandoDados ? (
-                    <p className="text-center text-xs text-slate-400 py-8">Carregando orientadores...</p>
-                  ) : orientadoresFiltradosPorEixo.length === 0 ? (
-                    <div className="flex flex-col items-center py-10 text-center">
-                      <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center mb-3">
-                        <Users size={20} className="text-slate-400" />
-                      </div>
-                      <p className="text-sm font-medium text-slate-600">Nenhum orientador disponível</p>
-                      <p className="text-xs text-slate-400 mt-1">Não há orientadores vinculados a este eixo temático.</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {orientadoresFiltradosPorEixo.map((o) => {
-                        const selecionado = solicitacoes.includes(o.id);
-                        const bloqueado = !selecionado && solicitacoes.length >= 3;
-                        return (
-                          <button
-                            key={o.id}
-                            type="button"
-                            disabled={bloqueado}
-                            onClick={() => toggleSolicitacao(o.id)}
-                            className={`w-full flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all
-                              ${selecionado
-                                ? "border-sectec-400 bg-sectec-50 ring-1 ring-sectec-300"
-                                : bloqueado
-                                  ? "border-slate-100 bg-slate-50 opacity-40 cursor-not-allowed"
-                                  : "border-slate-200 bg-white hover:border-sectec-200 hover:bg-sectec-50"}`}
-                          >
-                            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold shrink-0
-                              ${selecionado ? "bg-sectec-600 text-white" : "bg-yellow-100 text-yellow-700"}`}>
-                              {o.nome.split(" ").slice(-1)[0]?.[0] ?? "?"}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold text-slate-800 truncate">{o.nome}</p>
-                              <p className="text-xs text-slate-400 truncate">{o.disciplina}</p>
-                            </div>
-                            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all
-                              ${selecionado ? "bg-sectec-600 border-sectec-600" : "border-slate-300"}`}>
-                              {selecionado && (
-                                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                                  <path d="M2 5l2.5 2.5L8 3" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
-                              )}
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {solicitacoes.length > 0 && (
-                    <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 text-xs text-amber-800">
-                      <strong>Como funciona:</strong> Sua solicitação será enviada para os orientadores selecionados. O primeiro que aceitar será vinculado ao projeto.
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* ── Etapa 3: Equipe ── */}
-              {etapa === 3 && (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs text-slate-500">Monte sua equipe</p>
-                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full
-                      ${membros.length > MAX_MEMBROS ? "bg-red-100 text-red-600"
-                        : membros.length < MIN_MEMBROS ? "bg-yellow-100 text-yellow-700"
-                        : "bg-sectec-100 text-sectec-700"}`}>
-                      {membros.length}/{MAX_MEMBROS} {membros.length < MIN_MEMBROS && `(mín. ${MIN_MEMBROS})`}
-                    </span>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    {membros.map((m) => (
-                      <div key={m.id} className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-                        <div className="w-7 h-7 rounded-full bg-sectec-100 text-sectec-700 text-xs font-semibold flex items-center justify-center shrink-0">{m.nome[0]}</div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium text-slate-700 truncate">{m.nome}</p>
-                          <p className="text-[10px] text-slate-400">
-                            {m.sala ? `Sala ${m.sala}` : ""}
-                            {m.turma ? ` · Turma ${m.turma}` : ""}
-                          </p>
+                    {carregandoDados ? (
+                      <p className="text-center text-xs text-slate-400 py-8">Carregando orientadores...</p>
+                    ) : orientadoresFiltradosPorEixo.length === 0 ? (
+                      <div className="flex flex-col items-center py-10 text-center">
+                        <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center mb-3">
+                          <Users size={20} className="text-slate-400" />
                         </div>
-                        {m.id === ALUNO_LOGADO.id ? (
-                          <span className="text-[10px] font-semibold bg-sectec-100 text-sectec-700 px-2 py-0.5 rounded-full shrink-0">Líder</span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => setMembros((prev) => prev.filter((x) => x.id !== m.id))}
-                            className="text-slate-400 hover:text-red-500 active:text-red-600 transition-colors p-1.5 shrink-0"
-                          >
-                            <UserMinus size={14} />
-                          </button>
-                        )}
+                        <p className="text-sm font-medium text-slate-600">Nenhum orientador disponível</p>
+                        <p className="text-xs text-slate-400 mt-1">Não há orientadores vinculados a este eixo temático.</p>
                       </div>
-                    ))}
-                  </div>
-
-                  {membros.length < MAX_MEMBROS && (
-                    <div className="border border-slate-200 rounded-xl overflow-hidden">
-                      <div className="flex flex-wrap gap-2 p-2 bg-slate-50 border-b border-slate-200">
-                        <div className="flex items-center gap-1.5 flex-1 min-w-[130px] bg-white border border-slate-200 rounded-md px-2 py-1.5">
-                          <Search size={11} className="text-slate-400 shrink-0" />
-                          <input
-                            value={buscaAluno}
-                            onChange={(e) => setBuscaAluno(e.target.value)}
-                            placeholder="Buscar aluno..."
-                            className="flex-1 text-xs outline-none bg-transparent min-w-0"
-                          />
-                        </div>
-                        <select
-                          value={filtrSala}
-                          onChange={(e) => setFiltrSala(e.target.value)}
-                          className="rounded-md border border-slate-200 bg-white px-2 text-xs focus:outline-none"
-                        >
-                          {salas.map((s) => <option key={s} value={s}>{s === "todas" ? "Todas as salas" : `Sala ${s}`}</option>)}
-                        </select>
-                        <select
-                          value={filtrTurma}
-                          onChange={(e) => setFiltrTurma(e.target.value)}
-                          className="rounded-md border border-slate-200 bg-white px-2 text-xs focus:outline-none"
-                        >
-                          {turmas.map((t) => <option key={t} value={t}>{t === "todas" ? "Todas as turmas" : `Turma ${t}`}</option>)}
-                        </select>
-                      </div>
-                      <div className="max-h-44 overflow-y-auto">
-                        {alunosFiltrados.length === 0 ? (
-                          <p className="text-center text-xs text-slate-400 py-5">
-                            {carregandoDados ? "Carregando alunos..." : "Nenhum aluno encontrado"}
-                          </p>
-                        ) : (
-                          alunosFiltrados.map((aluno) => (
+                    ) : (
+                      <div className="space-y-2">
+                        {orientadoresFiltradosPorEixo.map((o) => {
+                          const selecionado = solicitacoes.includes(o.id);
+                          const bloqueado = !selecionado && solicitacoes.length >= 3;
+                          return (
                             <button
-                              key={aluno.id}
+                              key={o.id}
                               type="button"
-                              onClick={() => adicionarMembro(aluno)}
-                              className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-slate-50 active:bg-slate-100 transition-colors border-b border-slate-100 last:border-0"
+                              disabled={bloqueado}
+                              onClick={() => toggleSolicitacao(o.id)}
+                              className={`w-full flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all
+                                ${selecionado
+                                  ? "border-sectec-400 bg-sectec-50 ring-1 ring-sectec-300"
+                                  : bloqueado
+                                    ? "border-slate-100 bg-slate-50 opacity-40 cursor-not-allowed"
+                                    : "border-slate-200 bg-white hover:border-sectec-200 hover:bg-sectec-50"}`}
                             >
-                              <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-600 text-[10px] font-semibold flex items-center justify-center shrink-0">{aluno.nome[0]}</div>
-                              <div className="flex-1 min-w-0 text-left">
-                                <p className="text-xs font-medium text-slate-700 truncate">{aluno.nome}</p>
-                                <p className="text-[10px] text-slate-400">
-                                  {aluno.sala ? `Sala ${aluno.sala}` : ""}
-                                  {aluno.turma ? ` · Turma ${aluno.turma}` : ""}
-                                </p>
+                              <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold shrink-0
+                                ${selecionado ? "bg-sectec-600 text-white" : "bg-yellow-100 text-yellow-700"}`}>
+                                {o.nome.split(" ").slice(-1)[0]?.[0] ?? "?"}
                               </div>
-                              <UserPlus size={13} className="text-sectec-600 shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-slate-800 truncate">{o.nome}</p>
+                              </div>
+                              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all
+                                ${selecionado ? "bg-sectec-600 border-sectec-600" : "border-slate-300"}`}>
+                                {selecionado && (
+                                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                                    <path d="M2 5l2.5 2.5L8 3" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                                  </svg>
+                                )}
+                              </div>
                             </button>
-                          ))
-                        )}
+                          );
+                        })}
                       </div>
-                    </div>
-                  )}
+                    )}
 
-                  <div className="flex items-start gap-2 rounded-xl bg-blue-50 border border-blue-100 px-3 py-2.5 text-xs text-blue-700">
-                    <TriangleAlert size={12} className="mt-0.5 shrink-0" />
-                    <span>Apenas alunos da <strong>mesma turma e ano</strong> são exibidos. Equipes com integrantes de turmas diferentes não são permitidas.</span>
+                    {solicitacoes.length > 0 && (
+                      <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 text-xs text-amber-800">
+                        <strong>Como funciona:</strong> Sua solicitação será enviada para os orientadores selecionados. O primeiro que aceitar será vinculado ao projeto.
+                      </div>
+                    )}
                   </div>
-                </div>
-              )}
-            </div>
+                )}
 
-            {/* Footer */}
-            <div className="flex flex-col-reverse gap-2 rounded-b-2xl border-t border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:justify-between sm:px-6 sm:py-4">
-              <button
-                type="button"
-                onClick={() => etapa > 1 ? setEtapa((e) => (e - 1) as Etapa) : fecharModal()}
-                className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 active:bg-slate-200 sm:w-auto"
-              >
-                {etapa === 1 ? "Cancelar" : "← Voltar"}
-              </button>
+                {/* ── Etapa 3: Equipe ── */}
+                {etapa === 3 && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-slate-500">Monte sua equipe</p>
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full
+                        ${membros.length > MAX_MEMBROS ? "bg-red-100 text-red-600"
+                          : membros.length < MIN_MEMBROS ? "bg-yellow-100 text-yellow-700"
+                            : "bg-sectec-100 text-sectec-700"}`}>
+                        {membros.length}/{MAX_MEMBROS} {membros.length < MIN_MEMBROS && `(mín. ${MIN_MEMBROS})`}
+                      </span>
+                    </div>
 
-              {etapa < 3 ? (
+                    <div className="space-y-1.5">
+                      {membros.map((m) => (
+                        <div key={m.id} className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                          <div className="w-7 h-7 rounded-full bg-sectec-100 text-sectec-700 text-xs font-semibold flex items-center justify-center shrink-0">{m.nome[0]}</div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-slate-700 truncate">{m.nome}</p>
+                            <p className="text-[10px] text-slate-400">
+                              {m.sala ? `Sala ${m.sala}` : ""}
+                              {m.turma ? ` · Turma ${m.turma}` : ""}
+                            </p>
+                          </div>
+                          {m.id === projeto?.autorId ? (
+                            <span className="text-[10px] font-semibold bg-sectec-100 text-sectec-700 px-2 py-0.5 rounded-full shrink-0">Líder</span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setMembros((prev) => prev.filter((x) => x.id !== m.id))}
+                              className="text-slate-400 hover:text-red-500 active:text-red-600 transition-colors p-1.5 shrink-0"
+                            >
+                              <UserMinus size={14} />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    {membros.length < MAX_MEMBROS && (
+                      <div className="border border-slate-200 rounded-xl overflow-hidden">
+                        <div className="p-2 bg-slate-50 border-b border-slate-200">
+                          <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-md px-2 py-1.5">
+                            <Search size={11} className="text-slate-400 shrink-0" />
+                            <input
+                              value={buscaAluno}
+                              onChange={(e) => setBuscaAluno(e.target.value)}
+                              placeholder="Buscar aluno..."
+                              className="flex-1 text-xs outline-none bg-transparent min-w-0"
+                            />
+                          </div>
+                        </div>
+                        <div className="max-h-44 overflow-y-auto">
+                          {alunosFiltrados.length === 0 ? (
+                            <p className="text-center text-xs text-slate-400 py-5">
+                              {carregandoDados ? "Carregando alunos..." : "Nenhum aluno encontrado"}
+                            </p>
+                          ) : (
+                            alunosFiltrados.map((aluno) => (
+                              <button
+                                key={aluno.id}
+                                type="button"
+                                onClick={() => adicionarMembro(aluno)}
+                                className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-slate-50 active:bg-slate-100 transition-colors border-b border-slate-100 last:border-0"
+                              >
+                                <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-600 text-[10px] font-semibold flex items-center justify-center shrink-0">{aluno.nome[0]}</div>
+                                <div className="flex-1 min-w-0 text-left">
+                                  <p className="text-xs font-medium text-slate-700 truncate">{aluno.nome}</p>
+                                  <p className="text-[10px] text-slate-400">
+                                    {aluno.sala ? `Sala ${aluno.sala}` : ""}
+                                    {aluno.turma ? ` · Turma ${aluno.turma}` : ""}
+                                  </p>
+                                </div>
+                                <UserPlus size={13} className="text-sectec-600 shrink-0" />
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex items-start gap-2 rounded-xl bg-blue-50 border border-blue-100 px-3 py-2.5 text-xs text-blue-700">
+                      <TriangleAlert size={12} className="mt-0.5 shrink-0" />
+                      <span>Apenas alunos da <strong>mesma turma e ano</strong> são exibidos. Equipes com integrantes de turmas diferentes não são permitidas.</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="flex flex-col-reverse gap-2 rounded-b-2xl border-t border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:justify-between sm:px-6 sm:py-4">
                 <button
                   type="button"
-                  disabled={etapa === 1 ? !podeAvancarEtapa1 : !podeAvancarEtapa2}
-                  onClick={() => setEtapa((e) => (e + 1) as Etapa)}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-sectec-700 px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-sectec-800 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed sm:w-auto sm:px-5"
+                  onClick={() => etapa > 1 ? setEtapa((e) => (e - 1) as Etapa) : fecharModal()}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 active:bg-slate-200 sm:w-auto"
                 >
-                  Continuar →
+                  {etapa === 1 ? "Cancelar" : "← Voltar"}
                 </button>
-              ) : (
-                <button
-                  type="button"
-                  disabled={criando || membros.length < MIN_MEMBROS || membros.length > MAX_MEMBROS}
-                  onClick={handleCriarProjeto}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-sectec-700 px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-sectec-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto sm:px-5"
-                >
-                  {criando && (
-                    <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-                    </svg>
-                  )}
-                  {criando ? (editandoProjeto ? "Salvando..." : "Cadastrando...") : (editandoProjeto ? "Salvar alterações" : "Criar projeto")}
-                </button>
-              )}
+
+                {etapa < 3 ? (
+                  <button
+                    type="button"
+                    disabled={etapa === 1 ? !podeAvancarEtapa1 : !podeAvancarEtapa2}
+                    onClick={() => setEtapa((e) => (e + 1) as Etapa)}
+                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-sectec-700 px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-sectec-800 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed sm:w-auto sm:px-5"
+                  >
+                    Continuar →
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={criando || membros.length < MIN_MEMBROS || membros.length > MAX_MEMBROS}
+                    onClick={handleCriarProjeto}
+                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-sectec-700 px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-sectec-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto sm:px-5"
+                  >
+                    {criando && (
+                      <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                      </svg>
+                    )}
+                    {criando ? (editandoProjeto ? "Salvando..." : "Cadastrando...") : (editandoProjeto ? "Salvar alterações" : "Criar projeto")}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
-    </MainLayout>
+        )
+      }
+    </MainLayout >
   );
 }
 

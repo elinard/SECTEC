@@ -123,35 +123,44 @@ export class ProjetosService {
    * seja ele o aluno autor ou um dos integrantes da equipe.
    */
   async findProjetoAtualPorAluno(userId: number): Promise<Projeto | null> {
-    try {
-      const eventoAtual = await this.buscarUltimoEvento();
+  try {
+    const eventoAtual = await this.buscarUltimoEvento();
 
-      const projeto = await this.projetoRepository.findOne({
-        where: [
-          {
-            evento: { id: eventoAtual.id },
-            alunoAutor: { id: userId }
-          },
-          {
-            evento: { id: eventoAtual.id },
-            projetoAlunos: { aluno: { id: userId } }
-          }
-        ],
-        relations: this.getProjetoRelations(),
-        select: this.getProjetoSelectFields(),
-      });
+    // 1. Primeiro busca apenas o ID do projeto sem filtrar as relações
+    const projetoBase = await this.projetoRepository
+      .createQueryBuilder('projeto')
+      .leftJoin('projeto.evento', 'evento')
+      .leftJoin('projeto.alunoAutor', 'autor')
+      .leftJoin('projeto.projetoAlunos', 'pa')
+      .leftJoin('pa.aluno', 'aluno')
+      .where('evento.id = :eventoId', { eventoId: eventoAtual.id })
+      .andWhere(
+        '(autor.id = :userId OR aluno.id = :userId)',
+        { userId }
+      )
+      .select('projeto.id')
+      .getOne();
 
-      if (!projeto) return null;
+    if (!projetoBase) return null;
 
-      this.filtrarOrientadoresAceitos(projeto);
-      return projeto;
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        return null;
-      }
-      throw error;
+    // 2. Depois carrega o projeto completo pelo ID sem filtros nas relações
+    const projeto = await this.projetoRepository.findOne({
+      where: { id: projetoBase.id },
+      relations: this.getProjetoRelations(),
+      select: this.getProjetoSelectFields(),
+    });
+
+    if (!projeto) return null;
+
+    this.filtrarOrientadoresAceitos(projeto);
+    return projeto;
+  } catch (error) {
+    if (error instanceof NotFoundException) {
+      return null;
     }
+    throw error;
   }
+}
 
   /**
    * Retorna todos os projetos criados por um aluno autor específico.
