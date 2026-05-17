@@ -17,6 +17,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { PdfModule } from './pdf/pdf.module';
 import { OrientacoesModule } from './orientacoes/orientacoes.module';
 import { MateriaisModule } from './materiais/materiais.module';
+import { RelatorioModule } from './relatorio/relatorio.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { MateriaisModule } from './materiais/materiais.module';
     // ── MÓDULOS DO ORIENTADOR ──
     OrientacoesModule,
     MateriaisModule,
+    RelatorioModule,
   ],
   controllers: [AppController],
   providers: [AppService],

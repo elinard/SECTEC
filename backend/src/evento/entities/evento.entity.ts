@@ -11,7 +11,7 @@ import {
 import { Projeto } from 'src/projetos/entities/projeto.entity';
 import { TemaEvento } from 'src/evento/entities/tema-evento.entity';
 import { User } from 'src/users/entities/user.entity';
-
+import { ComissaoEvento } from './comissao-evento.entity';
 
 
 
@@ -89,4 +89,7 @@ prazoFinal!: Date;
 
   @OneToMany(() => TemaEvento, (tema) => tema.evento)
   temas!: TemaEvento[];
+  
+   @OneToMany(() => ComissaoEvento, (comissao) => comissao.evento)
+  comissaoAlunos!: ComissaoEvento[];
 }
