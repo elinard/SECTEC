@@ -11,7 +11,7 @@ import {
 //  COMO DEVE FICAR (Import Relativo)
 import { Projeto } from '../../projetos/entities/projeto.entity';
 
-import { TemaEvento } from '../../evento/entities/tema-evento.entity';
+import { TemaEvento } from './evento/entities/tema-evento.entity';
 import { User } from '../../users/entities/user.entity';
 import { ComissaoEvento } from './comissao-evento.entity';
 

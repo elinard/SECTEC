@@ -10,7 +10,7 @@ exports.Evento = exports.Periodo = exports.EventoStatus = void 0;
 var typeorm_1 = require("typeorm");
 //  COMO DEVE FICAR (Import Relativo)
 var projeto_entity_1 = require("../../projetos/entities/projeto.entity");
-var tema_evento_entity_1 = require("../../evento/entities/tema-evento.entity");
+var tema_evento_entity_1 = require("./evento/entities/tema-evento.entity");
 var user_entity_1 = require("../../users/entities/user.entity");
 var comissao_evento_entity_1 = require("./comissao-evento.entity");
 var EventoStatus;
