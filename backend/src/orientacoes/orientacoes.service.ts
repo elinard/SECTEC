@@ -22,6 +22,25 @@ export class OrientacoesService {
     async findMinhasPendentes(orientadorId: number): Promise<ProjetoOrientador[]> {
   const anoAtual = new Date().getFullYear();
 
+  // 🚀 NOVA VALIDAÇÃO: Conta quantos projetos o orientador já aceitou no evento deste ano
+  const totalAceitosEsteAno = await this.orientacoesRepository.createQueryBuilder('po')
+    .innerJoin('po.projeto', 'projeto')
+    .innerJoin('projeto.evento', 'evento')
+    .where('po.orientador_id = :orientadorId', { orientadorId })
+    .andWhere('po.status = :statusAceito', { statusAceito: StatusOrientacao.ACEITO })
+    .andWhere('evento.status = :eventoStatus', { eventoStatus: 'ativo' })
+    .andWhere('evento.prazoInicial BETWEEN :inicioAno AND :fimAno', {
+      inicioAno: `${anoAtual}-01-01`,
+      fimAno: `${anoAtual}-12-31`,
+    })
+    .getCount(); // Retorna apenas o número total (rápido e performático)
+
+  // Se já atingiu a meta de 4 ou mais orientações aceitas, esconde as pendências ocultando a lista
+  if (totalAceitosEsteAno >= 4) {
+    return [];
+  }
+
+  // Se tiver menos de 4 aceitos, continua a execução normal da sua query existente
   return this.orientacoesRepository.createQueryBuilder('projetoOrientador')
     .leftJoinAndSelect('projetoOrientador.orientador', 'orientador')
     .leftJoinAndSelect('projetoOrientador.projeto', 'projeto')
@@ -36,8 +55,7 @@ export class OrientacoesService {
     .andWhere('projetoOrientador.status = :statusPendente', { statusPendente: StatusOrientacao.PENDENTE })
 
     // 2. FILTRO DO ANO ATUAL: Filtra pelo status ATIVO do evento e garante que ele está no range do ano corrente
-    // Usamos o formato do banco (Y-m-d) igual ao seu ProjetosService
-    .andWhere('evento.status = :eventoStatus', { eventoStatus: 'ativo' }) // Ajuste para o seu Enum se necessário (ex: EventoStatus.ATIVO)
+    .andWhere('evento.status = :eventoStatus', { eventoStatus: 'ativo' })
     .andWhere('evento.prazoInicial BETWEEN :inicioAno AND :fimAno', {
       inicioAno: `${anoAtual}-01-01`,
       fimAno: `${anoAtual}-12-31`,
@@ -57,6 +75,7 @@ export class OrientacoesService {
     })
     .getMany();
 }
+
 
 
 

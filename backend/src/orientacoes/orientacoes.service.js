@@ -55,39 +55,59 @@ var OrientacoesService = /** @class */ (function () {
     }
     OrientacoesService.prototype.findMinhasPendentes = function (orientadorId) {
         return __awaiter(this, void 0, Promise, function () {
-            var anoAtual;
+            var anoAtual, totalAceitosEsteAno;
             return __generator(this, function (_a) {
-                anoAtual = new Date().getFullYear();
-                return [2 /*return*/, this.orientacoesRepository.createQueryBuilder('projetoOrientador')
-                        .leftJoinAndSelect('projetoOrientador.orientador', 'orientador')
-                        .leftJoinAndSelect('projetoOrientador.projeto', 'projeto')
-                        .leftJoinAndSelect('projeto.evento', 'evento')
-                        .leftJoinAndSelect('projeto.tema', 'tema')
-                        .leftJoinAndSelect('projeto.alunoAutor', 'alunoAutor')
-                        .leftJoinAndSelect('projeto.projetoAlunos', 'projetoAlunos')
-                        .leftJoinAndSelect('projetoAlunos.aluno', 'aluno')
-                        // 1. Filtros básicos: id do orientador e status pendente
-                        .where('orientador.id = :orientadorId', { orientadorId: orientadorId })
-                        .andWhere('projetoOrientador.status = :statusPendente', { statusPendente: projeto_orientador_entity_1.StatusOrientacao.PENDENTE })
-                        // 2. FILTRO DO ANO ATUAL: Filtra pelo status ATIVO do evento e garante que ele está no range do ano corrente
-                        // Usamos o formato do banco (Y-m-d) igual ao seu ProjetosService
-                        .andWhere('evento.status = :eventoStatus', { eventoStatus: 'ativo' }) // Ajuste para o seu Enum se necessário (ex: EventoStatus.ATIVO)
-                        .andWhere('evento.prazoInicial BETWEEN :inicioAno AND :fimAno', {
-                        inicioAno: "".concat(anoAtual, "-01-01"),
-                        fimAno: "".concat(anoAtual, "-12-31"),
-                    })
-                        // 3. Validação de concorrência (Se outra pessoa já aceitou, limpa da lista)
-                        .andWhere(function (qb) {
-                        var subQuery = qb
-                            .subQuery()
-                            .select('1')
-                            .from(projeto_orientador_entity_1.ProjetoOrientador, 'subPo')
-                            .where('subPo.projeto_id = projeto.id')
-                            .andWhere('subPo.status = :statusAceito', { statusAceito: projeto_orientador_entity_1.StatusOrientacao.ACEITO })
-                            .getQuery();
-                        return "NOT EXISTS ".concat(subQuery);
-                    })
-                        .getMany()];
+                switch (_a.label) {
+                    case 0:
+                        anoAtual = new Date().getFullYear();
+                        return [4 /*yield*/, this.orientacoesRepository.createQueryBuilder('po')
+                                .innerJoin('po.projeto', 'projeto')
+                                .innerJoin('projeto.evento', 'evento')
+                                .where('po.orientador_id = :orientadorId', { orientadorId: orientadorId })
+                                .andWhere('po.status = :statusAceito', { statusAceito: projeto_orientador_entity_1.StatusOrientacao.ACEITO })
+                                .andWhere('evento.status = :eventoStatus', { eventoStatus: 'ativo' })
+                                .andWhere('evento.prazoInicial BETWEEN :inicioAno AND :fimAno', {
+                                inicioAno: "".concat(anoAtual, "-01-01"),
+                                fimAno: "".concat(anoAtual, "-12-31"),
+                            })
+                                .getCount()];
+                    case 1:
+                        totalAceitosEsteAno = _a.sent();
+                        // Se já atingiu a meta de 4 ou mais orientações aceitas, esconde as pendências ocultando a lista
+                        if (totalAceitosEsteAno >= 4) {
+                            return [2 /*return*/, []];
+                        }
+                        // Se tiver menos de 4 aceitos, continua a execução normal da sua query existente
+                        return [2 /*return*/, this.orientacoesRepository.createQueryBuilder('projetoOrientador')
+                                .leftJoinAndSelect('projetoOrientador.orientador', 'orientador')
+                                .leftJoinAndSelect('projetoOrientador.projeto', 'projeto')
+                                .leftJoinAndSelect('projeto.evento', 'evento')
+                                .leftJoinAndSelect('projeto.tema', 'tema')
+                                .leftJoinAndSelect('projeto.alunoAutor', 'alunoAutor')
+                                .leftJoinAndSelect('projeto.projetoAlunos', 'projetoAlunos')
+                                .leftJoinAndSelect('projetoAlunos.aluno', 'aluno')
+                                // 1. Filtros básicos: id do orientador e status pendente
+                                .where('orientador.id = :orientadorId', { orientadorId: orientadorId })
+                                .andWhere('projetoOrientador.status = :statusPendente', { statusPendente: projeto_orientador_entity_1.StatusOrientacao.PENDENTE })
+                                // 2. FILTRO DO ANO ATUAL: Filtra pelo status ATIVO do evento e garante que ele está no range do ano corrente
+                                .andWhere('evento.status = :eventoStatus', { eventoStatus: 'ativo' })
+                                .andWhere('evento.prazoInicial BETWEEN :inicioAno AND :fimAno', {
+                                inicioAno: "".concat(anoAtual, "-01-01"),
+                                fimAno: "".concat(anoAtual, "-12-31"),
+                            })
+                                // 3. Validação de concorrência (Se outra pessoa já aceitou, limpa da lista)
+                                .andWhere(function (qb) {
+                                var subQuery = qb
+                                    .subQuery()
+                                    .select('1')
+                                    .from(projeto_orientador_entity_1.ProjetoOrientador, 'subPo')
+                                    .where('subPo.projeto_id = projeto.id')
+                                    .andWhere('subPo.status = :statusAceito', { statusAceito: projeto_orientador_entity_1.StatusOrientacao.ACEITO })
+                                    .getQuery();
+                                return "NOT EXISTS ".concat(subQuery);
+                            })
+                                .getMany()];
+                }
             });
         });
     };

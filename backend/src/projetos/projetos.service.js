@@ -446,6 +446,9 @@ var ProjetosService = /** @class */ (function () {
     /**
      * Realiza as validações individuais de compatibilidade de tema e cria a solicitação pendente.
      */
+    /**
+   * Realiza as validações individuais de compatibilidade de tema e cria a solicitação pendente.
+   */
     ProjetosService.prototype.enviarSolicitacaoIndividual = function (projeto, userId, orientadorId) {
         return __awaiter(this, void 0, Promise, function () {
             var novaSolicitacao, solicitacao;
@@ -457,8 +460,13 @@ var ProjetosService = /** @class */ (function () {
                         return [4 /*yield*/, this.validarOrientadorSelecionouTema(projeto.temaId, orientadorId)];
                     case 2:
                         _a.sent();
-                        return [4 /*yield*/, this.validarSolicitacaoDuplicada(projeto.id, orientadorId)];
+                        // 🚀 NOVA VALIDAÇÃO: Bloqueia o envio se o professor já atingiu o teto de 4 projetos aceitos
+                        return [4 /*yield*/, this.validarLimiteDeOrientacoes(orientadorId, projeto.evento.id)];
                     case 3:
+                        // 🚀 NOVA VALIDAÇÃO: Bloqueia o envio se o professor já atingiu o teto de 4 projetos aceitos
+                        _a.sent();
+                        return [4 /*yield*/, this.validarSolicitacaoDuplicada(projeto.id, orientadorId)];
+                    case 4:
                         _a.sent();
                         novaSolicitacao = this.projetoOrientadorRepository.create({
                             projeto: { id: projeto.id },
@@ -466,12 +474,37 @@ var ProjetosService = /** @class */ (function () {
                             status: 'pendente',
                         });
                         return [4 /*yield*/, this.projetoOrientadorRepository.save(novaSolicitacao)];
-                    case 4:
+                    case 5:
                         solicitacao = _a.sent();
                         return [4 /*yield*/, this.auditoriaService.registrar(userId, 'ORIENTADOR_SOLICITADO', "Solicitacao enviada ao orientador #".concat(orientadorId, " para o projeto #").concat(projeto.id, "."), projeto.id)];
-                    case 5:
+                    case 6:
                         _a.sent();
                         return [2 /*return*/, solicitacao];
+                }
+            });
+        });
+    };
+    /**
+     * Verifica se o orientador já atingiu o limite máximo de 4 projetos aceitos no evento atual.
+     */
+    ProjetosService.prototype.validarLimiteDeOrientacoes = function (orientadorId, eventoId) {
+        return __awaiter(this, void 0, Promise, function () {
+            var totalAceitos;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0: return [4 /*yield*/, this.projetoOrientadorRepository.count({
+                            where: {
+                                orientador: { id: orientadorId },
+                                status: 'aceito',
+                                projeto: { evento: { id: eventoId } },
+                            },
+                        })];
+                    case 1:
+                        totalAceitos = _a.sent();
+                        if (totalAceitos >= 4) {
+                            throw new common_1.BadRequestException('Este orientador já atingiu o limite máximo de 4 projetos orientados para este evento.');
+                        }
+                        return [2 /*return*/];
                 }
             });
         });
@@ -731,6 +764,41 @@ var ProjetosService = /** @class */ (function () {
         else {
             projeto.orientadores = [];
         }
+    };
+    /**
+   * Busca o orientador que aceitou a solicitação para um projeto específico.
+   */
+    ProjetosService.prototype.getOrientadorAceitoByProjetoId = function (projetoId) {
+        return __awaiter(this, void 0, Promise, function () {
+            var vinculo;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0: return [4 /*yield*/, this.projetoOrientadorRepository.findOne({
+                            where: {
+                                projeto: { id: projetoId },
+                                status: 'aceito',
+                            },
+                            relations: ['orientador'],
+                            select: {
+                                id: true,
+                                status: true,
+                                respondidoEm: true,
+                                orientador: {
+                                    id: true,
+                                    nome: true,
+                                    email_institucional: true,
+                                },
+                            },
+                        })];
+                    case 1:
+                        vinculo = _a.sent();
+                        if (!vinculo) {
+                            throw new common_1.NotFoundException("Nenhum orientador aceitou o projeto #".concat(projetoId, " ainda."));
+                        }
+                        return [2 /*return*/, vinculo];
+                }
+            });
+        });
     };
     // =========================================================================
     // MAPEAMENTO DE CONFIGURAÇÕES DE RELACIONAMENTO E CAMPOS (SELECT/RELATIONS)

@@ -124,7 +124,7 @@ async findProfessoresPorTema(temaId: number) {
     });
   }
 
-  async sincronizarTemas(professorId: number, temasIds: number[]) {
+    async sincronizarTemas(professorId: number, temasIds: number[]) {
     const professor = await this.userRepository.findOne({
       where: { id: professorId },
       relations: ['temasSelecionados']
@@ -138,6 +138,13 @@ async findProfessoresPorTema(temaId: number) {
       id: In(temasIds)
     });
 
+    // 🚀 NOVA VALIDAÇÃO: Garante o piso mínimo de 4 temas válidos
+    if (novosTemas.length < 4) {
+      throw new BadRequestException(
+        `Você precisa selecionar no mínimo 4 temas válidos. (Selecionados: ${novosTemas.length})`
+      );
+    }
+
     professor.temasSelecionados = novosTemas;
     await this.userRepository.save(professor);
 
@@ -146,4 +153,5 @@ async findProfessoresPorTema(temaId: number) {
       totalSelecionado: novosTemas.length
     };
   }
+
 }

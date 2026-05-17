@@ -118,22 +118,6 @@ export class ProjetosService {
     return projeto;
   }
 
-  async getOrientadorAceitoByProjetoId(id: number): Promise<User> {
-    const solicitacaoAceita = await this.projetoOrientadorRepository.findOne({
-      where: {
-        projeto: { id },
-        status: 'aceito',
-      },
-      relations: ['orientador'],
-    });
-
-    if (!solicitacaoAceita) {
-      throw new NotFoundException(`Nenhum orientador aceito encontrado para o projeto #${id}.`);
-    }
-
-    return solicitacaoAceita.orientador;
-  }
-
   /**
    * Encontra o projeto ativo do aluno no evento vigente, 
    * seja ele o aluno autor ou um dos integrantes da equipe.
@@ -309,7 +293,7 @@ export class ProjetosService {
       'PROJETO_REMOVIDO',
       `Projeto #${id} removido por usuario com cargo "${role}". Titulo: "${projeto.titulo}".`,
     );
-  }
+  }     
 
   // =========================================================================
   // GESTÃO DE SOLICITAÇÕES DE ORIENTAÇÃO
@@ -366,6 +350,9 @@ export class ProjetosService {
   /**
    * Realiza as validações individuais de compatibilidade de tema e cria a solicitação pendente.
    */
+    /**
+   * Realiza as validações individuais de compatibilidade de tema e cria a solicitação pendente.
+   */
   private async enviarSolicitacaoIndividual(
     projeto: Projeto,
     userId: number,
@@ -373,6 +360,10 @@ export class ProjetosService {
   ): Promise<ProjetoOrientador> {
     await this.validarTemaNoEvento(projeto.temaId, projeto.evento.id);
     await this.validarOrientadorSelecionouTema(projeto.temaId, orientadorId);
+    
+    // 🚀 NOVA VALIDAÇÃO: Bloqueia o envio se o professor já atingiu o teto de 4 projetos aceitos
+    await this.validarLimiteDeOrientacoes(orientadorId, projeto.evento.id);
+    
     await this.validarSolicitacaoDuplicada(projeto.id, orientadorId);
 
     const novaSolicitacao = this.projetoOrientadorRepository.create({
@@ -392,6 +383,27 @@ export class ProjetosService {
 
     return solicitacao;
   }
+
+
+  /**
+   * Verifica se o orientador já atingiu o limite máximo de 4 projetos aceitos no evento atual.
+   */
+  private async validarLimiteDeOrientacoes(orientadorId: number, eventoId: number): Promise<void> {
+    const totalAceitos = await this.projetoOrientadorRepository.count({
+      where: {
+        orientador: { id: orientadorId },
+        status: 'aceito',
+        projeto: { evento: { id: eventoId } },
+      },
+    });
+
+    if (totalAceitos >= 4) {
+      throw new BadRequestException(
+        'Este orientador já atingiu o limite máximo de 4 projetos orientados para este evento.'
+      );
+    }
+  }
+
 
   // =========================================================================
   // MÉTODOS PRIVADOS DE VALIDAÇÃO E SUPORTE
@@ -605,6 +617,39 @@ export class ProjetosService {
       projeto.orientadores = [];
     }
   }
+  
+  
+    /**
+   * Busca o orientador que aceitou a solicitação para um projeto específico.
+   */
+  async getOrientadorAceitoByProjetoId(projetoId: number): Promise<ProjetoOrientador | null> {
+    const vinculo = await this.projetoOrientadorRepository.findOne({
+      where: {
+        projeto: { id: projetoId },
+        status: 'aceito',
+      },
+      relations: ['orientador'],
+      select: {
+        id: true,
+        status: true,
+        respondidoEm: true,
+        orientador: {
+          id: true,
+          nome: true,
+          email_institucional: true,
+        },
+      },
+    });
+
+    if (!vinculo) {
+      throw new NotFoundException(`Nenhum orientador aceitou o projeto #${projetoId} ainda.`);
+    }
+
+    return vinculo;
+  }
+
+
+
 
   // =========================================================================
   // MAPEAMENTO DE CONFIGURAÇÕES DE RELACIONAMENTO E CAMPOS (SELECT/RELATIONS)
