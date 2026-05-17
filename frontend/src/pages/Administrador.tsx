@@ -23,6 +23,7 @@ import {
   ArrowRight,
   CalendarRange,
   ClipboardCheck,
+  Download,
   Eye,
   FileWarning,
   FolderKanban,
@@ -356,6 +357,17 @@ function AdminChip({ children, className = "" }: { children: React.ReactNode; cl
   );
 }
 
+function Tooltip({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <span className="group relative inline-flex">
+      {children}
+      <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white opacity-0 shadow-lg transition group-hover:block group-hover:opacity-100">
+        {label}
+      </span>
+    </span>
+  );
+}
+
 function PainelDetalhes({ aberto, titulo, onClose, children }: { aberto: boolean; titulo: string; onClose: () => void; children: React.ReactNode }) {
   if (!aberto) return null;
 
@@ -608,6 +620,55 @@ function buscarEventoDoAnoAtual(eventos: EventoApi[]) {
     const data = new Date(evento.prazoInicial);
     return !Number.isNaN(data.getTime()) && data.getFullYear() === anoAtual;
   }) ?? null;
+}
+
+function getMaterialIdFromProjeto(projeto: unknown) {
+  const item = projeto as {
+    materialId?: number | string | null;
+    material?: { id?: number | string | null } | null;
+    materiais?: Array<{ id?: number | string | null }> | null;
+    ultimoMaterial?: { id?: number | string | null } | null;
+    download?: { materialId?: number | string | null } | null;
+    materialAtual?: { id?: number | string | null } | null;
+  };
+
+  return (
+    item.materialId ??
+    item.material?.id ??
+    item.materiais?.[0]?.id ??
+    item.ultimoMaterial?.id ??
+    item.download?.materialId ??
+    item.materialAtual?.id ??
+    null
+  );
+}
+
+function getProjetoId(projeto: unknown) {
+  const item = projeto as { id?: number | string | null; projetoId?: number | string | null };
+  return item.id ?? item.projetoId ?? null;
+}
+
+function projetoTemPdf(projeto: unknown) {
+  return Boolean(getProjetoId(projeto) && getMaterialIdFromProjeto(projeto));
+}
+
+function montarUrlPdf(projetoId: number | string, materialId: number | string) {
+  return `${API_BASE_URL}/files/download/projeto/${projetoId}/material/${materialId}`;
+}
+
+function visualizarPdf(projetoId: number | string, materialId: number | string) {
+  window.open(montarUrlPdf(projetoId, materialId), "_blank", "noopener,noreferrer");
+}
+
+function baixarPdf(projetoId: number | string, materialId: number | string) {
+  const link = document.createElement("a");
+  link.href = montarUrlPdf(projetoId, materialId);
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.download = `projeto-${projetoId}-material-${materialId}.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
 
 function mensagemErroApi(error: unknown, fallback = "Não foi possível carregar os dados.") {
@@ -1416,6 +1477,7 @@ function UsuariosCoordenacao() {
   const [abaAtiva, setAbaAtiva] = useState<"alunos" | "orientadores" | "comissao">("alunos");
   const [busca, setBusca] = useState("");
   const [turmaFiltro, setTurmaFiltro] = useState("todas");
+  const [anoFiltro, setAnoFiltro] = useState<"todos" | string>("todos");
   const [paginaAtual, setPaginaAtual] = useState(1);
   const [alunos, setAlunos] = useState<UsuarioCoordenacao[]>([]);
   const [orientadores, setOrientadores] = useState<UsuarioCoordenacao[]>([]);
@@ -1620,12 +1682,19 @@ function UsuariosCoordenacao() {
   const listaAtual = abaAtiva === "alunos" ? alunos : abaAtiva === "orientadores" ? orientadores : comissao;
   const termo = busca.trim().toLowerCase();
   const podeFiltrarTurma = abaAtiva !== "orientadores";
+  const podeFiltrarAno = abaAtiva !== "orientadores" && listaAtual.some((usuario) => usuario.ano !== undefined && usuario.ano !== null);
   const turmasDisponiveis = podeFiltrarTurma
     ? [
         "todas",
         ...Array.from(new Set(listaAtual.map((usuario) => usuario.turma).filter(Boolean))).sort(),
       ] as string[]
     : ["todas"];
+  const anosDisponiveis = podeFiltrarAno
+    ? [
+        "todos",
+        ...Array.from(new Set(listaAtual.map((usuario) => usuario.ano).filter((ano): ano is number => ano !== undefined && ano !== null))).sort((a, b) => a - b).map(String),
+      ]
+    : ["todos"];
 
   const listaFiltrada = listaAtual.filter((usuario) => {
     const bateBusca =
@@ -1636,8 +1705,12 @@ function UsuariosCoordenacao() {
       !podeFiltrarTurma ||
       turmaFiltro === "todas" ||
       (usuario.turma?.toLowerCase() ?? "") === turmaFiltro.toLowerCase();
+    const bateAno =
+      !podeFiltrarAno ||
+      anoFiltro === "todos" ||
+      String(usuario.ano ?? "") === String(anoFiltro);
 
-    return bateBusca && bateTurma;
+    return bateBusca && bateTurma && bateAno;
   });
 
   const itensPorPagina = 10;
@@ -1648,13 +1721,16 @@ function UsuariosCoordenacao() {
 
   useEffect(() => {
     setPaginaAtual(1);
-  }, [abaAtiva, busca, turmaFiltro]);
+  }, [abaAtiva, busca, turmaFiltro, anoFiltro]);
 
   useEffect(() => {
     if (!podeFiltrarTurma && turmaFiltro !== "todas") {
       setTurmaFiltro("todas");
     }
-  }, [podeFiltrarTurma, turmaFiltro]);
+    if (!podeFiltrarAno && anoFiltro !== "todos") {
+      setAnoFiltro("todos");
+    }
+  }, [anoFiltro, podeFiltrarAno, podeFiltrarTurma, turmaFiltro]);
 
   return (
     <AdminPageShell>
@@ -1761,6 +1837,22 @@ function UsuariosCoordenacao() {
                 </select>
               </label>
             )}
+            {podeFiltrarAno && (
+              <label className="relative block">
+                <PiCalendarBlank className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
+                <select
+                  value={anoFiltro}
+                  onChange={(event) => setAnoFiltro(event.target.value)}
+                  className="h-10 w-full cursor-pointer appearance-none rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-8 text-sm font-black text-slate-600 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100 sm:w-40"
+                >
+                  {anosDisponiveis.map((ano) => (
+                    <option key={ano} value={ano}>
+                      {ano === "todos" ? "Todos os anos" : `${ano}º ano`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
         </div>
 
@@ -1819,23 +1911,27 @@ function UsuariosCoordenacao() {
                       <p className="text-sm font-black text-slate-700">{usuario.perfil}</p>
                       <div className="flex justify-end">
                         <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => abrirDetalhesUsuario(usuario)}
-                            aria-label={`Ver detalhes de ${usuario.nome}`}
-                            className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-sectec-300 hover:bg-sectec-50 hover:text-sectec-700"
-                          >
-                            <Eye size={16} />
-                          </button>
-
-                          {abaAtiva === "alunos" && usuario.perfil === "Aluno" ? (
+                          <Tooltip label="Ver detalhes">
                             <button
                               type="button"
-                              onClick={() => promoverAlunoParaComissao(usuario)}
-                              className="inline-flex cursor-pointer items-center justify-center rounded-xl border border-sectec-200 bg-sectec-50 px-3 py-2 text-xs font-black text-sectec-700 transition hover:bg-sectec-100 hover:text-sectec-800"
+                              onClick={() => abrirDetalhesUsuario(usuario)}
+                              aria-label={`Ver detalhes de ${usuario.nome}`}
+                              className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-sectec-300 hover:bg-sectec-50 hover:text-sectec-700"
                             >
-                              Tornar comissão
+                              <Eye size={16} />
                             </button>
+                          </Tooltip>
+
+                          {abaAtiva === "alunos" && usuario.perfil === "Aluno" ? (
+                            <Tooltip label="Mover aluno para comissão">
+                              <button
+                                type="button"
+                                onClick={() => promoverAlunoParaComissao(usuario)}
+                                className="inline-flex cursor-pointer items-center justify-center rounded-xl border border-sectec-200 bg-sectec-50 px-3 py-2 text-xs font-black text-sectec-700 transition hover:bg-sectec-100 hover:text-sectec-800"
+                              >
+                                Tornar comissão
+                              </button>
+                            </Tooltip>
                           ) : (
                             <span className="text-xs font-semibold text-slate-400">Sem ações disponíveis</span>
                           )}
@@ -1929,6 +2025,11 @@ function ProjetosCoordenacao() {
   const [detalhesAberto, setDetalhesAberto] = useState(false);
   const [edicaoAberta, setEdicaoAberta] = useState(false);
   const [salvando, setSalvando] = useState(false);
+  const [orientadorAceito, setOrientadorAceito] = useState<{ loading: boolean; data: unknown; error: string }>({
+    loading: false,
+    data: null,
+    error: "",
+  });
   const [formProjeto, setFormProjeto] = useState({
     titulo: "",
     descricao: "",
@@ -2031,9 +2132,21 @@ function ProjetosCoordenacao() {
   const eventoSelecionadoNoForm = eventos.find((evento) => String(evento.id) === formProjeto.evento);
   const temasDoEventoSelecionado = eventoSelecionadoNoForm?.temas ?? [];
 
+  async function carregarOrientadorAceito(projetoId: number | string) {
+    setOrientadorAceito({ loading: true, data: null, error: "" });
+
+    try {
+      const data = await apiRequest<unknown>(`/projetos/${projetoId}/orientador-aceito`);
+      setOrientadorAceito({ loading: false, data, error: "" });
+    } catch {
+      setOrientadorAceito({ loading: false, data: null, error: "Nenhum orientador aceito até o momento." });
+    }
+  }
+
   function abrirDetalhesProjeto(projeto: ProjetoCoordenacaoListagem) {
     setProjetoSelecionado(projeto);
     setDetalhesAberto(true);
+    void carregarOrientadorAceito(projeto.id);
   }
 
   function abrirEdicaoProjeto(projeto: ProjetoCoordenacaoListagem) {
@@ -2178,20 +2291,40 @@ function ProjetosCoordenacao() {
     );
   }
 
+  function getOrientadorAceitoInfo(data: unknown) {
+    const item = data as {
+      nome?: string;
+      email?: string;
+      email_institucional?: string;
+      orientador?: {
+        nome?: string;
+        email?: string;
+        email_institucional?: string;
+      };
+    } | null;
+
+    return {
+      nome: item?.orientador?.nome ?? item?.nome ?? "",
+      email: item?.orientador?.email_institucional ?? item?.orientador?.email ?? item?.email_institucional ?? item?.email ?? "",
+    };
+  }
+
   return (
     <AdminPageShell>
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <PanelTitle icon={<PiNotebook size={20} />} title="Projetos" subtitle="Gestão real de projetos cadastrados, agrupados ou não por evento." />
-          <button
-            type="button"
-            onClick={carregarProjetos}
-            disabled={carregando}
-            className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {carregando ? <Loader2 className="animate-spin" size={17} /> : <RefreshCw size={17} />}
-            Atualizar
-          </button>
+          <Tooltip label="Atualizar dados">
+            <button
+              type="button"
+              onClick={carregarProjetos}
+              disabled={carregando}
+              className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {carregando ? <Loader2 className="animate-spin" size={17} /> : <RefreshCw size={17} />}
+              Atualizar
+            </button>
+          </Tooltip>
         </div>
 
         <div className="mt-5 grid gap-3 lg:grid-cols-[1fr_220px_180px_210px]">
@@ -2280,6 +2413,8 @@ function ProjetosCoordenacao() {
                 const autor = getAutorProjeto(projeto);
                 const integrantes = getIntegrantesProjeto(projeto);
                 const orientadores = getOrientadoresProjeto(projeto);
+                const projetoId = getProjetoId(projeto);
+                const materialId = getMaterialIdFromProjeto(projeto);
 
                 return (
                   <motion.article
@@ -2312,15 +2447,35 @@ function ProjetosCoordenacao() {
                       </div>
 
                       <div className="mt-5 flex flex-wrap gap-2">
-                        <button type="button" onClick={() => abrirDetalhesProjeto(projeto)} className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 transition hover:bg-slate-50">
-                          <Eye size={15} /> Ver
-                        </button>
-                        <button type="button" onClick={() => abrirEdicaoProjeto(projeto)} className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 transition hover:bg-emerald-100">
-                          <Pencil size={15} /> Editar
-                        </button>
-                        <button type="button" onClick={() => excluirProjeto(projeto)} className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs font-black text-red-700 transition hover:bg-red-100">
-                          <Trash2 size={15} /> Excluir
-                        </button>
+                        <Tooltip label="Ver detalhes">
+                          <button type="button" onClick={() => abrirDetalhesProjeto(projeto)} aria-label="Ver detalhes" className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 transition hover:bg-slate-50">
+                            <Eye size={15} /> Ver
+                          </button>
+                        </Tooltip>
+                        <Tooltip label="Editar">
+                          <button type="button" onClick={() => abrirEdicaoProjeto(projeto)} aria-label="Editar" className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 transition hover:bg-emerald-100">
+                            <Pencil size={15} /> Editar
+                          </button>
+                        </Tooltip>
+                        <Tooltip label="Excluir">
+                          <button type="button" onClick={() => excluirProjeto(projeto)} aria-label="Excluir" className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs font-black text-red-700 transition hover:bg-red-100">
+                            <Trash2 size={15} /> Excluir
+                          </button>
+                        </Tooltip>
+                        {projetoId && materialId && (
+                          <>
+                            <Tooltip label="Visualizar PDF">
+                              <button type="button" onClick={() => visualizarPdf(projetoId, materialId)} aria-label="Visualizar PDF" className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50">
+                                <Eye size={15} />
+                              </button>
+                            </Tooltip>
+                            <Tooltip label="Baixar PDF">
+                              <button type="button" onClick={() => baixarPdf(projetoId, materialId)} aria-label="Baixar PDF" className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50">
+                                <Download size={15} />
+                              </button>
+                            </Tooltip>
+                          </>
+                        )}
                       </div>
                     </div>
                   </motion.article>
@@ -2341,6 +2496,34 @@ function ProjetosCoordenacao() {
               <p className="mt-3 text-xs text-slate-500">Evento: <strong className="text-slate-700">{projetoSelecionado.eventoTitulo ?? projetoSelecionado.evento?.titulo ?? "Sem evento"}</strong></p>
               <p className="mt-1 text-xs text-slate-500">Tema: <strong className="text-slate-700">{projetoSelecionado.tema?.nome ?? "Sem tema"}</strong></p>
               <p className="mt-1 text-xs text-slate-500">Criado em: <strong className="text-slate-700">{getDataCriacaoProjeto(projetoSelecionado)}</strong></p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-100 p-4">
+              <p className="text-xs font-black uppercase tracking-widest text-slate-500">Material PDF</p>
+              {projetoTemPdf(projetoSelecionado) ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => visualizarPdf(getProjetoId(projetoSelecionado)!, getMaterialIdFromProjeto(projetoSelecionado)!)}
+                    aria-label="Visualizar PDF"
+                    className="inline-flex cursor-pointer items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 transition hover:bg-slate-50"
+                  >
+                    <Eye size={16} />
+                    Visualizar PDF
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => baixarPdf(getProjetoId(projetoSelecionado)!, getMaterialIdFromProjeto(projetoSelecionado)!)}
+                    aria-label="Baixar PDF"
+                    className="inline-flex cursor-pointer items-center gap-2 rounded-2xl bg-sectec-700 px-4 py-3 text-sm font-black text-white transition hover:bg-sectec-800"
+                  >
+                    <Download size={16} />
+                    Baixar PDF
+                  </button>
+                </div>
+              ) : (
+                <p className="mt-2 text-sm font-semibold text-slate-500">Nenhum PDF disponível para este projeto.</p>
+              )}
             </div>
 
             <div className="rounded-2xl border border-slate-100 p-4">
@@ -2369,6 +2552,20 @@ function ProjetosCoordenacao() {
               <p className="text-xs font-black uppercase tracking-widest text-slate-500">Orientadores</p>
               <div className="mt-3">{renderOrientadores(projetoSelecionado)}</div>
               <p className="mt-3 text-xs font-semibold text-slate-400">Troca de orientador ainda não está disponível pelo backend.</p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-100 p-4">
+              <p className="text-xs font-black uppercase tracking-widest text-slate-500">Orientador aceito</p>
+              {orientadorAceito.loading ? (
+                <div className="mt-3 h-12 animate-pulse rounded-xl bg-slate-100" />
+              ) : getOrientadorAceitoInfo(orientadorAceito.data).nome ? (
+                <div className="mt-3 rounded-xl bg-emerald-50 p-3">
+                  <p className="text-sm font-black text-emerald-900">{getOrientadorAceitoInfo(orientadorAceito.data).nome}</p>
+                  <p className="mt-1 text-xs font-semibold text-emerald-700">{getOrientadorAceitoInfo(orientadorAceito.data).email || "-"}</p>
+                </div>
+              ) : (
+                <p className="mt-2 text-sm font-semibold text-slate-500">Nenhum orientador aceito até o momento.</p>
+              )}
             </div>
           </div>
         )}
@@ -2567,6 +2764,7 @@ function Administrador() {
     cardRef,
     index = 0,
     onClick,
+    tooltip,
   }: {
     icon: React.ReactNode;
     title: string;
@@ -2576,6 +2774,7 @@ function Administrador() {
     cardRef?: React.Ref<HTMLElement>;
     index?: number;
     onClick?: () => void;
+    tooltip?: string;
   }) {
     return (
       <motion.article
@@ -2595,9 +2794,17 @@ function Administrador() {
             <strong className="mt-3 block text-2xl font-black text-slate-950">{value}</strong>
             {subtitle && <p className="mt-2 text-sm font-semibold leading-5 text-slate-500">{subtitle}</p>}
           </div>
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-sectec-50 text-sectec-700">
-            {icon}
-          </span>
+          {tooltip ? (
+            <Tooltip label={tooltip}>
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-sectec-50 text-sectec-700">
+                {icon}
+              </span>
+            </Tooltip>
+          ) : (
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-sectec-50 text-sectec-700">
+              {icon}
+            </span>
+          )}
         </div>
         {children && <div className="mt-5 space-y-2">{children}</div>}
       </motion.article>
@@ -2650,7 +2857,7 @@ function Administrador() {
                 </span>
                 <h1 className="mt-5 text-3xl font-black tracking-tight sm:text-4xl">Painel da Coordenação</h1>
                 <p className="mt-3 max-w-3xl text-sm font-medium leading-6 text-white/70 sm:text-base">
-                  Resumo operacional da SECTEC com evento vigente, usuários, projetos e pendências.
+                  Resumo operacional da SECTEC com relatórios reais, projetos, usuários e pendências.
                 </p>
                 <p className="mt-4 text-xs font-black uppercase tracking-widest text-white/45">
                   Última atualização: {ultimaAtualizacao}
@@ -2683,6 +2890,7 @@ function Administrador() {
               value={totalAlunosSemProjetoRelatorio}
               subtitle={`${turmasAfetadasRelatorio} turma(s) afetada(s)`}
               onClick={() => irParaRelatorio("alunos-sem-projeto")}
+              tooltip="Alunos que ainda não aparecem como autor ou integrante em projeto"
             >
               <DetailItem label="Fonte" value="/relatorio/alunos-sem-projeto" />
               <DetailItem label="Ação" value="Ver relatório" />
@@ -2695,6 +2903,7 @@ function Administrador() {
               value={eventosComComissaoRelatorio}
               subtitle={`${totalMembrosComissaoRelatorio} membro(s) registrados`}
               onClick={() => irParaRelatorio("comissao-por-evento")}
+              tooltip="Histórico de alunos que participaram da comissão organizadora"
             >
               <DetailItem label="Histórico" value="Real" />
               <DetailItem label="Ação" value="Ver histórico" />
@@ -2707,6 +2916,7 @@ function Administrador() {
               value={resumoEixosRelatorio.eixos}
               subtitle={`${resumoEixosRelatorio.projetos} projetos mapeados`}
               onClick={() => irParaRelatorio("eixos-tematicos")}
+              tooltip="Projetos agrupados por eixo e evento"
             >
               <DetailItem label="Pendentes" value={resumoEixosRelatorio.pendentes} />
               <DetailItem label="Aceitos" value={resumoEixosRelatorio.aceitos} />
@@ -2720,6 +2930,7 @@ function Administrador() {
               value={relatorioProjetosPorOrientador.length}
               subtitle={`${totalProjetosAceitosOrientador} projeto(s) aceitos`}
               onClick={() => irParaRelatorio("projetos-por-orientador")}
+              tooltip="Projetos aceitos distribuídos por orientador"
             >
               <DetailItem label="Orientadores" value={relatorioProjetosPorOrientador.length} />
               <DetailItem label="Ação" value="Ver distribuição" />
@@ -2732,6 +2943,7 @@ function Administrador() {
               value={Object.keys(relatorioProjetosPorTurma).length}
               subtitle={`${resumoTurmasRelatorio.criados} criados · ${resumoTurmasRelatorio.aprovados} aprovados`}
               onClick={() => irParaRelatorio("projetos-por-turma")}
+              tooltip="Projetos criados e aprovados por turma"
             >
               <DetailItem label="Turmas" value={Object.keys(relatorioProjetosPorTurma).length} />
               <DetailItem label="Ação" value="Ver relatório" />

@@ -218,13 +218,30 @@ function MetricCard({ title, value, detail, error }: { title: string; value: str
   );
 }
 
+function Tooltip({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <span className="group relative inline-flex">
+      {children}
+      <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white opacity-0 shadow-lg transition group-hover:block group-hover:opacity-100">
+        {label}
+      </span>
+    </span>
+  );
+}
+
 function RelatorioStatusAlunos() {
   const [searchParams, setSearchParams] = useSearchParams();
   const abaUrl = searchParams.get("aba") as ReportKey | null;
   const [abaAtiva, setAbaAtiva] = useState<ReportKey>(tabs.some((tab) => tab.id === abaUrl) ? abaUrl! : "visao-geral");
   const [busca, setBusca] = useState("");
   const [grupoAlunos, setGrupoAlunos] = useState("todos");
+  const [anoAlunosFiltro, setAnoAlunosFiltro] = useState("todos");
+  const [eventoComissaoFiltro, setEventoComissaoFiltro] = useState("todos");
+  const [turmaComissaoFiltro, setTurmaComissaoFiltro] = useState("todas");
+  const [anoComissaoFiltro, setAnoComissaoFiltro] = useState("todos");
   const [eventoEixo, setEventoEixo] = useState("todos");
+  const [turmaProjetoFiltro, setTurmaProjetoFiltro] = useState("todas");
+  const [anoProjetoFiltro, setAnoProjetoFiltro] = useState("todos");
 
   const [alunosSemProjeto, setAlunosSemProjeto] = useState<ReportState<AlunosSemProjetoResponse>>(emptyState);
   const [comissaoPorEvento, setComissaoPorEvento] = useState<ReportState<ComissaoPorEventoResponse>>(emptyState);
@@ -305,12 +322,33 @@ function RelatorioStatusAlunos() {
       .map(([grupo, alunos]) => [
         grupo,
         alunos.filter((aluno) => {
-          if (!termo) return true;
-          return `${aluno.nome} ${aluno.email} ${aluno.turma ?? ""}`.toLowerCase().includes(termo);
+          const bateBusca = !termo || `${aluno.nome} ${aluno.email} ${aluno.turma ?? ""}`.toLowerCase().includes(termo);
+          const bateAno = anoAlunosFiltro === "todos" || String(aluno.ano) === anoAlunosFiltro;
+          return bateBusca && bateAno;
         }),
       ] as const)
       .filter(([, alunos]) => alunos.length > 0);
-  }, [alunosSemProjeto.data, busca, grupoAlunos]);
+  }, [alunosSemProjeto.data, anoAlunosFiltro, busca, grupoAlunos]);
+
+  const comissaoFiltrada = useMemo(() => {
+    const termo = busca.trim().toLowerCase();
+
+    return Object.entries(comissaoPorEvento.data ?? {})
+      .filter(([evento]) => eventoComissaoFiltro === "todos" || evento === eventoComissaoFiltro)
+      .map(([evento, dados]) => [
+        evento,
+        {
+          ...dados,
+          alunos: dados.alunos.filter((aluno) => {
+            const bateBusca = !termo || `${aluno.nome} ${aluno.email}`.toLowerCase().includes(termo);
+            const bateTurma = turmaComissaoFiltro === "todas" || (aluno.turma ?? "").toLowerCase() === turmaComissaoFiltro.toLowerCase();
+            const bateAno = anoComissaoFiltro === "todos" || String(aluno.ano) === anoComissaoFiltro;
+            return bateBusca && bateTurma && bateAno;
+          }),
+        },
+      ] as const)
+      .filter(([, dados]) => dados.alunos.length > 0);
+  }, [anoComissaoFiltro, busca, comissaoPorEvento.data, eventoComissaoFiltro, turmaComissaoFiltro]);
 
   const eixosFiltrados = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -326,6 +364,44 @@ function RelatorioStatusAlunos() {
       ] as const)
       .filter(([, dados]) => dados.eixos.length > 0);
   }, [busca, eixosTematicos.data, eventoEixo]);
+
+  const orientadoresFiltrados = useMemo(() => {
+    const termo = busca.trim().toLowerCase();
+
+    return [...(projetosPorOrientador.data ?? [])]
+      .filter((orientador) => {
+        if (!termo) return true;
+        return `${orientador.orientadorNome} ${orientador.email} ${orientador.projetos.join(" ")}`.toLowerCase().includes(termo);
+      })
+      .sort((a, b) => b.totalProjetosAceitos - a.totalProjetosAceitos);
+  }, [busca, projetosPorOrientador.data]);
+
+  const turmasFiltradas = useMemo(() => {
+    return Object.values(projetosPorTurma.data ?? {})
+      .filter((turma) => turmaProjetoFiltro === "todas" || turma.turma === turmaProjetoFiltro)
+      .filter((turma) => anoProjetoFiltro === "todos" || String(turma.ano) === anoProjetoFiltro)
+      .sort((a, b) => a.ano - b.ano || a.turma.localeCompare(b.turma));
+  }, [anoProjetoFiltro, projetosPorTurma.data, turmaProjetoFiltro]);
+
+  const anosAlunos = useMemo(() => {
+    return Array.from(new Set(Object.values(alunosSemProjeto.data ?? {}).flat().map((aluno) => aluno.ano))).sort((a, b) => a - b);
+  }, [alunosSemProjeto.data]);
+
+  const turmasComissao = useMemo(() => {
+    return Array.from(new Set(Object.values(comissaoPorEvento.data ?? {}).flatMap((evento) => evento.alunos.map((aluno) => aluno.turma).filter(Boolean)))).sort() as string[];
+  }, [comissaoPorEvento.data]);
+
+  const anosComissao = useMemo(() => {
+    return Array.from(new Set(Object.values(comissaoPorEvento.data ?? {}).flatMap((evento) => evento.alunos.map((aluno) => aluno.ano)))).sort((a, b) => a - b);
+  }, [comissaoPorEvento.data]);
+
+  const turmasProjetos = useMemo(() => {
+    return Array.from(new Set(Object.values(projetosPorTurma.data ?? {}).map((turma) => turma.turma))).sort();
+  }, [projetosPorTurma.data]);
+
+  const anosProjetos = useMemo(() => {
+    return Array.from(new Set(Object.values(projetosPorTurma.data ?? {}).map((turma) => turma.ano))).sort((a, b) => a - b);
+  }, [projetosPorTurma.data]);
 
   const eixosResumo = somaEixos(eixosTematicos.data);
   const turmasResumo = somaTurmas(projetosPorTurma.data);
@@ -378,7 +454,7 @@ function RelatorioStatusAlunos() {
 
     return (
       <div className="space-y-4">
-        <div className="grid gap-3 md:grid-cols-[1fr_240px]">
+        <div className="grid gap-3 md:grid-cols-[1fr_240px_180px]">
           <label className="relative block">
             <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
             <input
@@ -391,12 +467,24 @@ function RelatorioStatusAlunos() {
           <select
             value={grupoAlunos}
             onChange={(event) => setGrupoAlunos(event.target.value)}
-            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-emerald-400"
+            className="cursor-pointer rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-emerald-400"
           >
             <option value="todos">Todas as turmas</option>
             {Object.entries(alunosSemProjeto.data ?? {}).map(([grupo, alunos]) => (
               <option key={grupo} value={grupo}>
                 {formatarGrupoTurma(grupo, alunos)}
+              </option>
+            ))}
+          </select>
+          <select
+            value={anoAlunosFiltro}
+            onChange={(event) => setAnoAlunosFiltro(event.target.value)}
+            className="cursor-pointer rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-emerald-400"
+          >
+            <option value="todos">Todos os anos</option>
+            {anosAlunos.map((ano) => (
+              <option key={ano} value={ano}>
+                {ano}º ano
               </option>
             ))}
           </select>
@@ -433,27 +521,61 @@ function RelatorioStatusAlunos() {
     if (!somaComissao(comissaoPorEvento.data)) return <Empty message="Nenhum histórico de comissão encontrado." />;
 
     return (
-      <div className="grid gap-4 lg:grid-cols-2">
-        {Object.entries(comissaoPorEvento.data ?? {}).map(([evento, dados]) => (
-          <Card key={evento}>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Evento #{dados.eventoId}</p>
-                <h2 className="mt-2 text-lg font-black text-slate-950">{evento}</h2>
-              </div>
-              <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">{dados.alunos.length} membro(s)</span>
-            </div>
-            <div className="mt-4 space-y-2">
-              {dados.alunos.map((aluno) => (
-                <div key={aluno.id} className="rounded-2xl border border-slate-100 p-3 transition hover:bg-slate-50">
-                  <p className="font-black text-slate-900">{aluno.nome}</p>
-                  <p className="text-sm font-semibold text-slate-500">{aluno.email}</p>
-                  <p className="mt-1 text-xs font-bold text-slate-500">{nomeTurma(aluno.turma, aluno.ano)}</p>
+      <div className="space-y-4">
+        <div className="grid gap-3 lg:grid-cols-[1fr_240px_190px_170px]">
+          <label className="relative block">
+            <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <input
+              value={busca}
+              onChange={(event) => setBusca(event.target.value)}
+              placeholder="Buscar por nome ou email"
+              className="w-full rounded-2xl border border-slate-200 bg-white py-3 pl-11 pr-4 text-sm font-semibold outline-none transition focus:border-emerald-400"
+            />
+          </label>
+          <select value={eventoComissaoFiltro} onChange={(event) => setEventoComissaoFiltro(event.target.value)} className="cursor-pointer rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-emerald-400">
+            <option value="todos">Todos os eventos</option>
+            {Object.keys(comissaoPorEvento.data ?? {}).map((evento) => (
+              <option key={evento} value={evento}>{evento}</option>
+            ))}
+          </select>
+          <select value={turmaComissaoFiltro} onChange={(event) => setTurmaComissaoFiltro(event.target.value)} className="cursor-pointer rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-emerald-400">
+            <option value="todas">Todas as turmas</option>
+            {turmasComissao.map((turma) => (
+              <option key={turma} value={turma}>{turma}</option>
+            ))}
+          </select>
+          <select value={anoComissaoFiltro} onChange={(event) => setAnoComissaoFiltro(event.target.value)} className="cursor-pointer rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-emerald-400">
+            <option value="todos">Todos os anos</option>
+            {anosComissao.map((ano) => (
+              <option key={ano} value={ano}>{ano}º ano</option>
+            ))}
+          </select>
+        </div>
+
+        {comissaoFiltrada.length === 0 ? <Empty message="Nenhum histórico de comissão encontrado." /> : null}
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          {comissaoFiltrada.map(([evento, dados]) => (
+            <Card key={evento}>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Evento #{dados.eventoId}</p>
+                  <h2 className="mt-2 text-lg font-black text-slate-950">{evento}</h2>
                 </div>
-              ))}
-            </div>
-          </Card>
-        ))}
+                <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">{dados.alunos.length} membro(s)</span>
+              </div>
+              <div className="mt-4 space-y-2">
+                {dados.alunos.map((aluno) => (
+                  <div key={aluno.id} className="rounded-2xl border border-slate-100 p-3 transition hover:bg-slate-50">
+                    <p className="font-black text-slate-900">{aluno.nome}</p>
+                    <p className="text-sm font-semibold text-slate-500">{aluno.email}</p>
+                    <p className="mt-1 text-xs font-bold text-slate-500">{nomeTurma(aluno.turma, aluno.ano)}</p>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          ))}
+        </div>
       </div>
     );
   }
@@ -478,7 +600,7 @@ function RelatorioStatusAlunos() {
           <select
             value={eventoEixo}
             onChange={(event) => setEventoEixo(event.target.value)}
-            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-emerald-400"
+            className="cursor-pointer rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-emerald-400"
           >
             <option value="todos">Todos os eventos</option>
             {Object.keys(eixosTematicos.data ?? {}).map((evento) => (
@@ -501,8 +623,12 @@ function RelatorioStatusAlunos() {
                   <p className="font-black text-slate-900">{eixo.temaNome}</p>
                   <div className="mt-3 flex flex-wrap gap-2 text-xs font-black">
                     <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700">Total: {eixo.totalProjetos}</span>
-                    <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-700">Pendentes: {eixo.projetosPendentes}</span>
-                    <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-700">Aceitos: {eixo.projetosAceitos}</span>
+                    <Tooltip label="Projetos aguardando orientação">
+                      <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-700">Pendentes: {eixo.projetosPendentes}</span>
+                    </Tooltip>
+                    <Tooltip label="Projetos com orientador aceito">
+                      <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-700">Aceitos: {eixo.projetosAceitos}</span>
+                    </Tooltip>
                   </div>
                 </div>
               ))}
@@ -519,31 +645,45 @@ function RelatorioStatusAlunos() {
     if (!projetosPorOrientador.data?.length) return <Empty message="Nenhum projeto por orientador encontrado." />;
 
     return (
-      <div className="grid gap-4 lg:grid-cols-2">
-        {projetosPorOrientador.data.map((orientador) => (
-          <Card key={orientador.orientadorId}>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-black text-slate-950">{orientador.orientadorNome}</h2>
-                <p className="mt-1 text-sm font-semibold text-slate-500">{orientador.email}</p>
+      <div className="space-y-4">
+        <label className="relative block max-w-xl">
+          <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <input
+            value={busca}
+            onChange={(event) => setBusca(event.target.value)}
+            placeholder="Buscar por orientador, email ou projeto"
+            className="w-full rounded-2xl border border-slate-200 bg-white py-3 pl-11 pr-4 text-sm font-semibold outline-none transition focus:border-emerald-400"
+          />
+        </label>
+
+        {orientadoresFiltrados.length === 0 ? <Empty message="Nenhum projeto por orientador encontrado." /> : null}
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          {orientadoresFiltrados.map((orientador) => (
+            <Card key={orientador.orientadorId}>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-black text-slate-950">{orientador.orientadorNome}</h2>
+                  <p className="mt-1 text-sm font-semibold text-slate-500">{orientador.email}</p>
+                </div>
+                <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">
+                  {orientador.totalProjetosAceitos} aceito(s)
+                </span>
               </div>
-              <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">
-                {orientador.totalProjetosAceitos} aceito(s)
-              </span>
-            </div>
-            <div className="mt-4 space-y-2">
-              {orientador.projetos.length ? (
-                orientador.projetos.map((projeto) => (
-                  <p key={projeto} className="rounded-2xl border border-slate-100 px-3 py-2 text-sm font-bold text-slate-700">
-                    {projeto}
-                  </p>
-                ))
-              ) : (
-                <p className="rounded-2xl bg-slate-50 px-3 py-2 text-sm font-bold text-slate-500">Nenhum projeto aceito.</p>
-              )}
-            </div>
-          </Card>
-        ))}
+              <div className="mt-4 space-y-2">
+                {orientador.projetos.length ? (
+                  orientador.projetos.map((projeto) => (
+                    <p key={projeto} className="rounded-2xl border border-slate-100 px-3 py-2 text-sm font-bold text-slate-700">
+                      {projeto}
+                    </p>
+                  ))
+                ) : (
+                  <p className="rounded-2xl bg-slate-50 px-3 py-2 text-sm font-bold text-slate-500">Nenhum projeto aceito.</p>
+                )}
+              </div>
+            </Card>
+          ))}
+        </div>
       </div>
     );
   }
@@ -552,35 +692,53 @@ function RelatorioStatusAlunos() {
     if (projetosPorTurma.loading) return <Skeleton />;
     if (projetosPorTurma.error) return <ErrorBox state={projetosPorTurma} onRetry={() => carregar(realReports["projetos-por-turma"], setProjetosPorTurma)} />;
 
-    const turmas = Object.values(projetosPorTurma.data ?? {}).sort((a, b) => a.ano - b.ano || a.turma.localeCompare(b.turma));
-    if (!turmas.length) return <Empty message="Nenhum projeto por turma encontrado." />;
+    if (!Object.keys(projetosPorTurma.data ?? {}).length) return <Empty message="Nenhum projeto por turma encontrado." />;
 
     return (
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {turmas.map((turma) => {
-          const progresso = turma.totalCriados ? Math.round((turma.totalAprovados / turma.totalCriados) * 100) : 0;
+      <div className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:max-w-xl">
+          <select value={turmaProjetoFiltro} onChange={(event) => setTurmaProjetoFiltro(event.target.value)} className="cursor-pointer rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-emerald-400">
+            <option value="todas">Todas as turmas</option>
+            {turmasProjetos.map((turma) => (
+              <option key={turma} value={turma}>{turma}</option>
+            ))}
+          </select>
+          <select value={anoProjetoFiltro} onChange={(event) => setAnoProjetoFiltro(event.target.value)} className="cursor-pointer rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-emerald-400">
+            <option value="todos">Todos os anos</option>
+            {anosProjetos.map((ano) => (
+              <option key={ano} value={ano}>{ano}º ano</option>
+            ))}
+          </select>
+        </div>
 
-          return (
-            <Card key={`${turma.turma}-${turma.ano}`}>
-              <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Turma</p>
-              <h2 className="mt-2 text-lg font-black text-slate-950">{nomeTurma(turma.turma, turma.ano)}</h2>
-              <div className="mt-4 grid grid-cols-2 gap-2">
-                <div className="rounded-2xl bg-slate-50 p-3">
-                  <p className="text-xs font-black text-slate-400">Criados</p>
-                  <strong className="text-xl font-black text-slate-900">{turma.totalCriados}</strong>
+        {turmasFiltradas.length === 0 ? <Empty message="Nenhum projeto por turma encontrado." /> : null}
+
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {turmasFiltradas.map((turma) => {
+            const progresso = turma.totalCriados ? Math.round((turma.totalAprovados / turma.totalCriados) * 100) : 0;
+
+            return (
+              <Card key={`${turma.turma}-${turma.ano}`}>
+                <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Turma</p>
+                <h2 className="mt-2 text-lg font-black text-slate-950">{nomeTurma(turma.turma, turma.ano)}</h2>
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <div className="rounded-2xl bg-slate-50 p-3">
+                    <p className="text-xs font-black text-slate-400">Criados</p>
+                    <strong className="text-xl font-black text-slate-900">{turma.totalCriados}</strong>
+                  </div>
+                  <div className="rounded-2xl bg-emerald-50 p-3">
+                    <p className="text-xs font-black text-emerald-600">Aprovados</p>
+                    <strong className="text-xl font-black text-emerald-800">{turma.totalAprovados}</strong>
+                  </div>
                 </div>
-                <div className="rounded-2xl bg-emerald-50 p-3">
-                  <p className="text-xs font-black text-emerald-600">Aprovados</p>
-                  <strong className="text-xl font-black text-emerald-800">{turma.totalAprovados}</strong>
+                <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
+                  <div className="h-full rounded-full bg-emerald-600" style={{ width: `${progresso}%` }} />
                 </div>
-              </div>
-              <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
-                <div className="h-full rounded-full bg-emerald-600" style={{ width: `${progresso}%` }} />
-              </div>
-              <p className="mt-2 text-xs font-bold text-slate-500">{turma.totalAprovados} / {turma.totalCriados} aprovados</p>
-            </Card>
-          );
-        })}
+                <p className="mt-2 text-xs font-bold text-slate-500">{turma.totalAprovados} / {turma.totalCriados} aprovados</p>
+              </Card>
+            );
+          })}
+        </div>
       </div>
     );
   }
@@ -591,7 +749,7 @@ function RelatorioStatusAlunos() {
     return (
       <Card>
         <h2 className="text-xl font-black text-slate-950">Relatórios sem endpoint real</h2>
-        <p className="mt-2 text-sm font-semibold text-slate-500">Este relatório ainda não possui endpoint real no backend.</p>
+        <p className="mt-2 text-sm font-semibold text-slate-500">Relatórios de notas e avaliação ainda não estão disponíveis no backend.</p>
         <div className="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {itens.map((item) => (
             <span key={item} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-black text-slate-700">
@@ -630,15 +788,17 @@ function RelatorioStatusAlunos() {
               </div>
 
               {abaAtiva !== "em-breve" && (
-                <button
-                  type="button"
-                  onClick={atualizarAba}
-                  disabled={loadingAtual}
-                  className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white px-5 py-3 text-sm font-black text-emerald-800 shadow-sm transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto"
-                >
-                  {loadingAtual ? <Loader2 className="animate-spin" size={17} /> : <RefreshCw size={17} />}
-                  {loadingAtual ? "Atualizando..." : "Atualizar"}
-                </button>
+                <Tooltip label="Atualizar dados">
+                  <button
+                    type="button"
+                    onClick={atualizarAba}
+                    disabled={loadingAtual}
+                    className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white px-5 py-3 text-sm font-black text-emerald-800 shadow-sm transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto"
+                  >
+                    {loadingAtual ? <Loader2 className="animate-spin" size={17} /> : <RefreshCw size={17} />}
+                    {loadingAtual ? "Atualizando..." : "Atualizar"}
+                  </button>
+                </Tooltip>
               )}
             </div>
           </section>
