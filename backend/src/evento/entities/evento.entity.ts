@@ -8,9 +8,11 @@ import {
   OneToMany,
   JoinColumn,
 } from 'typeorm';
-import { Projeto } from 'src/projetos/entities/projeto.entity';
-import { TemaEvento } from 'src/evento/entities/tema-evento.entity';
-import { User } from 'src/users/entities/user.entity';
+//  COMO DEVE FICAR (Import Relativo)
+import { Projeto } from '../../projetos/entities/projeto.entity';
+
+import { TemaEvento } from '../../evento/entities/tema-evento.entity';
+import { User } from '../../users/entities/user.entity';
 import { ComissaoEvento } from './comissao-evento.entity';
 
 

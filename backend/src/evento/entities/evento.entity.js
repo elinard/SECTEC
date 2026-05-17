@@ -8,9 +8,10 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Evento = exports.Periodo = exports.EventoStatus = void 0;
 var typeorm_1 = require("typeorm");
-var projeto_entity_1 = require("src/projetos/entities/projeto.entity");
-var tema_evento_entity_1 = require("src/evento/entities/tema-evento.entity");
-var user_entity_1 = require("src/users/entities/user.entity");
+//  COMO DEVE FICAR (Import Relativo)
+var projeto_entity_1 = require("../../projetos/entities/projeto.entity");
+var tema_evento_entity_1 = require("../../evento/entities/tema-evento.entity");
+var user_entity_1 = require("../../users/entities/user.entity");
 var comissao_evento_entity_1 = require("./comissao-evento.entity");
 var EventoStatus;
 (function (EventoStatus) {
