@@ -118,6 +118,22 @@ export class ProjetosService {
     return projeto;
   }
 
+  async getOrientadorAceitoByProjetoId(id: number): Promise<User> {
+    const solicitacaoAceita = await this.projetoOrientadorRepository.findOne({
+      where: {
+        projeto: { id },
+        status: 'aceito',
+      },
+      relations: ['orientador'],
+    });
+
+    if (!solicitacaoAceita) {
+      throw new NotFoundException(`Nenhum orientador aceito encontrado para o projeto #${id}.`);
+    }
+
+    return solicitacaoAceita.orientador;
+  }
+
   /**
    * Encontra o projeto ativo do aluno no evento vigente, 
    * seja ele o aluno autor ou um dos integrantes da equipe.

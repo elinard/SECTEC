@@ -144,6 +144,20 @@ console.log('ID do Autor no Banco:', typeof material.projeto.alunoAutor.id, mate
     };
   }
 
+  async findMateriaisPorOrientador(
+    orientadorId: number,
+  ): Promise<ProjetoMaterial[]> {
+    return this.materiaisRepository
+      .createQueryBuilder('material')
+      .leftJoinAndSelect('material.projeto', 'projeto')
+      .leftJoinAndSelect('projeto.orientadores', 'projetoOrientador')
+      .leftJoinAndSelect('projetoOrientador.orientador', 'orientador')
+      .where('orientador.id = :orientadorId', { orientadorId })
+      .andWhere('projetoOrientador.status = :statusAceito', { statusAceito: 'aceito' })
+      .orderBy('material.criadoEm', 'DESC')
+      .getMany();
+  }
+
   // =========================================================================
   // MÉTODOS PRIVADOS DE FLUXO DE NEGÓCIO (CORE LOGIC)
   // =========================================================================

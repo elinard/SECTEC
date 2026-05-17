@@ -98,4 +98,11 @@ export class MateriaisController {
     return await this.materiaisService.listarMateriaisPendentesPorOrientador(orientadorId);
   }
 
+  @Get('projetos-orientados')
+  @Roles(UserRole.ORIENTADOR)
+  @ApiOperation({ summary: 'Lista os materiais dos projetos que o orientador já orienta' })
+  async findMateriaisPorOrientador(@GetUser('userId') orientadorId: number) {
+    return await this.materiaisService.findMateriaisPorOrientador(orientadorId);
+  }
+
 }

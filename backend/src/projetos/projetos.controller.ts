@@ -117,7 +117,21 @@ export class ProjetosController {
     return this.projetosService.findProjetoAtualPorAluno(userId);
   }
 
+  @Get(':id/orientador-aceito')
+  @ApiOperation({ summary: 'Retorna o orientador que aceitou orientar o projeto pelo ID' })
+  async findOrientadorAceito(
+    @Param('id', ParseIntPipe) id: number,
+    @GetUser('userId') userId: number,
+    @GetUser('role') role: string,
+  ) {
+    const projeto = await this.projetosService.findOne(id);
 
+    if (role === 'aluno' && projeto.alunoAutor.id !== userId) {
+      throw new ForbiddenException('Acesso negado: você não possui vínculo com este projeto.');
+    }
+
+    return this.projetosService.getOrientadorAceitoByProjetoId(id);
+  }
 
 
   @Get(':id')
