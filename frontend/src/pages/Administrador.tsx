@@ -49,6 +49,56 @@ type StatusProjeto =
   | "Avaliado";
 type Prioridade = "baixa" | "media" | "alta";
 
+type AlunoRelatorio = {
+  id: number;
+  nome: string;
+  email: string;
+  ano: number;
+  turma: string | null;
+};
+
+type AlunosSemProjetoResponse = Record<string, AlunoRelatorio[]>;
+
+type ComissaoPorEventoResponse = Record<
+  string,
+  {
+    eventoId: number;
+    alunos: AlunoRelatorio[];
+  }
+>;
+
+type EixosPorEventoResponse = Record<
+  string,
+  {
+    eventoId: number;
+    eixos: {
+      temaId: number;
+      temaNome: string;
+      totalProjetos: number;
+      projetosPendentes: number;
+      projetosAceitos: number;
+    }[];
+  }
+>;
+
+type ProjetosPorOrientadorResponse = {
+  orientadorId: number;
+  orientadorNome: string;
+  email: string;
+  totalProjetosAceitos: number;
+  projetos: string[];
+}[];
+
+type ProjetosPorTurmaResponse = Record<
+  string,
+  {
+    turma: string;
+    ano: number;
+    totalCriados: number;
+    totalAprovados: number;
+  }
+>;
+
 type ProjetoAdmin = {
   id: number;
   titulo: string;
@@ -551,13 +601,6 @@ function getFaseAtual(evento: EventoApi | null) {
   return fase?.label ?? "Fora do período configurado";
 }
 
-function formatarAnoEvento(evento: EventoApi | null) {
-  if (!evento?.prazoInicial) return "-";
-
-  const data = new Date(evento.prazoInicial);
-  return Number.isNaN(data.getTime()) ? "-" : String(data.getFullYear());
-}
-
 function buscarEventoDoAnoAtual(eventos: EventoApi[]) {
   const anoAtual = new Date().getFullYear();
 
@@ -565,50 +608,6 @@ function buscarEventoDoAnoAtual(eventos: EventoApi[]) {
     const data = new Date(evento.prazoInicial);
     return !Number.isNaN(data.getTime()) && data.getFullYear() === anoAtual;
   }) ?? null;
-}
-
-function getStatusProjeto(projeto: ProjetoCoordenacaoListagem) {
-  return String(projeto.status ?? projeto.situacao ?? "").toLowerCase();
-}
-
-function extrairIdsAlunosDoProjeto(projeto: ProjetoCoordenacaoListagem) {
-  const ids = new Set<string>();
-
-  if (projeto.alunoAutor?.id !== undefined && projeto.alunoAutor?.id !== null) {
-    ids.add(String(projeto.alunoAutor.id));
-  }
-
-  projeto.projetoAlunos?.forEach((vinculo) => {
-    if (vinculo.aluno?.id !== undefined && vinculo.aluno?.id !== null) {
-      ids.add(String(vinculo.aluno.id));
-    }
-  });
-
-  return ids;
-}
-
-function calcularAlunosSemProjeto(alunos: UsuarioApi[], projetos: ProjetoCoordenacaoListagem[]) {
-  const idsComProjeto = new Set<string>();
-  const possuiRelacaoDeAluno = projetos.some((projeto) => extrairIdsAlunosDoProjeto(projeto).size > 0);
-
-  if (projetos.length > 0 && !possuiRelacaoDeAluno) return null;
-
-  projetos.forEach((projeto) => {
-    extrairIdsAlunosDoProjeto(projeto).forEach((id) => idsComProjeto.add(id));
-  });
-
-  return alunos.filter((aluno) => !idsComProjeto.has(String(aluno.id))).length;
-}
-
-function contarEventosSemTema(eventos: EventoApi[]) {
-  const eventosComTemasNoPayload = eventos.filter((evento) => Array.isArray(evento.temas));
-  if (eventos.length > 0 && eventosComTemasNoPayload.length === 0) return null;
-
-  return eventosComTemasNoPayload.filter((evento) => (evento.temas?.length ?? 0) === 0).length;
-}
-
-function valorOuIndisponivel(value: number | null) {
-  return value === null ? "Indisponível" : String(value);
 }
 
 function mensagemErroApi(error: unknown, fallback = "Não foi possível carregar os dados.") {
@@ -2464,16 +2463,14 @@ function Administrador() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const projetosResumoRef = useRef<HTMLElement | null>(null);
-  const pendenciasRef = useRef<HTMLElement | null>(null);
   const [carregandoDashboard, setCarregandoDashboard] = useState(true);
   const [erroDashboard, setErroDashboard] = useState("");
   const [eventoVigente, setEventoVigente] = useState<EventoApi | null>(null);
-  const [eventos, setEventos] = useState<EventoApi[]>([]);
-  const [alunos, setAlunos] = useState<UsuarioApi[]>([]);
-  const [orientadores, setOrientadores] = useState<UsuarioApi[]>([]);
-  const [comissao, setComissao] = useState<UsuarioApi[]>([]);
-  const [projetosCoordenacao, setProjetosCoordenacao] = useState<ProjetoCoordenacaoListagem[]>([]);
-  const [pdfsCorrompidos, setPdfsCorrompidos] = useState<number | null>(null);
+  const [relatorioAlunosSemProjeto, setRelatorioAlunosSemProjeto] = useState<AlunosSemProjetoResponse>({});
+  const [relatorioComissaoPorEvento, setRelatorioComissaoPorEvento] = useState<ComissaoPorEventoResponse>({});
+  const [relatorioEixos, setRelatorioEixos] = useState<EixosPorEventoResponse>({});
+  const [relatorioProjetosPorOrientador, setRelatorioProjetosPorOrientador] = useState<ProjetosPorOrientadorResponse>([]);
+  const [relatorioProjetosPorTurma, setRelatorioProjetosPorTurma] = useState<ProjetosPorTurmaResponse>({});
 
   async function requestOrDefault<T>(path: string, fallback: T) {
     try {
@@ -2495,30 +2492,25 @@ function Administrador() {
         vigente = buscarEventoDoAnoAtual(eventosResponse);
       }
 
-      const [alunosResponse, orientadoresResponse, comissaoResponse, projetosResponse, pdfsResponse] = await Promise.all([
-        requestOrDefault<UsuarioApi[]>("/users/alunos", []),
-        requestOrDefault<UsuarioApi[]>("/users/orientadores", []),
-        requestOrDefault<UsuarioApi[]>("/users/comissao", []),
-        requestOrDefault<unknown>("/projetos", []),
-        requestOrDefault<unknown>("/pdf/corrompidos", null),
+      const [
+        alunosSemProjetoResponse,
+        comissaoPorEventoResponse,
+        eixosResponse,
+        projetosPorOrientadorResponse,
+        projetosPorTurmaResponse,
+      ] = await Promise.all([
+        requestOrDefault<AlunosSemProjetoResponse>("/relatorio/alunos-sem-projeto", {}),
+        requestOrDefault<ComissaoPorEventoResponse>("/relatorio/comissao-por-evento", {}),
+        requestOrDefault<EixosPorEventoResponse>("/relatorio/eixos-tematicos", {}),
+        requestOrDefault<ProjetosPorOrientadorResponse>("/relatorio/projetos-por-orientador", []),
+        requestOrDefault<ProjetosPorTurmaResponse>("/relatorio/projetos-por-turma", {}),
       ]);
-
-      const projetosExtraidos = extrairProjetosDaResposta(projetosResponse) as ProjetoCoordenacaoListagem[];
-      const totalPdfsCorrompidos = Array.isArray(pdfsResponse)
-        ? pdfsResponse.length
-        : Array.isArray((pdfsResponse as { data?: unknown[] } | null)?.data)
-        ? (pdfsResponse as { data: unknown[] }).data.length
-        : pdfsResponse === null
-        ? null
-        : 0;
-
-      setEventos(eventosResponse);
       setEventoVigente(vigente);
-      setAlunos(alunosResponse);
-      setOrientadores(orientadoresResponse);
-      setComissao(comissaoResponse);
-      setProjetosCoordenacao(projetosExtraidos);
-      setPdfsCorrompidos(totalPdfsCorrompidos);
+      setRelatorioAlunosSemProjeto(alunosSemProjetoResponse);
+      setRelatorioComissaoPorEvento(comissaoPorEventoResponse);
+      setRelatorioEixos(eixosResponse);
+      setRelatorioProjetosPorOrientador(projetosPorOrientadorResponse);
+      setRelatorioProjetosPorTurma(projetosPorTurmaResponse);
     } catch (error) {
       const erro = mensagemErroApi(error, "Não foi possível carregar o painel da coordenação.");
       setErroDashboard(`${erro.amigavel} Erro técnico: ${erro.tecnico}`);
@@ -2531,35 +2523,39 @@ function Administrador() {
     carregarDashboard();
   }, []);
 
-  const totalProjetos = projetosCoordenacao.length;
-  const totalUsuarios = alunos.length + orientadores.length + comissao.length;
   const faseAtualReal = getFaseAtual(eventoVigente);
-  const alunosSemProjeto = useMemo(() => calcularAlunosSemProjeto(alunos, projetosCoordenacao), [alunos, projetosCoordenacao]);
-  const eventosSemTema = useMemo(() => contarEventosSemTema(eventos), [eventos]);
-  const projetosComStatus = projetosCoordenacao.filter((projeto) => getStatusProjeto(projeto));
-  const projetosPendentes = projetosComStatus.filter((projeto) => {
-    const status = getStatusProjeto(projeto);
-    return status.includes("pend") || status.includes("rascunho") || status.includes("aguard") || status.includes("revis");
-  }).length;
-  const projetosAprovados = projetosComStatus.filter((projeto) => {
-    const status = getStatusProjeto(projeto);
-    return status.includes("aprov") || status.includes("aceito") || status.includes("avaliado");
-  }).length;
-  const projetosDoEventoVigente = eventoVigente?.id
-    ? projetosCoordenacao.filter((projeto) => (projeto.eventoId ?? projeto.evento?.id) === eventoVigente.id).length
-    : null;
-  const eventosComProjetos = new Set(
-    projetosCoordenacao
-      .map((projeto) => projeto.eventoId ?? projeto.evento?.id)
-      .filter((id): id is number => typeof id === "number"),
-  ).size;
+  const totalAlunosSemProjetoRelatorio = Object.values(relatorioAlunosSemProjeto).reduce((total, turma) => total + turma.length, 0);
+  const turmasAfetadasRelatorio = Object.values(relatorioAlunosSemProjeto).filter((turma) => turma.length > 0).length;
+  const eventosComComissaoRelatorio = Object.keys(relatorioComissaoPorEvento).length;
+  const totalMembrosComissaoRelatorio = Object.values(relatorioComissaoPorEvento).reduce((total, evento) => total + evento.alunos.length, 0);
+  const resumoEixosRelatorio = Object.values(relatorioEixos).reduce(
+    (acc, evento) => {
+      evento.eixos.forEach((eixo) => {
+        acc.eixos += 1;
+        acc.projetos += eixo.totalProjetos;
+        acc.pendentes += eixo.projetosPendentes;
+        acc.aceitos += eixo.projetosAceitos;
+      });
+      return acc;
+    },
+    { eixos: 0, projetos: 0, pendentes: 0, aceitos: 0 },
+  );
+  const totalProjetosAceitosOrientador = relatorioProjetosPorOrientador.reduce((total, orientador) => total + orientador.totalProjetosAceitos, 0);
+  const resumoTurmasRelatorio = Object.values(relatorioProjetosPorTurma).reduce(
+    (acc, turma) => {
+      acc.criados += turma.totalCriados;
+      acc.aprovados += turma.totalAprovados;
+      return acc;
+    },
+    { criados: 0, aprovados: 0 },
+  );
   const ultimaAtualizacao = new Date().toLocaleTimeString("pt-BR", {
     hour: "2-digit",
     minute: "2-digit",
   });
 
-  const scrollPara = (ref: React.RefObject<HTMLElement | null>) => {
-    ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const irParaRelatorio = (aba: string) => {
+    navigate(`/dashboard/coordenacao/relatorio-alunos?aba=${aba}`);
   };
 
   function DashboardCard({
@@ -2682,43 +2678,63 @@ function Administrador() {
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <DashboardCard
               index={0}
-              icon={<CalendarRange size={22} />}
-              title="Evento vigente"
-              value={eventoVigente?.titulo ?? "Nenhum evento"}
-              subtitle={`Ano ${formatarAnoEvento(eventoVigente)} · ${eventoVigente ? formatarPeriodo({ inicio: eventoVigente.prazoInicial, fim: eventoVigente.prazoFinal }) : "Período não definido"}`}
+              icon={<AlertTriangle size={22} />}
+              title="Alunos sem projeto"
+              value={totalAlunosSemProjetoRelatorio}
+              subtitle={`${turmasAfetadasRelatorio} turma(s) afetada(s)`}
+              onClick={() => irParaRelatorio("alunos-sem-projeto")}
             >
-              <DetailItem label="Fase atual" value={faseAtualReal} />
-              <DetailItem label="Temas" value={eventoVigente?.temas?.length ?? "Indisponível"} />
+              <DetailItem label="Fonte" value="/relatorio/alunos-sem-projeto" />
+              <DetailItem label="Ação" value="Ver relatório" />
             </DashboardCard>
 
-            <DashboardCard index={1} icon={<UsersRound size={22} />} title="Usuários ativos" value={totalUsuarios} subtitle="Usuários carregados dos endpoints de perfis." onClick={() => navigate("/dashboard/coordenacao/usuarios")}>
-              <DetailItem label="Alunos" value={alunos.length} />
-              <DetailItem label="Orientadores" value={orientadores.length} />
-              <DetailItem label="Comissão" value={comissao.length} />
+            <DashboardCard
+              index={1}
+              icon={<UsersRound size={22} />}
+              title="Comissão por evento"
+              value={eventosComComissaoRelatorio}
+              subtitle={`${totalMembrosComissaoRelatorio} membro(s) registrados`}
+              onClick={() => irParaRelatorio("comissao-por-evento")}
+            >
+              <DetailItem label="Histórico" value="Real" />
+              <DetailItem label="Ação" value="Ver histórico" />
             </DashboardCard>
 
             <DashboardCard
               index={2}
-              cardRef={projetosResumoRef}
-              icon={<FolderKanban size={22} />}
-              title="Projetos cadastrados"
-              value={totalProjetos}
-              subtitle={
-                projetosDoEventoVigente !== null
-                  ? `${projetosDoEventoVigente} no evento vigente`
-                  : eventosComProjetos > 0
-                  ? `Distribuídos em ${eventosComProjetos} evento(s)`
-                  : "Sem vínculo de evento no payload"
-              }
+              icon={<ClipboardCheck size={22} />}
+              title="Eixos temáticos"
+              value={resumoEixosRelatorio.eixos}
+              subtitle={`${resumoEixosRelatorio.projetos} projetos mapeados`}
+              onClick={() => irParaRelatorio("eixos-tematicos")}
             >
-              <DetailItem label="Pendentes" value={projetosComStatus.length ? projetosPendentes : "Status não informado"} />
-              <DetailItem label="Aprovados" value={projetosComStatus.length ? projetosAprovados : "Status não informado"} />
+              <DetailItem label="Pendentes" value={resumoEixosRelatorio.pendentes} />
+              <DetailItem label="Aceitos" value={resumoEixosRelatorio.aceitos} />
             </DashboardCard>
 
-            <DashboardCard index={3} cardRef={pendenciasRef} icon={<AlertTriangle size={22} />} title="Pendências críticas" value={valorOuIndisponivel(alunosSemProjeto)} subtitle="Alunos sem projeto calculados a partir dos vínculos recebidos.">
-              <DetailItem label="Alunos sem projeto" value={valorOuIndisponivel(alunosSemProjeto)} />
-              <DetailItem label="PDFs corrompidos" value={valorOuIndisponivel(pdfsCorrompidos)} />
-              <DetailItem label="Eventos sem tema" value={valorOuIndisponivel(eventosSemTema)} />
+            <DashboardCard
+              index={3}
+              cardRef={projetosResumoRef}
+              icon={<FolderKanban size={22} />}
+              title="Projetos por orientador"
+              value={relatorioProjetosPorOrientador.length}
+              subtitle={`${totalProjetosAceitosOrientador} projeto(s) aceitos`}
+              onClick={() => irParaRelatorio("projetos-por-orientador")}
+            >
+              <DetailItem label="Orientadores" value={relatorioProjetosPorOrientador.length} />
+              <DetailItem label="Ação" value="Ver distribuição" />
+            </DashboardCard>
+
+            <DashboardCard
+              index={4}
+              icon={<CalendarRange size={22} />}
+              title="Projetos por turma"
+              value={Object.keys(relatorioProjetosPorTurma).length}
+              subtitle={`${resumoTurmasRelatorio.criados} criados · ${resumoTurmasRelatorio.aprovados} aprovados`}
+              onClick={() => irParaRelatorio("projetos-por-turma")}
+            >
+              <DetailItem label="Turmas" value={Object.keys(relatorioProjetosPorTurma).length} />
+              <DetailItem label="Ação" value="Ver relatório" />
             </DashboardCard>
           </section>
 
@@ -2742,10 +2758,10 @@ function Administrador() {
               </div>
 
               <div className="mt-5 grid gap-2 sm:grid-cols-2">
-                <QuickAction label="Ver eventos" onClick={() => navigate("/dashboard/coordenacao/eventos")} />
-                <QuickAction label="Ver usuários" onClick={() => navigate("/dashboard/coordenacao/usuarios")} />
-                <QuickAction label="Ver projetos" onClick={() => scrollPara(projetosResumoRef)} />
-                <QuickAction label="Ver PDFs/integridade" onClick={() => scrollPara(pendenciasRef)} />
+                <QuickAction label="Alunos sem projeto" onClick={() => irParaRelatorio("alunos-sem-projeto")} />
+                <QuickAction label="Comissão por evento" onClick={() => irParaRelatorio("comissao-por-evento")} />
+                <QuickAction label="Eixos temáticos" onClick={() => irParaRelatorio("eixos-tematicos")} />
+                <QuickAction label="Projetos por turma" onClick={() => irParaRelatorio("projetos-por-turma")} />
               </div>
             </section>
           </section>
