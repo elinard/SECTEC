@@ -1,727 +1,665 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { useSearchParams } from "react-router-dom";
+import { motion } from "motion/react";
 import {
-  PiBuildings,
-  PiChalkboardTeacher,
-  PiClockCounterClockwise,
-  PiFilePdf,
-  PiGitBranch,
-  PiSealCheck,
-  PiStudent,
-  PiTrophy,
-  PiUploadSimple,
-  PiUsersThree,
-  PiWarningCircle,
-} from "react-icons/pi";
+  AlertTriangle,
+  BarChart3,
+  BookOpenCheck,
+  Building2,
+  GraduationCap,
+  Loader2,
+  RefreshCw,
+  Search,
+  UsersRound,
+} from "lucide-react";
 import { MainLayout } from "../componentes/SideBarUniversal";
-import { API_BASE_URL } from "../lib/api";
+import { apiRequest } from "../lib/api";
 
-type AlunoSemProjeto = {
+type AlunoRelatorio = {
   id: number;
   nome: string;
-  turma: string;
   email: string;
-  cadastradoEm: string;
+  ano: number;
+  turma: string | null;
 };
 
-type MembroComissao = {
-  id: number;
-  nome: string;
-  turma: string;
-  funcao: string;
+type AlunosSemProjetoResponse = Record<string, AlunoRelatorio[]>;
+
+type ComissaoPorEventoResponse = Record<
+  string,
+  {
+    eventoId: number;
+    alunos: AlunoRelatorio[];
+  }
+>;
+
+type EixosPorEventoResponse = Record<
+  string,
+  {
+    eventoId: number;
+    eixos: {
+      temaId: number;
+      temaNome: string;
+      totalProjetos: number;
+      projetosPendentes: number;
+      projetosAceitos: number;
+    }[];
+  }
+>;
+
+type ProjetosPorOrientadorResponse = {
+  orientadorId: number;
+  orientadorNome: string;
   email: string;
+  totalProjetosAceitos: number;
+  projetos: string[];
+}[];
+
+type ProjetosPorTurmaResponse = Record<
+  string,
+  {
+    turma: string;
+    ano: number;
+    totalCriados: number;
+    totalAprovados: number;
+  }
+>;
+
+type ReportKey =
+  | "visao-geral"
+  | "alunos-sem-projeto"
+  | "comissao-por-evento"
+  | "eixos-tematicos"
+  | "projetos-por-orientador"
+  | "projetos-por-turma"
+  | "em-breve";
+
+type ReportState<T> = {
+  data: T | null;
+  loading: boolean;
+  error: string;
+  technical: string;
+  loaded: boolean;
 };
 
-type ProjetoEixo = {
-  eixo: string;
-  total: number;
-  aprovados: number;
-  emDesenvolvimento: number;
-  pendentes: number;
-};
+const realReports = {
+  "alunos-sem-projeto": "/relatorio/alunos-sem-projeto",
+  "comissao-por-evento": "/relatorio/comissao-por-evento",
+  "eixos-tematicos": "/relatorio/eixos-tematicos",
+  "projetos-por-orientador": "/relatorio/projetos-por-orientador",
+  "projetos-por-turma": "/relatorio/projetos-por-turma",
+} as const;
 
-type OrientadorProjetos = {
-  orientador: string;
-  total: number;
-  projetos: { id: number; titulo: string; status: string; aluno: string }[];
-};
+const tabs: { id: ReportKey; label: string; icon: ReactNode }[] = [
+  { id: "visao-geral", label: "Visão geral", icon: <BarChart3 size={17} /> },
+  { id: "alunos-sem-projeto", label: "Alunos sem projeto", icon: <GraduationCap size={17} /> },
+  { id: "comissao-por-evento", label: "Comissão por evento", icon: <UsersRound size={17} /> },
+  { id: "eixos-tematicos", label: "Eixos temáticos", icon: <BookOpenCheck size={17} /> },
+  { id: "projetos-por-orientador", label: "Projetos por orientador", icon: <UsersRound size={17} /> },
+  { id: "projetos-por-turma", label: "Projetos por turma", icon: <Building2 size={17} /> },
+  { id: "em-breve", label: "Em breve", icon: <AlertTriangle size={17} /> },
+];
 
-type ProjetoTurma = {
-  turma: string;
-  total: number;
-  aprovados: number;
-  mediaNota: number;
-};
+const emptyState = <T,>(): ReportState<T> => ({
+  data: null,
+  loading: false,
+  error: "",
+  technical: "",
+  loaded: false,
+});
 
-type RankingProjeto = {
-  posicao: number;
-  titulo: string;
-  eixo: string;
-  nota: number;
-  aluno: string;
-  orientador: string;
-};
-
-type ProjetoPendente = {
-  id: number;
-  titulo: string;
-  aluno: string;
-  turma: string;
-  orientador: string;
-  status: string;
-  diasSemAtualizacao: number;
-};
-
-type LogAuditoria = {
-  id: number;
-  quando: string;
-  usuario: string;
-  acao: string;
-  projeto: string;
-  valorAnterior: string;
-  valorNovo: string;
-  ip?: string;
-};
-
-type ReportData = {
-  alunosSemProjeto: AlunoSemProjeto[];
-  membrosComissao: MembroComissao[];
-  projetosEixo: ProjetoEixo[];
-  orientadoresProjetos: OrientadorProjetos[];
-  projetosTurma: ProjetoTurma[];
-  rankingProjetos: RankingProjeto[];
-  projetosPendentes: ProjetoPendente[];
-  logsAuditoria: LogAuditoria[];
-};
-
-const dadosMock: ReportData = {
-  alunosSemProjeto: [
-    { id: 1, nome: "Lívia Andrade", turma: "1º Informática", email: "livia.andrade@aluno.sectec.edu.br", cadastradoEm: "04/03/2026" },
-    { id: 2, nome: "Mateus Oliveira", turma: "1º Informática", email: "mateus.oliveira@aluno.sectec.edu.br", cadastradoEm: "05/03/2026" },
-    { id: 3, nome: "Rafaela Sousa", turma: "2º Contabilidade", email: "rafaela.sousa@aluno.sectec.edu.br", cadastradoEm: "07/03/2026" },
-    { id: 4, nome: "Caio Mendes", turma: "2º Enfermagem", email: "caio.mendes@aluno.sectec.edu.br", cadastradoEm: "09/03/2026" },
-    { id: 5, nome: "Beatriz Rocha", turma: "3º Contabilidade", email: "beatriz.rocha@aluno.sectec.edu.br", cadastradoEm: "12/03/2026" },
-    { id: 6, nome: "Igor Nascimento", turma: "3º Contabilidade", email: "igor.nascimento@aluno.sectec.edu.br", cadastradoEm: "13/03/2026" },
-  ],
-  membrosComissao: [
-    { id: 1, nome: "Ana Clara Martins", turma: "3º Informática", funcao: "Credenciamento", email: "ana.martins@aluno.sectec.edu.br" },
-    { id: 2, nome: "João Pedro Costa", turma: "2º Contabilidade", funcao: "Logística de salas", email: "joao.costa@aluno.sectec.edu.br" },
-    { id: 3, nome: "Mariana Freitas", turma: "3º Enfermagem", funcao: "Recepção de avaliadores", email: "mariana.freitas@aluno.sectec.edu.br" },
-    { id: 4, nome: "Thiago Barros", turma: "2º Informática", funcao: "Suporte de mídia", email: "thiago.barros@aluno.sectec.edu.br" },
-    { id: 5, nome: "Ester Lima", turma: "1º Informática", funcao: "Organização de materiais", email: "ester.lima@aluno.sectec.edu.br" },
-  ],
-  projetosEixo: [
-    { eixo: "Tecnologia e Sustentabilidade", total: 18, aprovados: 9, emDesenvolvimento: 6, pendentes: 3 },
-    { eixo: "Saúde e Qualidade de Vida", total: 12, aprovados: 5, emDesenvolvimento: 4, pendentes: 3 },
-    { eixo: "Gestão e Empreendedorismo", total: 10, aprovados: 6, emDesenvolvimento: 3, pendentes: 1 },
-    { eixo: "Robótica e Automação", total: 8, aprovados: 4, emDesenvolvimento: 3, pendentes: 1 },
-    { eixo: "Cultura Digital", total: 7, aprovados: 2, emDesenvolvimento: 4, pendentes: 1 },
-  ],
-  orientadoresProjetos: [
-    {
-      orientador: "Prof. Marcos Lima",
-      total: 3,
-      projetos: [
-        { id: 1, titulo: "Monitoramento Ambiental com IoT", status: "Aprovado", aluno: "João Felipe" },
-        { id: 2, titulo: "Horta Automatizada Escolar", status: "Em desenvolvimento", aluno: "Camila Duarte" },
-        { id: 3, titulo: "Sensor de Ruído para Salas", status: "Pendente", aluno: "Pedro Henrique" },
-      ],
-    },
-    {
-      orientador: "Profª. Carla Nunes",
-      total: 2,
-      projetos: [
-        { id: 4, titulo: "Biblioteca Digital Escolar", status: "Aprovado", aluno: "Ana Beatriz" },
-        { id: 5, titulo: "Mapa de Talentos da Turma", status: "Em desenvolvimento", aluno: "Wesley Araújo" },
-      ],
-    },
-    {
-      orientador: "Prof. Renato Alves",
-      total: 2,
-      projetos: [
-        { id: 6, titulo: "Registro de Frequência por QR Code", status: "Aprovado", aluno: "Maria Eduarda" },
-        { id: 7, titulo: "Robô Separador de Resíduos", status: "Em desenvolvimento", aluno: "Samuel Brito" },
-      ],
-    },
-    {
-      orientador: "Profª. Helena Moura",
-      total: 2,
-      projetos: [
-        { id: 8, titulo: "Filtro Inteligente de Água", status: "Pendente", aluno: "Lucas Pereira" },
-        { id: 9, titulo: "Painel de Primeiros Socorros", status: "Aprovado", aluno: "Sofia Almeida" },
-      ],
-    },
-  ],
-  projetosTurma: [
-    { turma: "1º Informática", total: 9, aprovados: 4, mediaNota: 8.1 },
-    { turma: "2º Informática", total: 11, aprovados: 6, mediaNota: 8.6 },
-    { turma: "2º Contabilidade", total: 8, aprovados: 5, mediaNota: 8.4 },
-    { turma: "3º Enfermagem", total: 7, aprovados: 3, mediaNota: 7.9 },
-    { turma: "3º Contabilidade", total: 10, aprovados: 6, mediaNota: 8.8 },
-  ],
-  rankingProjetos: [
-    { posicao: 1, titulo: "Monitoramento Ambiental com IoT", eixo: "Tecnologia e Sustentabilidade", nota: 9.8, aluno: "João Felipe", orientador: "Prof. Marcos Lima" },
-    { posicao: 2, titulo: "Registro de Frequência por QR Code", eixo: "Robótica e Automação", nota: 9.6, aluno: "Maria Eduarda", orientador: "Prof. Renato Alves" },
-    { posicao: 3, titulo: "Biblioteca Digital Escolar", eixo: "Cultura Digital", nota: 9.4, aluno: "Ana Beatriz", orientador: "Profª. Carla Nunes" },
-    { posicao: 4, titulo: "Painel de Primeiros Socorros", eixo: "Saúde e Qualidade de Vida", nota: 9.1, aluno: "Sofia Almeida", orientador: "Profª. Helena Moura" },
-    { posicao: 5, titulo: "Robô Separador de Resíduos", eixo: "Tecnologia e Sustentabilidade", nota: 8.9, aluno: "Samuel Brito", orientador: "Prof. Renato Alves" },
-  ],
-  projetosPendentes: [
-    { id: 1, titulo: "Filtro Inteligente de Água", aluno: "Lucas Pereira", turma: "3º Enfermagem", orientador: "Profª. Helena Moura", status: "Aguardando avaliação", diasSemAtualizacao: 12 },
-    { id: 2, titulo: "Sensor de Ruído para Salas", aluno: "Pedro Henrique", turma: "1º Informática", orientador: "Prof. Marcos Lima", status: "Correção solicitada", diasSemAtualizacao: 9 },
-    { id: 3, titulo: "Mapa de Custos da Cantina Escolar", aluno: "Wesley Araújo", turma: "2º Contabilidade", orientador: "Profª. Carla Nunes", status: "Sem segunda nota", diasSemAtualizacao: 7 },
-    { id: 4, titulo: "Aplicativo de Rotina de Estudos", aluno: "Júlia Barros", turma: "2º Informática", orientador: "Prof. Diego Matos", status: "Aguardando orientador", diasSemAtualizacao: 6 },
-  ],
-  logsAuditoria: [
-    { id: 1, quando: "13/05/2026 09:18", usuario: "coord.maria@sectec.edu.br", acao: "Alterou status", projeto: "Filtro Inteligente de Água", valorAnterior: "Em desenvolvimento", valorNovo: "Aguardando avaliação", ip: "192.168.0.42" },
-    { id: 2, quando: "13/05/2026 08:51", usuario: "prof.renato@sectec.edu.br", acao: "Registrou nota", projeto: "Registro de Frequência por QR Code", valorAnterior: "-", valorNovo: "9.6", ip: "192.168.0.18" },
-    { id: 3, quando: "12/05/2026 16:34", usuario: "comissao.ana@sectec.edu.br", acao: "Reabriu avaliação", projeto: "Mapa de Talentos da Turma", valorAnterior: "Avaliado", valorNovo: "Sem segunda nota" },
-    { id: 4, quando: "12/05/2026 14:02", usuario: "coord.maria@sectec.edu.br", acao: "Aprovou projeto", projeto: "Biblioteca Digital Escolar", valorAnterior: "Sob revisão", valorNovo: "Aprovado", ip: "192.168.0.42" },
-  ],
-};
-
-const relatorios = [
-  { id: "alunos-sem-projeto", label: "Sem Projeto", titulo: "Alunos sem Projeto por Turma", endpoint: "/relatorios/alunos/sem-projeto", icon: <PiStudent size={18} /> },
-  { id: "comissao-organizadora", label: "Comissão", titulo: "Alunos na Comissão Organizadora", endpoint: "/relatorios/alunos/comissao-organizadora", icon: <PiUsersThree size={18} /> },
-  { id: "projetos-por-eixo", label: "Por Eixo", titulo: "Projetos por Eixo Temático", endpoint: "/relatorios/projetos/por-eixo", icon: <PiGitBranch size={18} /> },
-  { id: "orientadores-projetos", label: "Orientadores", titulo: "Orientadores e seus Projetos", endpoint: "/relatorios/orientadores/projetos", icon: <PiChalkboardTeacher size={18} /> },
-  { id: "projetos-por-turma", label: "Por Turma", titulo: "Projetos por Turma", endpoint: "/relatorios/projetos/por-turma", icon: <PiBuildings size={18} /> },
-  { id: "ranking-geral-eixo", label: "Ranking", titulo: "Ranking Geral por Eixo", endpoint: "/relatorios/projetos/ranking-eixo", icon: <PiTrophy size={18} /> },
-  { id: "avaliacoes-pendentes", label: "Pendentes", titulo: "Projetos com Avaliações Pendentes", endpoint: "/relatorios/projetos/avaliacoes-pendentes", icon: <PiWarningCircle size={18} /> },
-  { id: "auditoria-notas-status", label: "Auditoria", titulo: "Log de Auditoria de Notas e Status", endpoint: "/relatorios/auditoria/notas-status", icon: <PiSealCheck size={18} /> },
-] as const;
-
-type ReportKey = (typeof relatorios)[number]["id"];
-
-const dataKeyByReport: Record<ReportKey, keyof ReportData> = {
-  "alunos-sem-projeto": "alunosSemProjeto",
-  "comissao-organizadora": "membrosComissao",
-  "projetos-por-eixo": "projetosEixo",
-  "orientadores-projetos": "orientadoresProjetos",
-  "projetos-por-turma": "projetosTurma",
-  "ranking-geral-eixo": "rankingProjetos",
-  "avaliacoes-pendentes": "projetosPendentes",
-  "auditoria-notas-status": "logsAuditoria",
-};
-
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
+function technicalMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Erro desconhecido";
 }
 
-function csvCell(value: string | number | undefined) {
-  return `"${String(value ?? "-").replace(/"/g, '""')}"`;
+function formatarGrupoTurma(chave: string, alunos: AlunoRelatorio[]) {
+  const primeiro = alunos[0];
+
+  if (primeiro?.turma && primeiro?.ano) {
+    return `${primeiro.turma} ${primeiro.ano}º ano`;
+  }
+
+  return chave;
 }
 
-function makeCsv(headers: string[], rows: (string | number | undefined)[][]) {
-  return [headers, ...rows].map((row) => row.map(csvCell).join(";")).join("\n");
+function nomeTurma(turma: string | null, ano: number) {
+  return turma ? `${turma} ${ano}º ano` : `${ano}º ano`;
 }
 
-function TableShell({ children }: { children: React.ReactNode }) {
+function somaAlunosSemProjeto(data: AlunosSemProjetoResponse | null) {
+  return Object.values(data ?? {}).reduce((total, alunos) => total + alunos.length, 0);
+}
+
+function somaComissao(data: ComissaoPorEventoResponse | null) {
+  return Object.values(data ?? {}).reduce((total, evento) => total + evento.alunos.length, 0);
+}
+
+function somaEixos(data: EixosPorEventoResponse | null) {
+  return Object.values(data ?? {}).reduce(
+    (acc, evento) => {
+      evento.eixos.forEach((eixo) => {
+        acc.eixos += 1;
+        acc.projetos += eixo.totalProjetos;
+        acc.pendentes += eixo.projetosPendentes;
+        acc.aceitos += eixo.projetosAceitos;
+      });
+      return acc;
+    },
+    { eixos: 0, projetos: 0, pendentes: 0, aceitos: 0 },
+  );
+}
+
+function somaTurmas(data: ProjetosPorTurmaResponse | null) {
+  return Object.values(data ?? {}).reduce(
+    (acc, turma) => {
+      acc.criados += turma.totalCriados;
+      acc.aprovados += turma.totalAprovados;
+      return acc;
+    },
+    { criados: 0, aprovados: 0 },
+  );
+}
+
+function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return <section className={`rounded-3xl border border-slate-200 bg-white p-5 shadow-sm ${className}`}>{children}</section>;
+}
+
+function Skeleton() {
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div className="overflow-x-auto">{children}</div>
+    <div className="space-y-3 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      {[1, 2, 3].map((item) => (
+        <div key={item} className="h-12 animate-pulse rounded-2xl bg-slate-100" />
+      ))}
     </div>
   );
 }
 
-function Th({ children }: { children: React.ReactNode }) {
-  return <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-wider text-slate-500">{children}</th>;
+function Empty({ message }: { message: string }) {
+  return (
+    <Card className="text-center">
+      <p className="text-sm font-black text-slate-800">{message}</p>
+    </Card>
+  );
 }
 
-function Td({ children, strong = false }: { children: React.ReactNode; strong?: boolean }) {
-  return <td className={`px-4 py-3 text-sm ${strong ? "font-bold text-slate-900" : "font-medium text-slate-600"}`}>{children}</td>;
+function ErrorBox<T>({ state, onRetry }: { state: ReportState<T>; onRetry: () => void }) {
+  return (
+    <Card className="border-red-100 bg-red-50">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-black text-red-800">Não foi possível carregar este relatório.</p>
+          <p className="mt-1 text-xs font-semibold text-red-700">Erro técnico: {state.technical || state.error}</p>
+        </div>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-2xl bg-red-700 px-4 py-2 text-sm font-black text-white transition hover:bg-red-800"
+        >
+          <RefreshCw size={15} />
+          Tentar novamente
+        </button>
+      </div>
+    </Card>
+  );
 }
 
-function StatusBadge({ value }: { value: string }) {
-  const aprovado = value.toLowerCase().includes("aprov");
-  const pendente = value.toLowerCase().includes("pend") || value.toLowerCase().includes("aguard");
-  const classes = aprovado
-    ? "bg-sectec-100 text-sectec-700"
-    : pendente
-    ? "bg-amber-100 text-amber-700"
-    : "bg-slate-100 text-slate-600";
-
-  return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${classes}`}>{value}</span>;
+function MetricCard({ title, value, detail, error }: { title: string; value: string | number; detail: string; error?: string }) {
+  return (
+    <motion.article
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      whileHover={{ y: -3 }}
+      className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md"
+    >
+      <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">{title}</p>
+      <strong className="mt-3 block text-3xl font-black text-slate-950">{error ? "Erro" : value}</strong>
+      <p className={`mt-2 text-sm font-semibold leading-5 ${error ? "text-red-600" : "text-slate-500"}`}>{error || detail}</p>
+    </motion.article>
+  );
 }
 
 function RelatorioStatusAlunos() {
-  const [abaAtiva, setAbaAtiva] = useState<ReportKey>("alunos-sem-projeto");
-  const [dados, setDados] = useState<ReportData>(dadosMock);
-  const [carregando, setCarregando] = useState(false);
-  const [aviso, setAviso] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const abaUrl = searchParams.get("aba") as ReportKey | null;
+  const [abaAtiva, setAbaAtiva] = useState<ReportKey>(tabs.some((tab) => tab.id === abaUrl) ? abaUrl! : "visao-geral");
+  const [busca, setBusca] = useState("");
+  const [grupoAlunos, setGrupoAlunos] = useState("todos");
+  const [eventoEixo, setEventoEixo] = useState("todos");
 
-  const relatorioAtivo = useMemo(() => relatorios.find((item) => item.id === abaAtiva) ?? relatorios[0], [abaAtiva]);
-  const rankingOrdenado = useMemo(
-    () => [...dados.rankingProjetos].sort((a, b) => b.nota - a.nota).map((item, index) => ({ ...item, posicao: index + 1 })),
-    [dados.rankingProjetos],
+  const [alunosSemProjeto, setAlunosSemProjeto] = useState<ReportState<AlunosSemProjetoResponse>>(emptyState);
+  const [comissaoPorEvento, setComissaoPorEvento] = useState<ReportState<ComissaoPorEventoResponse>>(emptyState);
+  const [eixosTematicos, setEixosTematicos] = useState<ReportState<EixosPorEventoResponse>>(emptyState);
+  const [projetosPorOrientador, setProjetosPorOrientador] = useState<ReportState<ProjetosPorOrientadorResponse>>(emptyState);
+  const [projetosPorTurma, setProjetosPorTurma] = useState<ReportState<ProjetosPorTurmaResponse>>(emptyState);
+
+  useEffect(() => {
+    if (abaUrl && tabs.some((tab) => tab.id === abaUrl)) setAbaAtiva(abaUrl);
+  }, [abaUrl]);
+
+  async function carregar<T>(
+    endpoint: string,
+    setter: Dispatch<SetStateAction<ReportState<T>>>,
+  ) {
+    setter((atual) => ({ ...atual, loading: true, error: "", technical: "" }));
+
+    try {
+      const data = await apiRequest<T>(endpoint);
+      setter({ data, loading: false, error: "", technical: "", loaded: true });
+    } catch (error) {
+      setter((atual) => ({
+        ...atual,
+        loading: false,
+        error: "Não foi possível carregar este relatório.",
+        technical: technicalMessage(error),
+        loaded: true,
+      }));
+    }
+  }
+
+  function carregarTodos() {
+    void carregar(realReports["alunos-sem-projeto"], setAlunosSemProjeto);
+    void carregar(realReports["comissao-por-evento"], setComissaoPorEvento);
+    void carregar(realReports["eixos-tematicos"], setEixosTematicos);
+    void carregar(realReports["projetos-por-orientador"], setProjetosPorOrientador);
+    void carregar(realReports["projetos-por-turma"], setProjetosPorTurma);
+  }
+
+  useEffect(() => {
+    carregarTodos();
+  }, []);
+
+  function trocarAba(id: ReportKey) {
+    setAbaAtiva(id);
+    setSearchParams(id === "visao-geral" ? {} : { aba: id });
+  }
+
+  function atualizarAba() {
+    if (abaAtiva === "visao-geral") return carregarTodos();
+    if (abaAtiva === "alunos-sem-projeto") return void carregar(realReports[abaAtiva], setAlunosSemProjeto);
+    if (abaAtiva === "comissao-por-evento") return void carregar(realReports[abaAtiva], setComissaoPorEvento);
+    if (abaAtiva === "eixos-tematicos") return void carregar(realReports[abaAtiva], setEixosTematicos);
+    if (abaAtiva === "projetos-por-orientador") return void carregar(realReports[abaAtiva], setProjetosPorOrientador);
+    if (abaAtiva === "projetos-por-turma") return void carregar(realReports[abaAtiva], setProjetosPorTurma);
+  }
+
+  const loadingAtual =
+    abaAtiva === "visao-geral"
+      ? alunosSemProjeto.loading || comissaoPorEvento.loading || eixosTematicos.loading || projetosPorOrientador.loading || projetosPorTurma.loading
+      : abaAtiva === "alunos-sem-projeto"
+      ? alunosSemProjeto.loading
+      : abaAtiva === "comissao-por-evento"
+      ? comissaoPorEvento.loading
+      : abaAtiva === "eixos-tematicos"
+      ? eixosTematicos.loading
+      : abaAtiva === "projetos-por-orientador"
+      ? projetosPorOrientador.loading
+      : abaAtiva === "projetos-por-turma"
+      ? projetosPorTurma.loading
+      : false;
+
+  const alunosFiltrados = useMemo(() => {
+    const termo = busca.trim().toLowerCase();
+
+    return Object.entries(alunosSemProjeto.data ?? {})
+      .filter(([grupo]) => grupoAlunos === "todos" || grupo === grupoAlunos)
+      .map(([grupo, alunos]) => [
+        grupo,
+        alunos.filter((aluno) => {
+          if (!termo) return true;
+          return `${aluno.nome} ${aluno.email} ${aluno.turma ?? ""}`.toLowerCase().includes(termo);
+        }),
+      ] as const)
+      .filter(([, alunos]) => alunos.length > 0);
+  }, [alunosSemProjeto.data, busca, grupoAlunos]);
+
+  const eixosFiltrados = useMemo(() => {
+    const termo = busca.trim().toLowerCase();
+
+    return Object.entries(eixosTematicos.data ?? {})
+      .filter(([evento]) => eventoEixo === "todos" || evento === eventoEixo)
+      .map(([evento, dados]) => [
+        evento,
+        {
+          ...dados,
+          eixos: dados.eixos.filter((eixo) => !termo || eixo.temaNome.toLowerCase().includes(termo)),
+        },
+      ] as const)
+      .filter(([, dados]) => dados.eixos.length > 0);
+  }, [busca, eixosTematicos.data, eventoEixo]);
+
+  const eixosResumo = somaEixos(eixosTematicos.data);
+  const turmasResumo = somaTurmas(projetosPorTurma.data);
+  const orientadoresResumo = (projetosPorOrientador.data ?? []).reduce(
+    (total, orientador) => total + orientador.totalProjetosAceitos,
+    0,
   );
 
-  const alunosPorTurma = useMemo(() => {
-    return dados.alunosSemProjeto.reduce<Record<string, AlunoSemProjeto[]>>((acc, aluno) => {
-      acc[aluno.turma] = [...(acc[aluno.turma] ?? []), aluno];
-      return acc;
-    }, {});
-  }, [dados.alunosSemProjeto]);
-
-  function csvAtual() {
-    if (abaAtiva === "alunos-sem-projeto") {
-      return makeCsv(
-        ["Nome", "Turma", "E-mail", "Data de cadastro"],
-        dados.alunosSemProjeto.map((aluno) => [aluno.nome, aluno.turma, aluno.email, aluno.cadastradoEm]),
-      );
-    }
-
-    if (abaAtiva === "comissao-organizadora") {
-      return makeCsv(
-        ["Nome", "Turma", "Função na comissão", "E-mail"],
-        dados.membrosComissao.map((membro) => [membro.nome, membro.turma, membro.funcao, membro.email]),
-      );
-    }
-
-    if (abaAtiva === "projetos-por-eixo") {
-      return makeCsv(
-        ["Eixo", "Total de projetos", "Aprovados", "Em desenvolvimento", "Pendentes"],
-        dados.projetosEixo.map((projeto) => [projeto.eixo, projeto.total, projeto.aprovados, projeto.emDesenvolvimento, projeto.pendentes]),
-      );
-    }
-
-    if (abaAtiva === "orientadores-projetos") {
-      return makeCsv(
-        ["Nome do orientador", "Total de projetos", "Lista de projetos"],
-        dados.orientadoresProjetos.map((orientador) => [
-          orientador.orientador,
-          orientador.total,
-          orientador.projetos.map((projeto) => `${projeto.titulo} (${projeto.status}) - ${projeto.aluno}`).join(" | "),
-        ]),
-      );
-    }
-
-    if (abaAtiva === "projetos-por-turma") {
-      return makeCsv(
-        ["Turma", "Total de projetos", "Projetos aprovados", "Média de notas"],
-        dados.projetosTurma.map((projeto) => [projeto.turma, projeto.total, projeto.aprovados, projeto.mediaNota.toFixed(1)]),
-      );
-    }
-
-    if (abaAtiva === "ranking-geral-eixo") {
-      return makeCsv(
-        ["Posição", "Título do projeto", "Eixo", "Nota", "Aluno", "Orientador"],
-        rankingOrdenado.map((projeto) => [projeto.posicao, projeto.titulo, projeto.eixo, projeto.nota.toFixed(1), projeto.aluno, projeto.orientador]),
-      );
-    }
-
-    if (abaAtiva === "avaliacoes-pendentes") {
-      return makeCsv(
-        ["Título", "Aluno", "Turma", "Orientador", "Status atual", "Dias sem atualização"],
-        dados.projetosPendentes.map((projeto) => [projeto.titulo, projeto.aluno, projeto.turma, projeto.orientador, projeto.status, projeto.diasSemAtualizacao]),
-      );
-    }
-
-    return makeCsv(
-      ["Data/hora", "Usuário que alterou", "Ação realizada", "Projeto afetado", "Valor anterior", "Valor novo", "IP"],
-      dados.logsAuditoria.map((log) => [log.quando, log.usuario, log.acao, log.projeto, log.valorAnterior, log.valorNovo, log.ip]),
+  function renderVisaoGeral() {
+    return (
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard
+          title="Alunos sem projeto"
+          value={somaAlunosSemProjeto(alunosSemProjeto.data)}
+          detail={`${Object.keys(alunosSemProjeto.data ?? {}).length} turma(s) afetada(s)`}
+          error={alunosSemProjeto.error}
+        />
+        <MetricCard
+          title="Comissão por evento"
+          value={Object.keys(comissaoPorEvento.data ?? {}).length}
+          detail={`${somaComissao(comissaoPorEvento.data)} membro(s) registrados`}
+          error={comissaoPorEvento.error}
+        />
+        <MetricCard
+          title="Eixos temáticos"
+          value={eixosResumo.eixos}
+          detail={`${eixosResumo.projetos} projetos · ${eixosResumo.pendentes} pendentes · ${eixosResumo.aceitos} aceitos`}
+          error={eixosTematicos.error}
+        />
+        <MetricCard
+          title="Projetos por orientador"
+          value={projetosPorOrientador.data?.length ?? 0}
+          detail={`${orientadoresResumo} projeto(s) aceitos`}
+          error={projetosPorOrientador.error}
+        />
+        <MetricCard
+          title="Projetos por turma"
+          value={Object.keys(projetosPorTurma.data ?? {}).length}
+          detail={`${turmasResumo.criados} criados · ${turmasResumo.aprovados} aprovados`}
+          error={projetosPorTurma.error}
+        />
+      </div>
     );
   }
 
-  function handleExportCsv() {
-    const csv = csvAtual();
-    downloadBlob(new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" }), `${abaAtiva}.csv`);
-  }
-
-  async function handleExportPdf() {
-    setAviso(null);
-
-    try {
-      const token = localStorage.getItem("token");
-      const response = await fetch(`${API_BASE_URL}/pdf/relatorios/projetos`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ tipo: abaAtiva }),
-      });
-
-      if (!response.ok) throw new Error(`PDF indisponível: ${response.status}`);
-
-      const blob = await response.blob();
-      downloadBlob(blob, `${abaAtiva}.pdf`);
-    } catch {
-      setAviso("Não foi possível exportar o PDF agora. Os dados continuam disponíveis na tabela.");
-    }
-  }
-
-  async function handleAtualizarDados() {
-    setCarregando(true);
-    setAviso(null);
-
-    try {
-      const token = localStorage.getItem("token");
-      const response = await fetch(`${API_BASE_URL}${relatorioAtivo.endpoint}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      });
-
-      if (!response.ok) throw new Error("Endpoint indisponível");
-
-      const payload: unknown = await response.json();
-      const lista = Array.isArray(payload)
-        ? payload
-        : typeof payload === "object" && payload !== null && "data" in payload && Array.isArray(payload.data)
-        ? payload.data
-        : null;
-
-      if (!lista) throw new Error("Formato inválido");
-
-      setDados((atual) => ({
-        ...atual,
-        [dataKeyByReport[abaAtiva]]: lista,
-      }));
-    } catch {
-      setAviso("Backend ainda não retornou este relatório. Mantive os dados mockados para acompanhamento.");
-    } finally {
-      setCarregando(false);
-    }
-  }
-
-  function renderTabela() {
-    if (abaAtiva === "alunos-sem-projeto") {
-      return (
-        <div className="grid gap-4">
-          {Object.entries(alunosPorTurma).map(([turma, alunos]) => (
-            <section key={turma} className="grid gap-3">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="text-sm font-black text-slate-800">{turma}</h3>
-                <span className="rounded-full bg-sectec-50 px-3 py-1 text-xs font-bold text-sectec-700">{alunos.length} alunos</span>
-              </div>
-              <TableShell>
-                <table className="min-w-full divide-y divide-slate-100">
-                  <thead className="bg-slate-50">
-                    <tr>
-                      <Th>Nome</Th>
-                      <Th>Turma</Th>
-                      <Th>E-mail</Th>
-                      <Th>Data de cadastro</Th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {alunos.map((aluno, index) => (
-                      <tr key={aluno.id} className={`${index % 2 ? "bg-slate-50/50" : "bg-white"} transition hover:bg-sectec-50/40`}>
-                        <Td strong>{aluno.nome}</Td>
-                        <Td>{aluno.turma}</Td>
-                        <Td>{aluno.email}</Td>
-                        <Td>{aluno.cadastradoEm}</Td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </TableShell>
-            </section>
-          ))}
-        </div>
-      );
-    }
-
-    if (abaAtiva === "comissao-organizadora") {
-      return (
-        <TableShell>
-          <table className="min-w-full divide-y divide-slate-100">
-            <thead className="bg-slate-50">
-              <tr>
-                <Th>Nome</Th>
-                <Th>Turma</Th>
-                <Th>Função na comissão</Th>
-                <Th>E-mail</Th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {dados.membrosComissao.map((membro, index) => (
-                <tr key={membro.id} className={`${index % 2 ? "bg-slate-50/50" : "bg-white"} transition hover:bg-sectec-50/40`}>
-                  <Td strong>{membro.nome}</Td>
-                  <Td>{membro.turma}</Td>
-                  <Td>{membro.funcao}</Td>
-                  <Td>{membro.email}</Td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </TableShell>
-      );
-    }
-
-    if (abaAtiva === "projetos-por-eixo") {
-      return (
-        <TableShell>
-          <table className="min-w-full divide-y divide-slate-100">
-            <thead className="bg-slate-50">
-              <tr>
-                <Th>Eixo</Th>
-                <Th>Total de projetos</Th>
-                <Th>Aprovados</Th>
-                <Th>Em desenvolvimento</Th>
-                <Th>Pendentes</Th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {dados.projetosEixo.map((projeto, index) => (
-                <tr key={projeto.eixo} className={`${index % 2 ? "bg-slate-50/50" : "bg-white"} transition hover:bg-sectec-50/40`}>
-                  <Td strong>{projeto.eixo}</Td>
-                  <Td>{projeto.total}</Td>
-                  <Td>{projeto.aprovados}</Td>
-                  <Td>{projeto.emDesenvolvimento}</Td>
-                  <Td>{projeto.pendentes}</Td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </TableShell>
-      );
-    }
-
-    if (abaAtiva === "orientadores-projetos") {
-      return (
-        <TableShell>
-          <table className="min-w-full divide-y divide-slate-100">
-            <thead className="bg-slate-50">
-              <tr>
-                <Th>Nome do orientador</Th>
-                <Th>Total de projetos</Th>
-                <Th>Lista de projetos</Th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {dados.orientadoresProjetos.map((orientador, index) => (
-                <tr key={orientador.orientador} className={`${index % 2 ? "bg-slate-50/50" : "bg-white"} transition hover:bg-sectec-50/40`}>
-                  <Td strong>{orientador.orientador}</Td>
-                  <Td>{orientador.total}</Td>
-                  <Td>
-                    <div className="flex min-w-[340px] flex-wrap gap-2">
-                      {orientador.projetos.map((projeto) => (
-                        <span key={projeto.id} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600">
-                          <strong className="text-slate-900">{projeto.titulo}</strong> · {projeto.aluno} · {projeto.status}
-                        </span>
-                      ))}
-                    </div>
-                  </Td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </TableShell>
-      );
-    }
-
-    if (abaAtiva === "projetos-por-turma") {
-      return (
-        <TableShell>
-          <table className="min-w-full divide-y divide-slate-100">
-            <thead className="bg-slate-50">
-              <tr>
-                <Th>Turma</Th>
-                <Th>Total de projetos</Th>
-                <Th>Projetos aprovados</Th>
-                <Th>Média de notas</Th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {dados.projetosTurma.map((projeto, index) => (
-                <tr key={projeto.turma} className={`${index % 2 ? "bg-slate-50/50" : "bg-white"} transition hover:bg-sectec-50/40`}>
-                  <Td strong>{projeto.turma}</Td>
-                  <Td>{projeto.total}</Td>
-                  <Td>{projeto.aprovados}</Td>
-                  <Td>{projeto.mediaNota.toFixed(1)}</Td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </TableShell>
-      );
-    }
-
-    if (abaAtiva === "ranking-geral-eixo") {
-      return (
-        <TableShell>
-          <table className="min-w-full divide-y divide-slate-100">
-            <thead className="bg-slate-50">
-              <tr>
-                <Th>Posição</Th>
-                <Th>Título do projeto</Th>
-                <Th>Eixo</Th>
-                <Th>Nota</Th>
-                <Th>Aluno</Th>
-                <Th>Orientador</Th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {rankingOrdenado.map((projeto, index) => (
-                <tr key={projeto.titulo} className={`${index % 2 ? "bg-slate-50/50" : "bg-white"} transition hover:bg-sectec-50/40`}>
-                  <Td strong>{projeto.posicao}º</Td>
-                  <Td strong>{projeto.titulo}</Td>
-                  <Td>{projeto.eixo}</Td>
-                  <Td>{projeto.nota.toFixed(1)}</Td>
-                  <Td>{projeto.aluno}</Td>
-                  <Td>{projeto.orientador}</Td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </TableShell>
-      );
-    }
-
-    if (abaAtiva === "avaliacoes-pendentes") {
-      return (
-        <TableShell>
-          <table className="min-w-full divide-y divide-slate-100">
-            <thead className="bg-slate-50">
-              <tr>
-                <Th>Título</Th>
-                <Th>Aluno</Th>
-                <Th>Turma</Th>
-                <Th>Orientador</Th>
-                <Th>Status atual</Th>
-                <Th>Dias sem atualização</Th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {dados.projetosPendentes.map((projeto, index) => (
-                <tr key={projeto.id} className={`${index % 2 ? "bg-slate-50/50" : "bg-white"} transition hover:bg-sectec-50/40`}>
-                  <Td strong>{projeto.titulo}</Td>
-                  <Td>{projeto.aluno}</Td>
-                  <Td>{projeto.turma}</Td>
-                  <Td>{projeto.orientador}</Td>
-                  <Td><StatusBadge value={projeto.status} /></Td>
-                  <Td>{projeto.diasSemAtualizacao} dias</Td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </TableShell>
-      );
-    }
+  function renderAlunosSemProjeto() {
+    if (alunosSemProjeto.loading) return <Skeleton />;
+    if (alunosSemProjeto.error) return <ErrorBox state={alunosSemProjeto} onRetry={() => carregar(realReports["alunos-sem-projeto"], setAlunosSemProjeto)} />;
+    if (!somaAlunosSemProjeto(alunosSemProjeto.data)) return <Empty message="Nenhum aluno sem projeto encontrado." />;
 
     return (
-      <TableShell>
-        <table className="min-w-full divide-y divide-slate-100">
-          <thead className="bg-slate-50">
-            <tr>
-              <Th>Data/hora</Th>
-              <Th>Usuário que alterou</Th>
-              <Th>Ação realizada</Th>
-              <Th>Projeto afetado</Th>
-              <Th>Valor anterior</Th>
-              <Th>Valor novo</Th>
-              <Th>IP</Th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {dados.logsAuditoria.map((log, index) => (
-              <tr key={log.id} className={`${index % 2 ? "bg-slate-50/50" : "bg-white"} transition hover:bg-sectec-50/40`}>
-                <Td strong>{log.quando}</Td>
-                <Td>{log.usuario}</Td>
-                <Td>{log.acao}</Td>
-                <Td>{log.projeto}</Td>
-                <Td>{log.valorAnterior}</Td>
-                <Td>{log.valorNovo}</Td>
-                <Td>{log.ip ?? "-"}</Td>
-              </tr>
+      <div className="space-y-4">
+        <div className="grid gap-3 md:grid-cols-[1fr_240px]">
+          <label className="relative block">
+            <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <input
+              value={busca}
+              onChange={(event) => setBusca(event.target.value)}
+              placeholder="Buscar por nome ou email"
+              className="w-full rounded-2xl border border-slate-200 bg-white py-3 pl-11 pr-4 text-sm font-semibold outline-none transition focus:border-emerald-400"
+            />
+          </label>
+          <select
+            value={grupoAlunos}
+            onChange={(event) => setGrupoAlunos(event.target.value)}
+            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-emerald-400"
+          >
+            <option value="todos">Todas as turmas</option>
+            {Object.entries(alunosSemProjeto.data ?? {}).map(([grupo, alunos]) => (
+              <option key={grupo} value={grupo}>
+                {formatarGrupoTurma(grupo, alunos)}
+              </option>
             ))}
-          </tbody>
-        </table>
-      </TableShell>
+          </select>
+        </div>
+
+        {alunosFiltrados.length === 0 ? <Empty message="Nenhum aluno sem projeto encontrado." /> : null}
+
+        {alunosFiltrados.map(([grupo, alunos]) => (
+          <Card key={grupo}>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <h2 className="text-lg font-black text-slate-950">{formatarGrupoTurma(grupo, alunos)}</h2>
+              <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">{alunos.length} aluno(s)</span>
+            </div>
+            <div className="mt-4 grid gap-2">
+              {alunos.map((aluno) => (
+                <div key={aluno.id} className="flex flex-col gap-2 rounded-2xl border border-slate-100 p-3 transition hover:bg-emerald-50/40 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-black text-slate-900">{aluno.nome}</p>
+                    <p className="text-sm font-semibold text-slate-500">{aluno.email}</p>
+                  </div>
+                  <span className="text-sm font-bold text-slate-600">{nomeTurma(aluno.turma, aluno.ano)}</span>
+                </div>
+              ))}
+            </div>
+          </Card>
+        ))}
+      </div>
     );
+  }
+
+  function renderComissao() {
+    if (comissaoPorEvento.loading) return <Skeleton />;
+    if (comissaoPorEvento.error) return <ErrorBox state={comissaoPorEvento} onRetry={() => carregar(realReports["comissao-por-evento"], setComissaoPorEvento)} />;
+    if (!somaComissao(comissaoPorEvento.data)) return <Empty message="Nenhum histórico de comissão encontrado." />;
+
+    return (
+      <div className="grid gap-4 lg:grid-cols-2">
+        {Object.entries(comissaoPorEvento.data ?? {}).map(([evento, dados]) => (
+          <Card key={evento}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Evento #{dados.eventoId}</p>
+                <h2 className="mt-2 text-lg font-black text-slate-950">{evento}</h2>
+              </div>
+              <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">{dados.alunos.length} membro(s)</span>
+            </div>
+            <div className="mt-4 space-y-2">
+              {dados.alunos.map((aluno) => (
+                <div key={aluno.id} className="rounded-2xl border border-slate-100 p-3 transition hover:bg-slate-50">
+                  <p className="font-black text-slate-900">{aluno.nome}</p>
+                  <p className="text-sm font-semibold text-slate-500">{aluno.email}</p>
+                  <p className="mt-1 text-xs font-bold text-slate-500">{nomeTurma(aluno.turma, aluno.ano)}</p>
+                </div>
+              ))}
+            </div>
+          </Card>
+        ))}
+      </div>
+    );
+  }
+
+  function renderEixos() {
+    if (eixosTematicos.loading) return <Skeleton />;
+    if (eixosTematicos.error) return <ErrorBox state={eixosTematicos} onRetry={() => carregar(realReports["eixos-tematicos"], setEixosTematicos)} />;
+    if (!eixosResumo.eixos) return <Empty message="Nenhum eixo temático encontrado." />;
+
+    return (
+      <div className="space-y-4">
+        <div className="grid gap-3 md:grid-cols-[1fr_260px]">
+          <label className="relative block">
+            <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <input
+              value={busca}
+              onChange={(event) => setBusca(event.target.value)}
+              placeholder="Buscar eixo temático"
+              className="w-full rounded-2xl border border-slate-200 bg-white py-3 pl-11 pr-4 text-sm font-semibold outline-none transition focus:border-emerald-400"
+            />
+          </label>
+          <select
+            value={eventoEixo}
+            onChange={(event) => setEventoEixo(event.target.value)}
+            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-emerald-400"
+          >
+            <option value="todos">Todos os eventos</option>
+            {Object.keys(eixosTematicos.data ?? {}).map((evento) => (
+              <option key={evento} value={evento}>
+                {evento}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {eixosFiltrados.length === 0 ? <Empty message="Nenhum eixo temático encontrado." /> : null}
+
+        {eixosFiltrados.map(([evento, dados]) => (
+          <Card key={evento}>
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Evento #{dados.eventoId}</p>
+            <h2 className="mt-2 text-lg font-black text-slate-950">{evento}</h2>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {dados.eixos.map((eixo) => (
+                <div key={eixo.temaId} className="rounded-2xl border border-slate-100 p-4 transition hover:bg-slate-50">
+                  <p className="font-black text-slate-900">{eixo.temaNome}</p>
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs font-black">
+                    <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700">Total: {eixo.totalProjetos}</span>
+                    <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-700">Pendentes: {eixo.projetosPendentes}</span>
+                    <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-700">Aceitos: {eixo.projetosAceitos}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        ))}
+      </div>
+    );
+  }
+
+  function renderOrientadores() {
+    if (projetosPorOrientador.loading) return <Skeleton />;
+    if (projetosPorOrientador.error) return <ErrorBox state={projetosPorOrientador} onRetry={() => carregar(realReports["projetos-por-orientador"], setProjetosPorOrientador)} />;
+    if (!projetosPorOrientador.data?.length) return <Empty message="Nenhum projeto por orientador encontrado." />;
+
+    return (
+      <div className="grid gap-4 lg:grid-cols-2">
+        {projetosPorOrientador.data.map((orientador) => (
+          <Card key={orientador.orientadorId}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-black text-slate-950">{orientador.orientadorNome}</h2>
+                <p className="mt-1 text-sm font-semibold text-slate-500">{orientador.email}</p>
+              </div>
+              <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">
+                {orientador.totalProjetosAceitos} aceito(s)
+              </span>
+            </div>
+            <div className="mt-4 space-y-2">
+              {orientador.projetos.length ? (
+                orientador.projetos.map((projeto) => (
+                  <p key={projeto} className="rounded-2xl border border-slate-100 px-3 py-2 text-sm font-bold text-slate-700">
+                    {projeto}
+                  </p>
+                ))
+              ) : (
+                <p className="rounded-2xl bg-slate-50 px-3 py-2 text-sm font-bold text-slate-500">Nenhum projeto aceito.</p>
+              )}
+            </div>
+          </Card>
+        ))}
+      </div>
+    );
+  }
+
+  function renderTurmas() {
+    if (projetosPorTurma.loading) return <Skeleton />;
+    if (projetosPorTurma.error) return <ErrorBox state={projetosPorTurma} onRetry={() => carregar(realReports["projetos-por-turma"], setProjetosPorTurma)} />;
+
+    const turmas = Object.values(projetosPorTurma.data ?? {}).sort((a, b) => a.ano - b.ano || a.turma.localeCompare(b.turma));
+    if (!turmas.length) return <Empty message="Nenhum projeto por turma encontrado." />;
+
+    return (
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {turmas.map((turma) => {
+          const progresso = turma.totalCriados ? Math.round((turma.totalAprovados / turma.totalCriados) * 100) : 0;
+
+          return (
+            <Card key={`${turma.turma}-${turma.ano}`}>
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Turma</p>
+              <h2 className="mt-2 text-lg font-black text-slate-950">{nomeTurma(turma.turma, turma.ano)}</h2>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <div className="rounded-2xl bg-slate-50 p-3">
+                  <p className="text-xs font-black text-slate-400">Criados</p>
+                  <strong className="text-xl font-black text-slate-900">{turma.totalCriados}</strong>
+                </div>
+                <div className="rounded-2xl bg-emerald-50 p-3">
+                  <p className="text-xs font-black text-emerald-600">Aprovados</p>
+                  <strong className="text-xl font-black text-emerald-800">{turma.totalAprovados}</strong>
+                </div>
+              </div>
+              <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
+                <div className="h-full rounded-full bg-emerald-600" style={{ width: `${progresso}%` }} />
+              </div>
+              <p className="mt-2 text-xs font-bold text-slate-500">{turma.totalAprovados} / {turma.totalCriados} aprovados</p>
+            </Card>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function renderEmBreve() {
+    const itens = ["Ranking", "Avaliação", "Notas", "Classificação", "Relatório de banca", "Métricas de desenvolvimento"];
+
+    return (
+      <Card>
+        <h2 className="text-xl font-black text-slate-950">Relatórios sem endpoint real</h2>
+        <p className="mt-2 text-sm font-semibold text-slate-500">Este relatório ainda não possui endpoint real no backend.</p>
+        <div className="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {itens.map((item) => (
+            <span key={item} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-black text-slate-700">
+              {item}
+            </span>
+          ))}
+        </div>
+      </Card>
+    );
+  }
+
+  function renderConteudo() {
+    if (abaAtiva === "visao-geral") return renderVisaoGeral();
+    if (abaAtiva === "alunos-sem-projeto") return renderAlunosSemProjeto();
+    if (abaAtiva === "comissao-por-evento") return renderComissao();
+    if (abaAtiva === "eixos-tematicos") return renderEixos();
+    if (abaAtiva === "projetos-por-orientador") return renderOrientadores();
+    if (abaAtiva === "projetos-por-turma") return renderTurmas();
+    return renderEmBreve();
   }
 
   return (
     <MainLayout userRole="coordenador">
-      <main className="min-h-screen bg-[#f4f9f6] px-3 py-4 font-sans sm:px-6 sm:py-6 lg:px-8">
-        <div className="mx-auto w-full max-w-7xl space-y-5">
-          <header className="overflow-hidden rounded-2xl border border-[#0b4d2c]/10 bg-[#0b4d2c] shadow-sm">
-            <div className="flex flex-col gap-5 p-6 text-white sm:p-8 lg:flex-row lg:items-center lg:justify-between">
+      <main className="min-h-screen bg-slate-50 px-4 py-5 sm:px-7 sm:py-7">
+        <div className="mx-auto w-full max-w-[1500px] space-y-5">
+          <section className="rounded-[2rem] bg-gradient-to-br from-emerald-800 via-emerald-700 to-slate-950 p-6 text-white shadow-sm sm:p-8">
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <p className="mb-3 text-xs font-black uppercase tracking-[0.18em] text-white/60">Coordenação SECTEC</p>
-                <h1 className="text-3xl font-black leading-tight sm:text-4xl">Status dos Alunos</h1>
-                <p className="mt-3 max-w-3xl text-sm leading-6 text-white/75">
-                  Relatórios consolidados para acompanhamento e auditoria da feira.
+                <span className="inline-flex rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-white/75">
+                  Relatórios reais
+                </span>
+                <h1 className="mt-5 text-3xl font-black tracking-tight sm:text-4xl">Status da Coordenação</h1>
+                <p className="mt-3 max-w-3xl text-sm font-medium leading-6 text-white/70 sm:text-base">
+                  Dados operacionais vindos dos endpoints reais de relatório do backend.
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={handleAtualizarDados}
-                disabled={carregando}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-black text-[#0b4d2c] shadow-sm transition hover:bg-sectec-50 disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto"
-              >
-                <PiClockCounterClockwise size={18} className={carregando ? "animate-spin" : ""} />
-                Atualizar dados
-              </button>
-            </div>
-          </header>
-
-          {aviso && (
-            <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800 shadow-sm">
-              <PiWarningCircle className="mt-0.5 shrink-0" size={18} />
-              <span>{aviso}</span>
-            </div>
-          )}
-
-          <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="overflow-x-auto border-b border-slate-200">
-              <div className="flex min-w-max gap-1 px-3 pt-3">
-                {relatorios.map((relatorio) => {
-                  const ativo = relatorio.id === abaAtiva;
-                  return (
-                    <button
-                      key={relatorio.id}
-                      type="button"
-                      onClick={() => setAbaAtiva(relatorio.id)}
-                      className={`inline-flex items-center gap-2 rounded-t-xl border-b-2 px-4 py-3 text-sm font-black transition ${
-                        ativo
-                          ? "border-[#0b4d2c] bg-white text-[#0b4d2c]"
-                          : "border-transparent bg-slate-50 text-slate-500 hover:bg-sectec-50 hover:text-sectec-700"
-                      }`}
-                    >
-                      {relatorio.icon}
-                      {relatorio.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="grid gap-5 p-4 sm:p-6">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <h2 className="text-xl font-black text-slate-950">{relatorioAtivo.titulo}</h2>
-                  <p className="mt-1 text-sm font-medium text-slate-500">Dados operacionais da aba selecionada, com exportação imediata.</p>
-                </div>
-
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <button
-                    type="button"
-                    onClick={handleExportPdf}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-sectec-700 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-sectec-800"
-                  >
-                    <PiFilePdf size={18} />
-                    Exportar PDF
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleExportCsv}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:border-sectec-200 hover:bg-sectec-50 hover:text-sectec-700"
-                  >
-                    <PiUploadSimple size={18} />
-                    Exportar CSV
-                  </button>
-                </div>
-              </div>
-
-              {renderTabela()}
+              {abaAtiva !== "em-breve" && (
+                <button
+                  type="button"
+                  onClick={atualizarAba}
+                  disabled={loadingAtual}
+                  className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white px-5 py-3 text-sm font-black text-emerald-800 shadow-sm transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto"
+                >
+                  {loadingAtual ? <Loader2 className="animate-spin" size={17} /> : <RefreshCw size={17} />}
+                  {loadingAtual ? "Atualizando..." : "Atualizar"}
+                </button>
+              )}
             </div>
           </section>
+
+          <nav className="flex gap-2 overflow-x-auto rounded-3xl border border-slate-200 bg-white p-2 shadow-sm">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => trocarAba(tab.id)}
+                className={`inline-flex shrink-0 cursor-pointer items-center gap-2 rounded-2xl px-4 py-3 text-sm font-black transition ${
+                  abaAtiva === tab.id ? "bg-emerald-700 text-white shadow-sm" : "text-slate-600 hover:bg-emerald-50 hover:text-emerald-800"
+                }`}
+              >
+                {tab.icon}
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+
+          {renderConteudo()}
         </div>
       </main>
     </MainLayout>
