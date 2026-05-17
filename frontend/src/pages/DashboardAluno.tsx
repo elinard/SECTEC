@@ -941,7 +941,7 @@ function Dashboard() {
                                   formData.append('tipo', 'link');
                                   formData.append('conteudo', linkYoutube);
                                   const token = localStorage.getItem('token');
-                                  const res = await fetch('http://localhost:3000/materiais', {
+                                  const res = await fetch('http://localhost:3000/api/materiais', {
                                     method: 'POST',
                                     headers: { Authorization: `Bearer ${token}` },
                                     body: formData,
