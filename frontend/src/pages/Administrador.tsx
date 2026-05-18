@@ -851,13 +851,6 @@ function EventosCoordenacao() {
       avaliacaoFim: toDateInput(evento.avaliacao?.fim),
     });
     setStep(1);
-
-    setTimeout(() => {
-      formularioEventoRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    }, 50);
   }
 
   async function abrirDetalhesEvento(evento: EventoApi) {
@@ -1136,9 +1129,31 @@ function EventosCoordenacao() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
           
-          <div ref={formularioEventoRef} className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm flex flex-col">
-            <PanelTitle icon={<PiCalendarBlank size={20} />} title="Novo Evento / Etapas" subtitle={isEditing ? "Editando evento existente" : "Fluxo para criar o evento anual."} />
-            
+          <div ref={formularioEventoRef} className={`rounded-3xl border bg-white p-5 shadow-sm sm:p-6 flex flex-col ${isEditing ? "border-emerald-200 ring-4 ring-emerald-50" : "border-slate-200"}`}>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <PanelTitle
+                icon={<PiCalendarBlank size={20} />}
+                title={isEditing ? "Editando evento" : "Novo evento"}
+                subtitle={isEditing ? "Revise as etapas e salve as alterações do evento selecionado." : "Fluxo para criar o evento anual."}
+              />
+              {isEditing && (
+                <button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-600 transition hover:bg-slate-50"
+                >
+                  <ArrowLeft size={14} />
+                  Voltar para novo evento
+                </button>
+              )}
+            </div>
+
+            {isEditing && (
+              <div className="mt-5 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">
+                Você está editando um evento existente. As alterações só serão aplicadas ao clicar em “Salvar alterações”.
+              </div>
+            )}
+
             <div ref={formularioEventoRef} className="mt-6 flex-1 flex flex-col justify-between">
               <div>
                 <div className="relative mb-8 pt-4">
@@ -1801,12 +1816,24 @@ function UsuariosCoordenacao() {
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {[
-            { label: "Total de alunos", value: totalAlunos, accent: "from-emerald-500 to-teal-600", icon: <PiUsersThree size={18} /> },
-            { label: "Total de orientadores", value: totalOrientadores, accent: "from-sky-500 to-cyan-600", icon: <PiBookOpen size={18} /> },
-            { label: "Total de comissão", value: totalComissao, accent: "from-amber-500 to-orange-600", icon: <PiCheckCircle size={18} /> },
-            { label: "Total geral", value: totalGeral, accent: "from-slate-700 to-slate-950", icon: <UsersRound size={18} /> },
+            { label: "Total de alunos", value: totalAlunos, accent: "from-emerald-500 to-teal-600", icon: <PiUsersThree size={18} />, target: "alunos" as const },
+            { label: "Total de orientadores", value: totalOrientadores, accent: "from-sky-500 to-cyan-600", icon: <PiBookOpen size={18} />, target: "orientadores" as const },
+            { label: "Total de comissão", value: totalComissao, accent: "from-amber-500 to-orange-600", icon: <PiCheckCircle size={18} />, target: "comissao" as const },
+            { label: "Total geral", value: totalGeral, accent: "from-slate-700 to-slate-950", icon: <UsersRound size={18} />, target: "alunos" as const },
           ].map((card) => (
-            <article key={card.label} className="group relative overflow-hidden rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+            <button
+              key={card.label}
+              type="button"
+              onClick={() => {
+                setAbaAtiva(card.target);
+                setBusca("");
+                setTurmaFiltro("todas");
+                setAnoFiltro("todos");
+              }}
+              className={`group relative overflow-hidden rounded-3xl border bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
+                abaAtiva === card.target ? "border-emerald-200 ring-4 ring-emerald-50" : "border-slate-200"
+              }`}
+            >
               <div className={`absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r ${card.accent}`} />
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -1817,8 +1844,8 @@ function UsuariosCoordenacao() {
                   {card.icon}
                 </span>
               </div>
-              <p className="mt-3 text-xs font-semibold text-slate-400">Dados carregados do backend por perfil.</p>
-            </article>
+              <p className="mt-3 text-xs font-semibold text-slate-400">Clique para filtrar essa lista.</p>
+            </button>
           ))}
         </div>
 
@@ -1966,12 +1993,13 @@ function UsuariosCoordenacao() {
                           {abaAtiva === "alunos" && usuario.perfil === "Aluno" ? (
                             <Tooltip label="Mover aluno para comissão">
                               <button
-                                type="button"
-                                onClick={() => promoverAlunoParaComissao(usuario)}
-                                className="inline-flex cursor-pointer items-center justify-center rounded-xl border border-sectec-200 bg-sectec-50 px-3 py-2 text-xs font-black text-sectec-700 transition hover:bg-sectec-100 hover:text-sectec-800"
-                              >
-                                Tornar comissão
-                              </button>
+                              type="button"
+                              onClick={() => promoverAlunoParaComissao(usuario)}
+                              className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-emerald-100 hover:text-emerald-900"
+                            >
+                              <PiArrowUpRight size={14} />
+                              Tornar comissão
+                            </button>
                             </Tooltip>
                           ) : (
                             <span className="text-xs font-semibold text-slate-400">Sem ações disponíveis</span>

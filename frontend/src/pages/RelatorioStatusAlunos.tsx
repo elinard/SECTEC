@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetSt
 import { useSearchParams } from "react-router-dom";
 import { motion } from "motion/react";
 import {
-  AlertTriangle,
   BarChart3,
   BookOpenCheck,
   Building2,
+  Download,
+  FileText,
   GraduationCap,
   Loader2,
   RefreshCw,
@@ -71,8 +72,7 @@ type ReportKey =
   | "comissao-por-evento"
   | "eixos-tematicos"
   | "projetos-por-orientador"
-  | "projetos-por-turma"
-  | "em-breve";
+  | "projetos-por-turma";
 
 type ReportState<T> = {
   data: T | null;
@@ -97,7 +97,6 @@ const tabs: { id: ReportKey; label: string; icon: ReactNode }[] = [
   { id: "eixos-tematicos", label: "Eixos temáticos", icon: <BookOpenCheck size={17} /> },
   { id: "projetos-por-orientador", label: "Projetos por orientador", icon: <UsersRound size={17} /> },
   { id: "projetos-por-turma", label: "Projetos por turma", icon: <Building2 size={17} /> },
-  { id: "em-breve", label: "Em breve", icon: <AlertTriangle size={17} /> },
 ];
 
 const emptyState = <T,>(): ReportState<T> => ({
@@ -229,13 +228,66 @@ function Tooltip({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+function csvCell(value: string | number | null | undefined) {
+  return `"${String(value ?? "-").replace(/"/g, '""')}"`;
+}
+
+function baixarArquivo(conteudo: BlobPart[], filename: string, type: string) {
+  const blob = new Blob(conteudo, { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function linhasParaCsv(headers: string[], rows: (string | number | null | undefined)[][]) {
+  return [headers, ...rows].map((row) => row.map(csvCell).join(";")).join("\n");
+}
+
+function escaparHtml(value: string | number | null | undefined) {
+  return String(value ?? "-")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function abrirPdfImpressao(titulo: string, linhas: string[]) {
+  const janela = window.open("", "_blank", "noopener,noreferrer");
+  if (!janela) return;
+
+  janela.document.write(`
+    <html>
+      <head>
+        <title>${titulo}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 24px; color: #0f172a; }
+          h1 { font-size: 22px; margin-bottom: 16px; }
+          li { margin: 8px 0; font-size: 13px; }
+        </style>
+      </head>
+      <body>
+        <h1>${titulo}</h1>
+        <ul>${linhas.map((linha) => `<li>${escaparHtml(linha)}</li>`).join("")}</ul>
+      </body>
+    </html>
+  `);
+  janela.document.close();
+  janela.focus();
+  janela.print();
+}
+
 function RelatorioStatusAlunos() {
   const [searchParams, setSearchParams] = useSearchParams();
   const abaUrl = searchParams.get("aba") as ReportKey | null;
   const [abaAtiva, setAbaAtiva] = useState<ReportKey>(tabs.some((tab) => tab.id === abaUrl) ? abaUrl! : "visao-geral");
   const [busca, setBusca] = useState("");
   const [grupoAlunos, setGrupoAlunos] = useState("todos");
-  const [anoAlunosFiltro, setAnoAlunosFiltro] = useState("todos");
   const [eventoComissaoFiltro, setEventoComissaoFiltro] = useState("todos");
   const [turmaComissaoFiltro, setTurmaComissaoFiltro] = useState("todas");
   const [anoComissaoFiltro, setAnoComissaoFiltro] = useState("todos");
@@ -324,12 +376,11 @@ function RelatorioStatusAlunos() {
         grupo,
         alunos.filter((aluno) => {
           const bateBusca = !termo || `${aluno.nome} ${aluno.email} ${aluno.turma ?? ""}`.toLowerCase().includes(termo);
-          const bateAno = anoAlunosFiltro === "todos" || String(aluno.ano) === anoAlunosFiltro;
-          return bateBusca && bateAno;
+          return bateBusca;
         }),
       ] as const)
       .filter(([, alunos]) => alunos.length > 0);
-  }, [alunosSemProjeto.data, anoAlunosFiltro, busca, grupoAlunos]);
+  }, [alunosSemProjeto.data, busca, grupoAlunos]);
 
   const comissaoFiltrada = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -384,10 +435,6 @@ function RelatorioStatusAlunos() {
       .sort((a, b) => a.ano - b.ano || a.turma.localeCompare(b.turma));
   }, [anoProjetoFiltro, projetosPorTurma.data, turmaProjetoFiltro]);
 
-  const anosAlunos = useMemo(() => {
-    return Array.from(new Set(Object.values(alunosSemProjeto.data ?? {}).flat().map((aluno) => aluno.ano))).sort((a, b) => a - b);
-  }, [alunosSemProjeto.data]);
-
   const turmasComissao = useMemo(() => {
     return Array.from(new Set(Object.values(comissaoPorEvento.data ?? {}).flatMap((evento) => evento.alunos.map((aluno) => aluno.turma).filter(Boolean)))).sort() as string[];
   }, [comissaoPorEvento.data]);
@@ -410,6 +457,90 @@ function RelatorioStatusAlunos() {
     (total, orientador) => total + orientador.totalProjetosAceitos,
     0,
   );
+
+  function dadosExportacaoAtual() {
+    if (abaAtiva === "alunos-sem-projeto") {
+      const rows = alunosFiltrados.flatMap(([grupo, alunos]) =>
+        alunos.map((aluno) => [formatarGrupoTurma(grupo, alunos), aluno.nome, aluno.email, aluno.turma, aluno.ano]),
+      );
+      return {
+        titulo: "Alunos sem projeto",
+        csv: linhasParaCsv(["Grupo", "Nome", "Email", "Turma", "Ano"], rows),
+        linhas: rows.map((row) => `${row[0]} - ${row[1]} - ${row[2]}`),
+      };
+    }
+
+    if (abaAtiva === "comissao-por-evento") {
+      const rows = comissaoFiltrada.flatMap(([evento, dados]) =>
+        dados.alunos.map((aluno) => [evento, aluno.nome, aluno.email, aluno.turma, aluno.ano]),
+      );
+      return {
+        titulo: "Comissão por evento",
+        csv: linhasParaCsv(["Evento", "Nome", "Email", "Turma", "Ano"], rows),
+        linhas: rows.map((row) => `${row[0]} - ${row[1]} - ${row[2]}`),
+      };
+    }
+
+    if (abaAtiva === "eixos-tematicos") {
+      const rows = eixosFiltrados.flatMap(([evento, dados]) =>
+        dados.eixos.map((eixo) => [evento, eixo.temaNome, eixo.totalProjetos, eixo.projetosPendentes, eixo.projetosAceitos]),
+      );
+      return {
+        titulo: "Eixos temáticos",
+        csv: linhasParaCsv(["Evento", "Eixo", "Total", "Pendentes", "Aceitos"], rows),
+        linhas: rows.map((row) => `${row[0]} - ${row[1]}: total ${row[2]}, pendentes ${row[3]}, aceitos ${row[4]}`),
+      };
+    }
+
+    if (abaAtiva === "projetos-por-orientador") {
+      const rows = orientadoresFiltrados.map((orientador) => [
+        orientador.orientadorNome,
+        orientador.email,
+        orientador.totalProjetosAceitos,
+        orientador.projetos.join(" | "),
+      ]);
+      return {
+        titulo: "Projetos por orientador",
+        csv: linhasParaCsv(["Orientador", "Email", "Projetos aceitos", "Projetos"], rows),
+        linhas: rows.map((row) => `${row[0]} - ${row[2]} projeto(s): ${row[3]}`),
+      };
+    }
+
+    if (abaAtiva === "projetos-por-turma") {
+      const rows = turmasFiltradas.map((turma) => [turma.turma, turma.ano, turma.totalCriados, turma.totalAprovados]);
+      return {
+        titulo: "Projetos por turma",
+        csv: linhasParaCsv(["Turma", "Ano", "Criados", "Aprovados"], rows),
+        linhas: rows.map((row) => `${row[0]} ${row[1]}º ano - criados ${row[2]}, aprovados ${row[3]}`),
+      };
+    }
+
+    const linhas = [
+      ["Alunos sem projeto", somaAlunosSemProjeto(alunosSemProjeto.data)],
+      ["Eventos com comissão", Object.keys(comissaoPorEvento.data ?? {}).length],
+      ["Eixos temáticos", eixosResumo.eixos],
+      ["Projetos pendentes", eixosResumo.pendentes],
+      ["Projetos aceitos", eixosResumo.aceitos],
+      ["Orientadores com projetos", projetosPorOrientador.data?.length ?? 0],
+      ["Projetos criados por turma", turmasResumo.criados],
+      ["Projetos aprovados por turma", turmasResumo.aprovados],
+    ];
+    return {
+      titulo: "Visão geral dos relatórios",
+      csv: linhasParaCsv(["Indicador", "Valor"], linhas),
+      linhas: linhas.map((row) => `${row[0]}: ${row[1]}`),
+    };
+  }
+
+  function exportarCsv() {
+    const dados = dadosExportacaoAtual();
+    baixarArquivo(["\ufeff", dados.csv], `${abaAtiva}.csv`, "text/csv;charset=utf-8");
+  }
+
+  function exportarPdf() {
+    const dados = dadosExportacaoAtual();
+    abrirPdfImpressao(dados.titulo, dados.linhas.length ? dados.linhas : ["Nenhum dado disponível para exportação."]);
+  }
 
   function renderVisaoGeral() {
     return (
@@ -455,7 +586,7 @@ function RelatorioStatusAlunos() {
 
     return (
       <div className="space-y-4">
-        <div className="grid gap-3 md:grid-cols-[1fr_240px_180px]">
+        <div className="grid gap-3 md:grid-cols-[1fr_260px]">
           <label className="relative block">
             <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
             <input
@@ -474,18 +605,6 @@ function RelatorioStatusAlunos() {
             {Object.entries(alunosSemProjeto.data ?? {}).map(([grupo, alunos]) => (
               <option key={grupo} value={grupo}>
                 {formatarGrupoTurma(grupo, alunos)}
-              </option>
-            ))}
-          </select>
-          <select
-            value={anoAlunosFiltro}
-            onChange={(event) => setAnoAlunosFiltro(event.target.value)}
-            className="cursor-pointer rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-emerald-400"
-          >
-            <option value="todos">Todos os anos</option>
-            {anosAlunos.map((ano) => (
-              <option key={ano} value={ano}>
-                {ano}º ano
               </option>
             ))}
           </select>
@@ -744,32 +863,13 @@ function RelatorioStatusAlunos() {
     );
   }
 
-  function renderEmBreve() {
-    const itens = ["Ranking", "Avaliação", "Notas", "Classificação", "Relatório de banca", "Métricas de desenvolvimento"];
-
-    return (
-      <Card>
-        <h2 className="text-xl font-black text-slate-950">Relatórios sem endpoint real</h2>
-        <p className="mt-2 text-sm font-semibold text-slate-500">Relatórios de notas e avaliação ainda não estão disponíveis no backend.</p>
-        <div className="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {itens.map((item) => (
-            <span key={item} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-black text-slate-700">
-              {item}
-            </span>
-          ))}
-        </div>
-      </Card>
-    );
-  }
-
   function renderConteudo() {
     if (abaAtiva === "visao-geral") return renderVisaoGeral();
     if (abaAtiva === "alunos-sem-projeto") return renderAlunosSemProjeto();
     if (abaAtiva === "comissao-por-evento") return renderComissao();
     if (abaAtiva === "eixos-tematicos") return renderEixos();
     if (abaAtiva === "projetos-por-orientador") return renderOrientadores();
-    if (abaAtiva === "projetos-por-turma") return renderTurmas();
-    return renderEmBreve();
+    return renderTurmas();
   }
 
   return (
@@ -788,7 +888,23 @@ function RelatorioStatusAlunos() {
                 </p>
               </div>
 
-              {abaAtiva !== "em-breve" && (
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={exportarPdf}
+                  className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-white/15 sm:w-auto"
+                >
+                  <FileText size={17} />
+                  Exportar PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={exportarCsv}
+                  className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-white/15 sm:w-auto"
+                >
+                  <Download size={17} />
+                  Exportar CSV
+                </button>
                 <Tooltip label="Atualizar dados">
                   <button
                     type="button"
@@ -800,7 +916,7 @@ function RelatorioStatusAlunos() {
                     {loadingAtual ? "Atualizando..." : "Atualizar"}
                   </button>
                 </Tooltip>
-              )}
+              </div>
             </div>
           </section>
 
