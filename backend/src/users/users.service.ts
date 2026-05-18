@@ -12,6 +12,7 @@ import { ComissaoEvento } from 'src/evento/entities/comissao-evento.entity';
 import { HashingProvider } from '../common/providers/hashing.provider';
 import { parse } from 'csv-parse/sync';
 import { ProjetoOrientador } from 'src/projetos/entities/projeto-orientador.entity';
+import { CreateUserDto } from './dto/create-user.dto';
 
 interface ICsvRow {
   nome: string;
@@ -28,7 +29,6 @@ export class UsersService {
     @InjectRepository(User)
     private usersRepository: Repository<User>,
 
-    // 👇 NOVOS REPOSITÓRIOS INJETADOS PARA O HISTÓRICO DA COMISSÃO
     @InjectRepository(Evento)
     private eventoRepository: Repository<Evento>,
 
@@ -38,11 +38,8 @@ export class UsersService {
     private hashingProvider: HashingProvider,
 
     @InjectRepository(ProjetoOrientador)
-
     private projetoOrientadorRepository: Repository<ProjetoOrientador>,
   ) { }
-
-
 
   async findOneByEmail(email: string): Promise<User | null> {
     return this.usersRepository
@@ -67,26 +64,26 @@ export class UsersService {
   }
 
   async findAllOrientadores() {
-  const orientadores = await this.usersRepository.find({
-    where: { role_cargo: UserRole.ORIENTADOR, ativo: true },
-    select: ['id', 'nome', 'email_institucional'],
-    relations: ['temasSelecionados'],
-  });
+    const orientadores = await this.usersRepository.find({
+      where: { role_cargo: UserRole.ORIENTADOR, ativo: true },
+      select: ['id', 'nome', 'email_institucional'],
+      relations: ['temasSelecionados'],
+    });
 
-  const counts = await this.projetoOrientadorRepository
-    .createQueryBuilder('po')
-    .select('po.orientador_id', 'orientadorId')
-    .addSelect('COUNT(*)', 'total')
-    .where('po.status = :status', { status: 'aceito' })
-    .groupBy('po.orientador_id')
-    .getRawMany();
+    const counts = await this.projetoOrientadorRepository
+      .createQueryBuilder('po')
+      .select('po.orientador_id', 'orientadorId')
+      .addSelect('COUNT(*)', 'total')
+      .where('po.status = :status', { status: 'aceito' })
+      .groupBy('po.orientador_id')
+      .getRawMany();
 
-  const countMap = new Map<number, number>(
-    counts.map((c) => [Number(c.orientadorId), Number(c.total)])
-  );
+    const countMap = new Map<number, number>(
+      counts.map((c) => [Number(c.orientadorId), Number(c.total)])
+    );
 
-  return orientadores.filter((o) => (countMap.get(o.id) ?? 0) < 4);
-}
+    return orientadores.filter((o) => (countMap.get(o.id) ?? 0) < 4);
+  }
 
   async processarCsv(file: Express.Multer.File, tipo: UserRole) {
     if (!file || !file.buffer) {
@@ -189,14 +186,12 @@ export class UsersService {
       throw new NotFoundException(`Usuário com ID ${id} não encontrado.`);
     }
 
-    // Regra de negócio: Apenas quem é ALUNO pode virar COMISSÃO nesta rota
     if (user.role_cargo !== UserRole.ALUNO) {
       throw new BadRequestException(
         'Apenas usuários com cargo de ALUNO podem ser movidos para a COMISSÃO.',
       );
     }
 
-    // 1. Busca o evento ativo do ano corrente (2026) usando o Between
     const anoAtual = new Date().getFullYear();
     const inicioAno = `${anoAtual}-01-01`;
     const fimAno = `${anoAtual}-12-31`;
@@ -214,11 +209,9 @@ export class UsersService {
       );
     }
 
-    // 2. Atualiza o cargo do usuário para comissão
     user.role_cargo = UserRole.COMISSAO;
     const usuarioAtualizado = await this.usersRepository.save(user);
 
-    // 3. Verifica se o registro já não existe na tabela pivot (evita duplicidade acidental)
     const jaEstaNaComissao = await this.comissaoRepository.exists({
       where: {
         evento: { id: eventoAtual.id },
@@ -235,4 +228,102 @@ export class UsersService {
     }
     return usuarioAtualizado;
   }
+
+  async createIndividual(dto: CreateUserDto) {
+    const { nome, email_institucional, role_cargo, senha, turma, ano } = dto;
+
+    const emailExiste = await this.usersRepository.exists({
+      where: { email_institucional: email_institucional.trim() }
+    });
+
+    if (emailExiste) {
+      throw new BadRequestException(`O e-mail ${email_institucional} já está cadastrado.`);
+    }
+
+    let senhaFinal: string;
+    let turmaFinal: UserTurma | null = null;
+    let anoFinal: number = 0;
+
+    if (role_cargo === UserRole.ALUNO) {
+      senhaFinal = email_institucional.trim();
+      anoFinal = ano ? Number(ano) : 1;
+      turmaFinal = turma || UserTurma.INFORMATICA;
+    } else {
+      senhaFinal = senha || email_institucional.trim();
+      turmaFinal = null;
+      anoFinal = 0;
+    }
+
+    const senhaHasheada = await this.hashingProvider.hash(senhaFinal);
+
+    const novoUsuario = this.usersRepository.create({
+      nome: nome.trim(),
+      email_institucional: email_institucional.trim(),
+      senha: senhaHasheada,
+      role_cargo,
+      turma: turmaFinal,
+      ano: anoFinal,
+      ativo: true,
+    });
+
+    try {
+      const salvo = await this.usersRepository.save(novoUsuario);
+      
+      // 🚀 Tratamento seguro do TypeScript para omitir a senha do retorno HTTP
+      const { senha: _, ...usuarioSemSenha } = salvo;
+      
+      return usuarioSemSenha;
+    } catch (error) {
+      throw new InternalServerErrorException('Erro ao salvar o usuário individual no banco de dados.');
+    }
+  }
+  
+  
+  
+  
+  
+    async demoteFromComissao(id: number): Promise<User> {
+    const user = await this.usersRepository.findOne({ where: { id } });
+
+    if (!user) {
+      throw new NotFoundException(`Usuário com ID ${id} não encontrado.`);
+    }
+
+    // Regra de negócio: Só pode ser rebaixado quem for da COMISSÃO atualmente
+    if (user.role_cargo !== UserRole.COMISSAO) {
+      throw new BadRequestException(
+        'Este usuário não faz parte do cargo de COMISSÃO.',
+      );
+    }
+
+    // 1. Identifica o evento ativo do ano corrente (2026)
+    const anoAtual = new Date().getFullYear();
+    const inicioAno = `${anoAtual}-01-01`;
+    const fimAno = `${anoAtual}-12-31`;
+
+    const eventoAtual = await this.eventoRepository.findOne({
+      where: {
+        prazoInicial: Between(inicioAno as any, fimAno as any),
+        status: EventoStatus.ATIVO,
+      },
+    });
+
+    // 2. Remove o vínculo histórico se houver um evento ativo associado
+    if (eventoAtual) {
+      await this.comissaoRepository.delete({
+        evento: { id: eventoAtual.id },
+        user: { id: user.id },
+      });
+    }
+
+    // 3. Atualiza o cargo de volta para ALUNO
+    user.role_cargo = UserRole.ALUNO;
+    return this.usersRepository.save(user);
+  }
+
+
+
+
+
+
 }

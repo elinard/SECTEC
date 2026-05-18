@@ -117,4 +117,22 @@ async getProfessoresByTema(@Param('id', ParseIntPipe) id: number) {
   ) {
     return await this.eventoService.sincronizarTemas(orientadorId, temasIds);
   }
+  
+  
+  
+  
+    @Delete('temas/:id')
+  @ApiOperation({ 
+    summary: 'Remove um tema do evento', 
+    description: 'Deleta um eixo temático caso não haja orientadores ou projetos vinculados a ele.' 
+  })
+  @ApiResponse({ status: 200, description: 'Tema removido com sucesso.' })
+  @ApiResponse({ status: 400, description: 'Tema possui dependências ativas no sistema e não pode ser apagado.' })
+  @ApiResponse({ status: 404, description: 'Tema não encontrado.' })
+  @ApiParam({ name: 'id', description: 'ID do tema que deseja remover', type: Number })
+  async removeTema(@Param('id', ParseIntPipe) id: number) {
+    return await this.eventoService.removeTema(id);
+  }
+
+
 }

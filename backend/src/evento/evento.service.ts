@@ -190,5 +190,41 @@ async findProfessoresPorTema(temaId: number) {
   };
 }
 
+  async removeTema(temaId: number) {
+    // 1. Busca o tema e verifica se ele realmente existe
+    const tema = await this.temaRepository.findOne({
+      where: { id: temaId },
+      relations: ['orientadores'], // Carrega orientadores vinculados para validação
+    });
+
+    if (!tema) {
+      throw new NotFoundException(`Tema com ID ${temaId} não encontrado.`);
+    }
+
+    // 2. Validação 1: Bloqueia se algum orientador já selecionou este tema
+    if (tema.orientadores && tema.orientadores.length > 0) {
+      throw new BadRequestException(
+        `Não é possível excluir este tema porque existem ${tema.orientadores.length} orientador(es) vinculados a ele.`,
+      );
+    }
+
+    // 3. Validação 2: Bloqueia se já existem projetos usando este tema (seja aceito ou pendente)
+    const projetoVinculado = await this.projetoOrientadorRepository.exists({
+      where: {
+        projeto: { temaId: temaId }
+      }
+    });
+
+    if (projetoVinculado) {
+      throw new BadRequestException(
+        'Não é possível excluir este tema porque existem projetos ou solicitações vinculadas a ele.',
+      );
+    }
+
+    // 4. Se passou pelas validações, deleta o tema do banco de dados de forma física
+    await this.temaRepository.delete(temaId);
+
+    return { message: `Tema "${tema.nome}" removido com sucesso do evento.` };
+  }
 
 }

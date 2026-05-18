@@ -10,6 +10,7 @@ import {
   UseGuards,
   Patch,
   Param,
+  Body,
   ParseIntPipe
 } from '@nestjs/common';
 import { UsersService } from './users.service';
@@ -18,6 +19,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBody, ApiConsumes, ApiOperation, ApiTags, ApiResponse } from '@nestjs/swagger';
 import { UserRole } from './entities/user.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CreateUserDto } from './dto/create-user.dto';
 
 class CsvFileValidator extends FileValidator {
   constructor() {
@@ -126,4 +128,25 @@ export class UsersController {
   async promote(@Param('id', ParseIntPipe) id: number) {
     return this.usersService.promoteToComissao(id);
   }
+  
+  
+  @Post()
+@ApiOperation({ summary: 'Cadastrar um usuário individualmente (Aluno, Orientador ou Coordenador)' })
+@ApiResponse({ status: 201, description: 'Usuário cadastrado com sucesso.' })
+@ApiResponse({ status: 400, description: 'Dados inválidos ou e-mail já existente.' })
+async createIndividual(@Body() createUserDto: CreateUserDto) {
+  return this.usersService.createIndividual(createUserDto);
+}
+
+
+  @Patch(':id/demote-comissao')
+  @ApiOperation({ summary: 'Remover aluno da COMISSÃO e retorná-lo ao cargo de ALUNO' })
+  @ApiResponse({ status: 200, description: 'Usuário retornado ao cargo de aluno com sucesso.' })
+  @ApiResponse({ status: 400, description: 'Usuário não pertence à comissão.' })
+  @ApiResponse({ status: 404, description: 'Usuário não encontrado.' })
+  async demote(@Param('id', ParseIntPipe) id: number) {
+    return this.usersService.demoteFromComissao(id);
+  }
+
+
 }

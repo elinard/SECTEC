@@ -266,6 +266,44 @@ var EventoService = /** @class */ (function () {
             });
         });
     };
+    EventoService.prototype.removeTema = function (temaId) {
+        return __awaiter(this, void 0, void 0, function () {
+            var tema, projetoVinculado;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0: return [4 /*yield*/, this.temaRepository.findOne({
+                            where: { id: temaId },
+                            relations: ['orientadores'], // Carrega orientadores vinculados para validação
+                        })];
+                    case 1:
+                        tema = _a.sent();
+                        if (!tema) {
+                            throw new common_1.NotFoundException("Tema com ID ".concat(temaId, " n\u00E3o encontrado."));
+                        }
+                        // 2. Validação 1: Bloqueia se algum orientador já selecionou este tema
+                        if (tema.orientadores && tema.orientadores.length > 0) {
+                            throw new common_1.BadRequestException("N\u00E3o \u00E9 poss\u00EDvel excluir este tema porque existem ".concat(tema.orientadores.length, " orientador(es) vinculados a ele."));
+                        }
+                        return [4 /*yield*/, this.projetoOrientadorRepository.exists({
+                                where: {
+                                    projeto: { temaId: temaId }
+                                }
+                            })];
+                    case 2:
+                        projetoVinculado = _a.sent();
+                        if (projetoVinculado) {
+                            throw new common_1.BadRequestException('Não é possível excluir este tema porque existem projetos ou solicitações vinculadas a ele.');
+                        }
+                        // 4. Se passou pelas validações, deleta o tema do banco de dados de forma física
+                        return [4 /*yield*/, this.temaRepository.delete(temaId)];
+                    case 3:
+                        // 4. Se passou pelas validações, deleta o tema do banco de dados de forma física
+                        _a.sent();
+                        return [2 /*return*/, { message: "Tema \"".concat(tema.nome, "\" removido com sucesso do evento.") }];
+                }
+            });
+        });
+    };
     EventoService = __decorate([
         (0, common_1.Injectable)(),
         __param(0, (0, typeorm_1.InjectRepository)(evento_entity_1.Evento)),
