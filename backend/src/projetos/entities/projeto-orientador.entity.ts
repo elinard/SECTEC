@@ -32,6 +32,9 @@ export class ProjetoOrientador {
     @Column({ name: 'respondido_em', type: 'datetime', nullable: true })
     respondidoEm!: Date;
 
+    @Column({ name: 'motivo_recusa', type: 'text', nullable: true })
+    motivoRecusa!: string | null;
+
     @CreateDateColumn({ name: 'criado_em' })
     criadoEm!: Date;
 }

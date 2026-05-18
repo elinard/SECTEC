@@ -53,6 +53,12 @@ export class EventoController {
     return this.eventoService.eventoAtual();
   }
 
+  @Get('orientador/meus-temas')
+  @ApiOperation({ summary: 'Lista os temas selecionados pelo orientador logado' })
+  findMeusTemas(@GetUser('userId') orientadorId: number) {
+    return this.eventoService.findTemasDoOrientador(orientadorId);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Busca detalhes de um evento específico' })
   findOne(@Param('id', ParseIntPipe) id: number) {

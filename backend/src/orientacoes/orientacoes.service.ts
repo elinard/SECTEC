@@ -134,6 +134,11 @@ export class OrientacoesService {
       throw new BadRequestException('Esta orientação já foi respondida');
     }
 
+    const motivoRecusa = dto.motivoRecusa?.trim();
+    if (dto.action === StatusOrientacao.RECUSADO && !motivoRecusa) {
+      throw new BadRequestException('Informe o motivo da recusa do projeto.');
+    }
+
     // 👇 NOVA VALIDAÇÃO CRÍTICA: Se o professor atual quer ACEITAR, 
     // precisamos garantir que nenhum outro professor aceitou antes dele.
     if (dto.action === StatusOrientacao.ACEITO) {
@@ -154,7 +159,11 @@ export class OrientacoesService {
       await this.orientacoesRepository
         .createQueryBuilder()
         .update(ProjetoOrientador)
-        .set({ status: StatusOrientacao.RECUSADO, respondidoEm: new Date() })
+        .set({
+          status: StatusOrientacao.RECUSADO,
+          respondidoEm: new Date(),
+          motivoRecusa: 'Outro orientador aceitou este projeto.',
+        })
         .where('projeto_id = :projetoId', { projetoId: orientacao.projeto.id })
         .andWhere('status = :status', { status: StatusOrientacao.PENDENTE })
         .andWhere('id != :id', { id: orientacao.id })
@@ -164,6 +173,7 @@ export class OrientacoesService {
     // Atualiza o status da solicitação atual
     orientacao.status = dto.action;
     orientacao.respondidoEm = new Date();
+    orientacao.motivoRecusa = dto.action === StatusOrientacao.RECUSADO ? motivoRecusa! : null;
 
     return this.orientacoesRepository.save(orientacao);
   }

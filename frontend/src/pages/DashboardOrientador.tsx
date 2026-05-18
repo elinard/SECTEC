@@ -1,14 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
-  BarChart3,
   Check,
   CheckCircle2,
   Clock3,
   FileText,
   FolderOpen,
-  MessageSquare,
-  Plus,
   Save,
   Search,
   Settings2,
@@ -19,7 +16,7 @@ import {
 } from "lucide-react";
 
 import { MainLayout } from "../componentes/SideBarUniversal";
-import EixoDropdown, {
+import {
   EIXOS_LIST,
   type EixoTematico,
 } from "../componentes/EixoDropdown";
@@ -45,9 +42,6 @@ type Equipe = RegistroComEixo & {
   tema: string;
   lider: string;
   integrantes: number;
-  progresso: number;
-  ultimoContato: string;
-  proximaReuniao: string;
   risco: Risco;
 };
 
@@ -73,6 +67,7 @@ type Projeto = RegistroComEixo & {
   turma: string;
   enviadoEm: string;
   status: StatusProjeto;
+  motivoRecusa?: string | null;
 };
 
 type UsuarioProjetoApi = {
@@ -105,6 +100,7 @@ type OrientacaoApi = {
   status: "pendente" | "aceito" | "recusado";
   criadoEm?: string;
   respondidoEm?: string | null;
+  motivoRecusa?: string | null;
   projeto?: ProjetoApi;
 };
 
@@ -144,11 +140,6 @@ type EventoAtualApi = {
   id: number;
   titulo: string;
   temas?: TemaOrientadorApi[];
-};
-
-type UsuarioOrientadorApi = {
-  id: number | string;
-  temasSelecionados?: TemaOrientadorApi[];
 };
 
 const eixosProjeto = EIXOS_LIST.filter((eixo): eixo is EixoProjeto => eixo !== "todos");
@@ -227,12 +218,6 @@ function riscoFromOrientacao(status: OrientacaoApi["status"]): Risco {
   return "baixo";
 }
 
-function progressoFromOrientacao(status: OrientacaoApi["status"]) {
-  if (status === "aceito") return 75;
-  if (status === "recusado") return 35;
-  return 45;
-}
-
 function mapOrientacaoToProjeto(orientacao: OrientacaoApi): Projeto {
   const projeto = orientacao.projeto;
   const temaId = temaIdFromProjeto(projeto);
@@ -247,6 +232,7 @@ function mapOrientacaoToProjeto(orientacao: OrientacaoApi): Projeto {
     turma: turmaFromProjeto(projeto),
     enviadoEm: formatBackendDate(orientacao.criadoEm),
     status: statusProjetoFromOrientacao(orientacao.status),
+    motivoRecusa: orientacao.motivoRecusa,
     eixoSlug,
     temaId,
   };
@@ -296,16 +282,13 @@ function mapOrientacaoToEquipe(orientacao: OrientacaoApi): Equipe {
   return {
     id: `orientacao-${orientacao.id}`,
     projetoId: projeto?.id,
-    nome: projeto?.titulo ? `Equipe ${projeto.titulo}` : `Equipe ${lider}`,
+    nome: projeto?.titulo ?? "Projeto sem título",
     turma: turmaFromProjeto(projeto),
     eixo: temaNomeFromProjeto(projeto),
     eixoSlug,
-    tema: projeto?.descricao ?? projeto?.titulo ?? "Projeto sem descrição cadastrada",
+    tema: projeto?.descricao ?? "Descrição não informada",
     lider,
     integrantes: integrantesFromProjeto(projeto),
-    progresso: progressoFromOrientacao(orientacao.status),
-    ultimoContato: orientacao.respondidoEm ? formatBackendDate(orientacao.respondidoEm) : formatBackendDate(orientacao.criadoEm),
-    proximaReuniao: "A definir",
     risco: riscoFromOrientacao(orientacao.status),
     temaId,
   };
@@ -438,7 +421,7 @@ function useOrientadorBackendData() {
   );
   const projetos = useMemo(() => orientacoes.map(mapOrientacaoToProjeto), [orientacoes]);
 
-  async function responderProjeto(projeto: Projeto, status: StatusProjeto) {
+  async function responderProjeto(projeto: Projeto, status: StatusProjeto, motivoRecusa?: string) {
     if (!projeto.orientacaoId) {
       throw new Error("Sem endpoint no backend publicado para aceitar ou recusar orientações.");
     }
@@ -446,7 +429,7 @@ function useOrientadorBackendData() {
     const action = status === "aprovado" ? "aceito" : "recusado";
     const orientacaoAtualizada = await apiRequest<OrientacaoApi>(`/orientacoes/${projeto.orientacaoId}/responder`, {
       method: "PATCH",
-      body: { action },
+      body: action === "recusado" ? { action, motivoRecusa } : { action },
     });
 
     setOrientacoes((lista) =>
@@ -486,15 +469,12 @@ function useTemasOrientadorData() {
       try {
         const evento = await apiRequest<EventoAtualApi | null>("/evento/atual/vigente");
         let temasSelecionadosIds: number[] = [];
-        let avisoSelecao = "";
 
         try {
-          const userId = typeof window !== "undefined" ? localStorage.getItem("userId") : null;
-          const orientadores = await apiRequest<UsuarioOrientadorApi[]>("/users/orientadores");
-          const orientadorAtual = orientadores.find((orientador) => String(orientador.id) === String(userId));
-          temasSelecionadosIds = orientadorAtual?.temasSelecionados?.map((tema) => tema.id) ?? [];
+          const temasOrientador = await apiRequest<TemaOrientadorApi[]>("/evento/orientador/meus-temas");
+          temasSelecionadosIds = temasOrientador.map((tema) => tema.id);
         } catch {
-          avisoSelecao = "Eixos carregados do evento atual; seleção anterior do orientador não pôde ser carregada.";
+          temasSelecionadosIds = [];
         }
 
         if (!active) return;
@@ -502,7 +482,7 @@ function useTemasOrientadorData() {
         setTemas(temasEvento);
         setSelecionadosIds(temasSelecionadosIds);
         setEventoTitulo(evento?.titulo ?? "");
-        setErro(avisoSelecao);
+        setErro("");
       } catch (error) {
         if (!active) return;
         setTemas([]);
@@ -630,18 +610,6 @@ function useEntregasBackendData(orientacoes: OrientacaoApi[], orientacoesCarrega
   }
 
   return { entregas, carregando, erro, revisarEntrega };
-}
-
-function matchesEixo<T extends RegistroComEixo>(item: T, eixoAtivo: EixoTematico) {
-  return eixoAtivo === "todos" || item.eixoSlug === eixoAtivo;
-}
-
-function filterByEixo<T extends RegistroComEixo>(items: T[], eixoAtivo: EixoTematico) {
-  return items.filter((item) => matchesEixo(item, eixoAtivo));
-}
-
-function countByEixo<T extends RegistroComEixo>(items: T[], eixo: EixoTematico) {
-  return eixo === "todos" ? items.length : items.filter((item) => item.eixoSlug === eixo).length;
 }
 
 function filterByTemasSelecionados<T extends RegistroComEixo>(items: T[], temasIds: number[], totalTemas = temasIds.length) {
@@ -802,31 +770,6 @@ function EmptyState({ text }: { text: string }) {
   );
 }
 
-function Progress({ value }: { value: number }) {
-  return (
-    <div>
-      <div className="mb-1 flex items-center justify-between text-xs font-semibold">
-        <span className="text-slate-400">andamento</span>
-        <span className="text-slate-700">{value}%</span>
-      </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
-        <motion.div
-          initial={{ width: 0 }}
-          animate={{ width: `${value}%` }}
-          transition={{ duration: 0.65, ease: "easeOut" }}
-          className="h-full rounded-full bg-sectec-600"
-        />
-      </div>
-    </div>
-  );
-}
-
-function riscoTone(risco: Risco) {
-  if (risco === "alto") return "red";
-  if (risco === "medio") return "yellow";
-  return "green";
-}
-
 function entregaTone(status: StatusEntrega) {
   if (status === "recusada") return "red";
   if (status === "pendente") return "yellow";
@@ -897,35 +840,6 @@ function DetailLine({
     <div className="min-w-0">
       <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-slate-400">{label}</p>
       <div className="mt-1 break-words text-sm font-semibold text-slate-700">{value}</div>
-    </div>
-  );
-}
-
-function FiltroEixoBox({
-  eixoAtivo,
-  onChange,
-  contagemPorEixo,
-  title = "Filtro por eixo",
-  description = "Use o dropdown para ver apenas os dados do eixo selecionado.",
-}: {
-  eixoAtivo: EixoTematico;
-  onChange: (eixo: EixoTematico) => void;
-  contagemPorEixo: (eixo: EixoTematico) => number;
-  title?: string;
-  description?: string;
-}) {
-  return (
-    <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">{title}</p>
-        <p className="mt-1 text-sm font-medium text-slate-500">{description}</p>
-      </div>
-      <EixoDropdown
-        eixoAtivo={eixoAtivo}
-        eixosList={EIXOS_LIST}
-        contagemPorEixo={contagemPorEixo}
-        onChange={onChange}
-      />
     </div>
   );
 }
@@ -1186,44 +1100,27 @@ function ProjetoDetalheCard({
   );
 }
 
-function EquipeRow({
-  equipe,
-  onOpen,
-}: {
-  equipe: Equipe;
-  onOpen?: (equipe: Equipe) => void;
-}) {
+function EquipeRow({ equipe }: { equipe: Equipe }) {
   return (
     <div className="rounded-lg border border-slate-200 p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="font-bold text-slate-900">{equipe.nome}</h3>
-            <Badge tone={riscoTone(equipe.risco)}>
-              {equipe.risco === "alto" ? "risco alto" : equipe.risco === "medio" ? "acompanhar" : "em dia"}
-            </Badge>
-          </div>
+          <h3 className="font-bold text-slate-900">{equipe.nome}</h3>
           <p className="mt-1 text-sm font-medium leading-6 text-slate-500">{equipe.tema}</p>
           <p className="mt-2 text-xs font-semibold text-slate-400">
             {equipe.turma} · {equipe.eixo} · líder: {equipe.lider}
           </p>
         </div>
-
-        <Button variant="secondary" onClick={() => onOpen?.(equipe)}>
-          <MessageSquare size={15} />
-          Abrir
-        </Button>
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-end">
-        <Progress value={equipe.progresso} />
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <div className="text-xs">
-          <p className="font-semibold text-slate-400">último contato</p>
-          <p className="break-words font-semibold text-slate-700">{equipe.ultimoContato}</p>
+          <p className="font-semibold text-slate-400">integrantes</p>
+          <p className="break-words font-semibold text-slate-700">{equipe.integrantes}</p>
         </div>
         <div className="text-xs">
-          <p className="font-semibold text-slate-400">próxima orientação</p>
-          <p className="break-words font-semibold text-slate-700">{equipe.proximaReuniao}</p>
+          <p className="font-semibold text-slate-400">projeto</p>
+          <p className="break-words font-semibold text-slate-700">{equipe.projetoId ? `#${equipe.projetoId}` : "não informado"}</p>
         </div>
       </div>
     </div>
@@ -1236,7 +1133,7 @@ function DashboardOrientador() {
   const [turmaFiltro, setTurmaFiltro] = useState("todas");
   const [temaFiltro, setTemaFiltro] = useState<number | "todos">("todos");
   const [filtroSolicitacao, setFiltroSolicitacao] = useState<FiltroSolicitacao>("pendentes");
-  const [aviso, setAviso] = useState("");
+  const [, setAviso] = useState("");
   const [projetoDetalhe, setProjetoDetalhe] = useState<ProjetoApi | null>(null);
   const [carregandoDetalhe, setCarregandoDetalhe] = useState(false);
   const [erroDetalhe, setErroDetalhe] = useState("");
@@ -1298,7 +1195,7 @@ function DashboardOrientador() {
       : "nenhum eixo selecionado";
   const avisoEixos =
     !temasBackend.carregando && temasBackend.temas.length > 0 && temasBackend.selecionadosIds.length === 0
-      ? "Escolha os eixos temáticos que você orienta para visualizar e filtrar os projetos."
+      ? "Você precisa selecionar no mínimo 1 eixo temático para orientar."
       : "";
 
   function mostrarAviso(mensagem: string) {
@@ -1307,10 +1204,19 @@ function DashboardOrientador() {
 
   async function atualizarProjeto(id: string, status: StatusProjeto) {
     const projeto = projetosData.find((item) => item.id === id);
+    let motivoRecusa: string | undefined;
+
+    if (status === "ajustes") {
+      motivoRecusa = window.prompt("Informe o motivo da recusa deste projeto:")?.trim();
+      if (!motivoRecusa) {
+        mostrarAviso("Para reprovar, informe o motivo da recusa.");
+        return;
+      }
+    }
 
     try {
       if (!projeto) return;
-      await backend.responderProjeto(projeto, status);
+      await backend.responderProjeto(projeto, status, motivoRecusa);
 
       mostrarAviso(status === "aprovado" ? "Projeto aprovado." : "Projeto marcado para ajustes.");
     } catch (error) {
@@ -1384,13 +1290,7 @@ function DashboardOrientador() {
         </>
       }
     >
-      <Notice
-        message={
-          aviso ||
-          avisoEixos ||
-          temasBackend.erro
-        }
-      />
+      <Notice message={avisoEixos} />
 
       <TemasChecklist
         temas={temasBackend.temas}
@@ -1499,20 +1399,29 @@ function DashboardOrientador() {
                       <p className="mt-1 break-words text-sm font-medium text-slate-500">
                         {projeto.equipe} · {projeto.turma} · enviado em {projeto.enviadoEm}
                       </p>
+                      {projeto.status === "ajustes" && projeto.motivoRecusa ? (
+                        <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
+                          Motivo da recusa: {projeto.motivoRecusa}
+                        </p>
+                      ) : null}
                     </div>
                     <div className="flex flex-col gap-2 sm:flex-row">
                       <Button variant="secondary" onClick={() => abrirDetalheProjeto(projeto.projetoId)}>
                         <Search size={15} />
                         Detalhes
                       </Button>
-                      <Button variant="secondary" onClick={() => atualizarProjeto(projeto.id, "ajustes")}>
-                        <Trash2 size={15} />
-                        Reprovar
-                      </Button>
-                      <Button onClick={() => atualizarProjeto(projeto.id, "aprovado")}>
-                        <Check size={15} />
-                        Aprovar
-                      </Button>
+                      {projeto.status === "aguardando" ? (
+                        <>
+                          <Button variant="secondary" onClick={() => atualizarProjeto(projeto.id, "ajustes")}>
+                            <Trash2 size={15} />
+                            Reprovar
+                          </Button>
+                          <Button onClick={() => atualizarProjeto(projeto.id, "aprovado")}>
+                            <Check size={15} />
+                            Aprovar
+                          </Button>
+                        </>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -1550,13 +1459,10 @@ function DashboardOrientador() {
                         <p className="mt-1 break-words text-sm font-medium text-slate-500">
                           {equipe.turma} · líder: {equipe.lider}
                         </p>
+                        <p className="mt-1 break-words text-xs font-semibold text-slate-400">
+                          {equipe.integrantes} integrante(s) · {equipe.eixo}
+                        </p>
                       </div>
-                      <Badge tone={riscoTone(equipe.risco)}>
-                        {equipe.risco === "alto" ? "atenção" : equipe.risco === "medio" ? "acompanhar" : "em dia"}
-                      </Badge>
-                    </div>
-                    <div className="mt-3">
-                      <Progress value={equipe.progresso} />
                     </div>
                     <div className="mt-4">
                       <Button variant="secondary" onClick={() => abrirDetalheProjeto(equipe.projetoId)}>
@@ -1579,13 +1485,11 @@ function DashboardOrientador() {
 
 export function TurmasOrientador() {
   const backend = useOrientadorBackendData();
-  const [eixoAtivo, setEixoAtivo] = useState<EixoTematico>("todos");
   const equipesData = backend.equipes;
-  const equipesFiltradas = useMemo(() => filterByEixo(equipesData, eixoAtivo), [equipesData, eixoAtivo]);
   const turmasResumo = useMemo(() => {
     const mapa = new Map<string, { id: string; nome: string; alunos: number }>();
 
-    equipesFiltradas.forEach((equipe) => {
+    equipesData.forEach((equipe) => {
       const turma = mapa.get(equipe.turma) ?? {
         id: equipe.turma.toLowerCase().replace(/\s+/g, "-"),
         nome: equipe.turma,
@@ -1597,42 +1501,17 @@ export function TurmasOrientador() {
     });
 
     return Array.from(mapa.values());
-  }, [equipesFiltradas]);
+  }, [equipesData]);
 
   return (
     <PageShell
       eyebrow="Turmas"
       title="Minhas turmas"
-      description="Resumo das turmas vinculadas, quantidade de equipes, alunos envolvidos e pendências de orientação."
-      actions={
-        <Button onClick={() => setEixoAtivo("todos")}>
-          <Plus size={16} />
-          Ver todas
-        </Button>
-      }
+      description="Resumo das turmas vinculadas, quantidade de equipes e alunos envolvidos."
     >
-      <Notice
-        message={
-          backend.carregando
-            ? "Carregando dados do backend..."
-            : backend.erro || "Turmas são agrupadas pelos projetos/orientações retornados pelo backend; turno da turma ainda não tem endpoint."
-        }
-      />
-
-      <FiltroEixoBox
-        eixoAtivo={eixoAtivo}
-        onChange={setEixoAtivo}
-        contagemPorEixo={(eixo) => countByEixo(equipesData, eixo)}
-        description="Filtra o mapa de orientação e recalcula os dados das turmas pelo eixo."
-      />
-
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
         {turmasResumo.map((turma) => {
-          const equipesDaTurma = equipesFiltradas.filter((equipe) => equipe.turma === turma.nome);
-          const pendencias = equipesDaTurma.filter((equipe) => equipe.risco !== "baixo").length;
-          const mediaProgresso = equipesDaTurma.length
-            ? Math.round(equipesDaTurma.reduce((total, equipe) => total + equipe.progresso, 0) / equipesDaTurma.length)
-            : 0;
+          const equipesDaTurma = equipesData.filter((equipe) => equipe.turma === turma.nome);
 
           return (
             <Card
@@ -1642,12 +1521,11 @@ export function TurmasOrientador() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="break-words text-lg font-bold text-slate-900">{turma.nome}</h2>
-                  <p className="mt-1 text-sm font-semibold text-slate-400">Turno não disponível no backend</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-400">{equipesDaTurma.length} equipe(s) vinculada(s)</p>
                 </div>
-                <Badge tone={pendencias > 1 ? "yellow" : "green"}>{pendencias} pendências</Badge>
               </div>
 
-              <div className="mt-6 grid grid-cols-3 gap-2 sm:gap-3">
+              <div className="mt-6 grid grid-cols-2 gap-2 sm:gap-3">
                 <div>
                   <p className="text-2xl font-bold text-slate-900">{turma.alunos}</p>
                   <p className="text-xs font-semibold text-slate-400">alunos</p>
@@ -1656,14 +1534,6 @@ export function TurmasOrientador() {
                   <p className="text-2xl font-bold text-slate-900">{equipesDaTurma.length}</p>
                   <p className="text-xs font-semibold text-slate-400">equipes</p>
                 </div>
-                <div>
-                  <p className="text-2xl font-bold text-slate-900">{mediaProgresso}%</p>
-                  <p className="text-xs font-semibold text-slate-400">média</p>
-                </div>
-              </div>
-
-              <div className="mt-5">
-                <Progress value={mediaProgresso} />
               </div>
             </Card>
           );
@@ -1685,10 +1555,10 @@ export function TurmasOrientador() {
         </div>
 
         <div className="space-y-3">
-          {equipesFiltradas.length > 0 ? (
-            equipesFiltradas.map((equipe) => <EquipeRow key={equipe.id} equipe={equipe} />)
+          {equipesData.length > 0 ? (
+            equipesData.map((equipe) => <EquipeRow key={equipe.id} equipe={equipe} />)
           ) : (
-            <EmptyState text="Nenhuma equipe encontrada para este filtro." />
+            <EmptyState text="Nenhuma equipe encontrada." />
           )}
         </div>
       </Card>
@@ -1700,15 +1570,13 @@ export function EntregasOrientador() {
   const backend = useOrientadorBackendData();
   const entregasBackend = useEntregasBackendData(backend.orientacoes, backend.carregando);
   const [filtro, setFiltro] = useState<"todas" | StatusEntrega>("todas");
-  const [eixoAtivo, setEixoAtivo] = useState<EixoTematico>("todos");
-  const [aviso, setAviso] = useState("");
+  const [, setAviso] = useState("");
   const entregasData = entregasBackend.entregas;
 
-  const entregasPorEixo = useMemo(() => filterByEixo(entregasData, eixoAtivo), [entregasData, eixoAtivo]);
   const entregasFiltradas = useMemo(() => {
-    if (filtro === "todas") return entregasPorEixo;
-    return entregasPorEixo.filter((entrega) => entrega.status === filtro);
-  }, [entregasPorEixo, filtro]);
+    if (filtro === "todas") return entregasData;
+    return entregasData.filter((entrega) => entrega.status === filtro);
+  }, [entregasData, filtro]);
 
   async function revisarEntrega(id: string, status: "aprovado" | "recusado" = "aprovado") {
     const entrega = entregasData.find((item) => item.id === id);
@@ -1760,22 +1628,6 @@ export function EntregasOrientador() {
         </Button>
       }
     >
-      <Notice
-        message={
-          aviso ||
-          (backend.carregando || entregasBackend.carregando
-            ? "Carregando entregas do backend..."
-            : backend.erro || entregasBackend.erro || "Entregas são carregadas de /materiais/pendentes-orientador para projetos já aceitos.")
-        }
-      />
-
-      <FiltroEixoBox
-        eixoAtivo={eixoAtivo}
-        onChange={setEixoAtivo}
-        contagemPorEixo={(eixo) => countByEixo(entregasData, eixo)}
-        description="Filtra a fila de entregas pelo eixo temático do projeto."
-      />
-
       <Card>
         <div className="mb-5 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
           <div>
@@ -1928,77 +1780,31 @@ export function EntregasOrientador() {
 }
 
 export function ConfigOrientador() {
-  const [aviso, setAviso] = useState("");
   const nome = typeof window !== "undefined" ? localStorage.getItem("nome") ?? "Orientador" : "Orientador";
-  const userId = typeof window !== "undefined" ? localStorage.getItem("userId") ?? "Não informado" : "Não informado";
 
   return (
     <PageShell
       eyebrow="Sistema"
       title="Configurações do orientador"
-      description="Preferências de perfil, regras da feira e alertas importantes do acompanhamento."
-      actions={
-        <Button onClick={() => setAviso("Configurações do orientador ainda não têm endpoint no backend.")}>
-          <Save size={16} />
-          Salvar alterações
-        </Button>
-      }
+      description="Dados básicos do perfil usado no acompanhamento das orientações."
     >
-      <Notice message={aviso || "Não existe backend para perfil editável, regras da feira ou alertas do orientador nesta implementação."} />
-
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-        <Card className="lg:col-span-8 xl:col-span-7">
+        <Card className="lg:col-span-7">
           <div className="mb-6 flex items-center gap-3">
             <Settings2 className="text-sectec-600" />
             <h2 className="text-lg font-bold text-slate-900">Perfil do orientador</h2>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4">
             <div className="space-y-2">
               <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">Nome</span>
               <div className="min-h-11 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-700">
                 {nome}
               </div>
             </div>
-            <div className="space-y-2">
-              <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">ID do usuário</span>
-              <div className="min-h-11 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-700">
-                {userId}
-              </div>
-            </div>
-            <div className="sm:col-span-2">
-              <EmptyState text="Área, bio e preferências de perfil ainda não vêm do backend." />
-            </div>
-          </div>
-        </Card>
-
-        <Card className="lg:col-span-4 xl:col-span-5">
-          <div className="mb-6 flex items-center gap-3">
-            <CheckCircle2 className="text-sectec-600" />
-            <h2 className="text-lg font-bold text-slate-900">Regras da feira</h2>
-          </div>
-
-          <div className="space-y-3">
-            <EmptyState text="Regras da feira ainda não têm endpoint no backend." />
           </div>
         </Card>
       </div>
-
-      <Card>
-        <div className="mb-5 flex items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Alertas</p>
-            <h2 className="mt-1 text-lg font-bold text-slate-900">Notificações importantes</h2>
-          </div>
-          <BarChart3 className="text-slate-300" />
-        </div>
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="sm:col-span-2 lg:col-span-3">
-            <EmptyState text="Alertas/notificações ainda não têm endpoint no backend." />
-          </div>
-        </div>
-      </Card>
     </PageShell>
   );
 }

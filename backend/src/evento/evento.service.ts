@@ -103,6 +103,19 @@ async findProfessoresPorTema(temaId: number) {
   return tema.orientadores;
 }
 
+  async findTemasDoOrientador(professorId: number) {
+    const professor = await this.userRepository.findOne({
+      where: { id: Number(professorId) },
+      relations: ['temasSelecionados'],
+    });
+
+    if (!professor || professor.role_cargo !== UserRole.ORIENTADOR) {
+      throw new BadRequestException('Orientador não encontrado ou cargo inválido.');
+    }
+
+    return professor.temasSelecionados ?? [];
+  }
+
 
 
 
@@ -130,8 +143,12 @@ async findProfessoresPorTema(temaId: number) {
   }
 
     async sincronizarTemas(professorId: number, temasIds: number[]) {
+  const temasIdsValidos = Array.isArray(temasIds)
+    ? temasIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0)
+    : [];
+
   const professor = await this.userRepository.findOne({
-    where: { id: professorId },
+    where: { id: Number(professorId) },
     relations: ['temasSelecionados']
   });
 
@@ -141,7 +158,7 @@ async findProfessoresPorTema(temaId: number) {
 
   // 1. Identificar quais IDs de temas o orientador está tentando REMOVER (desmarcar)
   const temasAtuaisIds = professor.temasSelecionados.map(t => t.id);
-  const temasSendoRemovidos = temasAtuaisIds.filter(id => !temasIds.includes(id));
+  const temasSendoRemovidos = temasAtuaisIds.filter(id => !temasIdsValidos.includes(id));
 
   // 2. Se houver tentativa de remoção, aplica a validação de segurança baseada nas entidades
   if (temasSendoRemovidos.length > 0) {
@@ -149,7 +166,7 @@ async findProfessoresPorTema(temaId: number) {
     // filtrando apenas por orientações ativas ('aceito') ou convites ainda em aberto ('pendente')
     const vinculosAtivos = await this.projetoOrientadorRepository.find({
       where: {
-        orientador: { id: professorId },
+        orientador: { id: Number(professorId) },
         status: In(['aceito', 'pendente']), // Bloqueia tanto o projeto atual quanto solicitações pendentes
         projeto: {
           temaId: In(temasSendoRemovidos) // Filtra direto pela coluna temaId mapeada no Projeto
@@ -171,13 +188,12 @@ async findProfessoresPorTema(temaId: number) {
   }
 
   const novosTemas = await this.temaRepository.findBy({
-    id: In(temasIds)
+    id: In(temasIdsValidos)
   });
 
-  // 🚀 VALIDAÇÃO EXISTENTE: Garante o piso mínimo de 4 temas válidos
-  if (novosTemas.length < 4) {
+  if (novosTemas.length < 1) {
     throw new BadRequestException(
-      `Você precisa selecionar no mínimo 4 temas válidos. (Selecionados: ${novosTemas.length})`
+      `Você precisa selecionar no mínimo 1 tema válido. (Selecionados: ${novosTemas.length})`
     );
   }
 
