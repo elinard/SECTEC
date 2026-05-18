@@ -134,5 +134,5 @@ async getProfessoresByTema(@Param('id', ParseIntPipe) id: number) {
     return await this.eventoService.removeTema(id);
   }
 
-
+     
 }
