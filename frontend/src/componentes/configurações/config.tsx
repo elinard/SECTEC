@@ -4,6 +4,7 @@ import { Mail, User } from "lucide-react";
 import Swal from "sweetalert2";
 import { MainLayout } from "../SideBarUniversal";
 import type { UserRole } from "../../helpes/InteligenciaSideBar";
+import { API_BASE_URL } from "../../lib/api";
 
 function getEmailFromToken() {
   const token = localStorage.getItem("token");
@@ -24,14 +25,38 @@ function getEmailFromToken() {
   }
 }
 
+const PERFIL_CONFIG: Record<UserRole, { label: string; fallback: string; subtitulo: string }> = {
+  aluno: {
+    label: "Perfil do aluno",
+    fallback: "Aluno",
+    subtitulo: "SECTEC · Projeto Escolar",
+  },
+  orientador: {
+    label: "Perfil do orientador",
+    fallback: "Orientador",
+    subtitulo: "SECTEC · Orientação",
+  },
+  coordenador: {
+    label: "Perfil da coordenação",
+    fallback: "Coordenador",
+    subtitulo: "SECTEC · Coordenação",
+  },
+  comissao: {
+    label: "Perfil da comissão",
+    fallback: "Comissão",
+    subtitulo: "SECTEC · Comissão",
+  },
+};
+
 function Config({ userRole = "aluno" }: { userRole?: UserRole }) {
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const nomeAluno = localStorage.getItem("nome") ?? "Aluno";
-  const emailAluno =
+  const perfil = PERFIL_CONFIG[userRole];
+  const nomeUsuario = localStorage.getItem("nome") ?? perfil.fallback;
+  const emailUsuario =
     localStorage.getItem("email") || getEmailFromToken() || "E-mail não informado";
-  const inicialAluno = nomeAluno.trim().charAt(0).toUpperCase() || "A";
+  const inicialUsuario = nomeUsuario.trim().charAt(0).toUpperCase() || perfil.fallback.charAt(0);
 
   async function handleChangePassword(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -48,7 +73,7 @@ function Config({ userRole = "aluno" }: { userRole?: UserRole }) {
 
     const token = localStorage.getItem("token");
 
-    const response = await fetch("https://sectec-ja.up.railway.app/api/auth/change-password", {
+    const response = await fetch(`${API_BASE_URL}/auth/change-password`, {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
@@ -94,18 +119,18 @@ function Config({ userRole = "aluno" }: { userRole?: UserRole }) {
             <div className="bg-[#0b4d2c] px-6 py-6 text-white sm:px-8">
               <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
                 <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl border border-white/20 bg-white/15 text-3xl font-black shadow-inner">
-                  {inicialAluno}
+                  {inicialUsuario}
                 </div>
 
                 <div className="min-w-0">
                   <p className="text-xs font-bold uppercase tracking-[0.2em] text-white/50">
-                    Perfil do aluno
+                    {perfil.label}
                   </p>
                   <h1 className="mt-1 truncate text-2xl font-black text-white sm:text-3xl">
-                    {nomeAluno}
+                    {nomeUsuario}
                   </h1>
                   <p className="mt-1 text-sm font-medium text-white/60">
-                    SECTEC · Projeto Escolar
+                    {perfil.subtitulo}
                   </p>
                 </div>
               </div>
@@ -121,7 +146,7 @@ function Config({ userRole = "aluno" }: { userRole?: UserRole }) {
                     Nome
                   </p>
                   <p className="truncate text-sm font-semibold text-slate-800">
-                    {nomeAluno}
+                    {nomeUsuario}
                   </p>
                 </div>
               </div>
@@ -135,7 +160,7 @@ function Config({ userRole = "aluno" }: { userRole?: UserRole }) {
                     E-mail institucional
                   </p>
                   <p className="truncate text-sm font-semibold text-slate-800">
-                    {emailAluno}
+                    {emailUsuario}
                   </p>
                 </div>
               </div>

@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   Check,
-  CheckCircle2,
   ChevronDown,
   Download,
   Clock3,
@@ -10,14 +9,15 @@ import {
   FolderOpen,
   Save,
   Search,
-  Settings2,
   SlidersHorizontal,
   Trash2,
   Users,
   X,
 } from "lucide-react";
+import Swal from "sweetalert2";
 
 import { MainLayout } from "../componentes/SideBarUniversal";
+import ConfigPerfil from "../componentes/configurações/config";
 import {
   EIXOS_LIST,
   type EixoTematico,
@@ -40,11 +40,15 @@ type Equipe = RegistroComEixo & {
   projetoId?: number;
   nome: string;
   turma: string;
+  turmaNome: string;
+  ano: string;
   eixo: string;
   tema: string;
   lider: string;
   integrantes: number;
+  integrantesNomes: string[];
   risco: Risco;
+  dataOrdenacao: number;
 };
 
 type Entrega = RegistroComEixo & {
@@ -179,6 +183,17 @@ function formatBackendDate(value?: string | null) {
   });
 }
 
+function anoFromProjeto(projeto?: ProjetoApi) {
+  const ano = projeto?.alunoAutor?.ano ?? projeto?.projetoAlunos?.find((item) => item.aluno?.ano)?.aluno?.ano;
+  return ano ? `${ano}º ano` : "Ano não informado";
+}
+
+function turmaNomeFromProjeto(projeto?: ProjetoApi) {
+  const turma =
+    projeto?.alunoAutor?.turma ?? projeto?.projetoAlunos?.find((item) => item.aluno?.turma)?.aluno?.turma;
+  return turma ?? "Turma não informada";
+}
+
 function turmaFromProjeto(projeto?: ProjetoApi) {
   const ano = projeto?.alunoAutor?.ano ?? projeto?.projetoAlunos?.find((item) => item.aluno?.ano)?.aluno?.ano;
   const turma =
@@ -203,6 +218,28 @@ function integrantesFromProjeto(projeto?: ProjetoApi) {
   });
 
   return Math.max(ids.size, 1);
+}
+
+function integrantesNomesFromProjeto(projeto?: ProjetoApi) {
+  const integrantes = new Map<string | number, string>();
+
+  if (projeto?.alunoAutor?.id && projeto.alunoAutor.nome) {
+    integrantes.set(projeto.alunoAutor.id, projeto.alunoAutor.nome);
+  }
+
+  projeto?.projetoAlunos?.forEach((item) => {
+    if (item.aluno?.id && item.aluno.nome) {
+      integrantes.set(item.aluno.id, item.aluno.nome);
+    }
+  });
+
+  return Array.from(integrantes.values());
+}
+
+function dateWeight(value?: string | null) {
+  if (!value) return 0;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
 }
 
 function statusProjetoFromOrientacao(status: OrientacaoApi["status"]): StatusProjeto {
@@ -283,12 +320,20 @@ function mapOrientacaoToEquipe(orientacao: OrientacaoApi): Equipe {
     projetoId: projeto?.id,
     nome: projeto?.titulo ?? "Projeto sem título",
     turma: turmaFromProjeto(projeto),
+    turmaNome: turmaNomeFromProjeto(projeto),
+    ano: anoFromProjeto(projeto),
     eixo: temaNomeFromProjeto(projeto),
     eixoSlug,
     tema: projeto?.descricao ?? "Descrição não informada",
     lider,
     integrantes: integrantesFromProjeto(projeto),
+    integrantesNomes: integrantesNomesFromProjeto(projeto),
     risco: riscoFromOrientacao(orientacao.status),
+    dataOrdenacao: Math.max(
+      dateWeight(orientacao.respondidoEm),
+      dateWeight(orientacao.criadoEm),
+      dateWeight(projeto?.criadoEm)
+    ),
     temaId,
   };
 }
@@ -425,7 +470,11 @@ function useOrientadorBackendData() {
   }, []);
 
   const equipes = useMemo(
-    () => orientacoes.filter((orientacao) => orientacao.status === "aceito").map(mapOrientacaoToEquipe),
+    () =>
+      orientacoes
+        .filter((orientacao) => orientacao.status === "aceito")
+        .map(mapOrientacaoToEquipe)
+        .sort((a, b) => b.dataOrdenacao - a.dataOrdenacao),
     [orientacoes]
   );
   const projetos = useMemo(() => orientacoes.map(mapOrientacaoToProjeto), [orientacoes]);
@@ -783,6 +832,40 @@ function Notice({ message }: { message: string }) {
   );
 }
 
+async function solicitarJustificativaReprovacao(titulo: string, texto: string) {
+  const resultado = await Swal.fire({
+    title: titulo,
+    text: texto,
+    input: "textarea",
+    inputPlaceholder: "Descreva o motivo para o aluno...",
+    inputAttributes: {
+      "aria-label": "Justificativa da reprovação",
+    },
+    showCancelButton: true,
+    confirmButtonText: "Reprovar",
+    cancelButtonText: "Cancelar",
+    confirmButtonColor: "#b91c1c",
+    cancelButtonColor: "#475569",
+    background: "#ffffff",
+    color: "#0f172a",
+    customClass: {
+      popup: "rounded-xl border border-slate-200 shadow-xl",
+      title: "text-slate-900",
+      htmlContainer: "text-slate-500",
+      input: "rounded-lg border-slate-200 text-sm focus:border-sectec-600 focus:ring-sectec-100",
+      confirmButton: "rounded-lg",
+      cancelButton: "rounded-lg",
+    },
+    inputValidator: (value) => {
+      if (!value?.trim()) return "Informe a justificativa antes de reprovar.";
+      return undefined;
+    },
+  });
+
+  if (!resultado.isConfirmed) return undefined;
+  return typeof resultado.value === "string" ? resultado.value.trim() : undefined;
+}
+
 function EmptyState({ text }: { text: string }) {
   return (
     <div className="rounded-xl border border-dashed border-slate-200 p-6 text-center text-sm font-semibold text-slate-400">
@@ -1062,7 +1145,7 @@ function ProjetoDetalheCard({
 }) {
   if (!projeto && !carregando && !erro) return null;
 
-  const integrantes = projeto?.projetoAlunos?.flatMap((item) => (item.aluno?.nome ? [item.aluno.nome] : [])) ?? [];
+  const integrantes = integrantesNomesFromProjeto(projeto ?? undefined);
 
   return (
     <Card>
@@ -1121,29 +1204,80 @@ function ProjetoDetalheCard({
   );
 }
 
-function EquipeRow({ equipe }: { equipe: Equipe }) {
+function EquipeCollapseCard({
+  equipe,
+  onDetalhes,
+}: {
+  equipe: Equipe;
+  onDetalhes?: (projetoId?: number) => void;
+}) {
+  const [aberta, setAberta] = useState(false);
+
   return (
-    <div className="rounded-lg border border-slate-200 p-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <div className="rounded-lg border border-slate-200 bg-white">
+      <button
+        type="button"
+        onClick={() => setAberta((valor) => !valor)}
+        className="flex w-full flex-col gap-3 p-4 text-left sm:flex-row sm:items-start sm:justify-between"
+      >
         <div className="min-w-0">
-          <h3 className="font-bold text-slate-900">{equipe.nome}</h3>
-          <p className="mt-1 text-sm font-medium leading-6 text-slate-500">{equipe.tema}</p>
+          <div className="flex items-center gap-2">
+            <ChevronDown
+              size={17}
+              className={cx("shrink-0 text-slate-400 transition", aberta && "rotate-180")}
+            />
+            <h3 className="break-words font-bold text-slate-900">{equipe.nome}</h3>
+          </div>
+          <p className="mt-1 break-words text-sm font-medium leading-6 text-slate-500">{equipe.tema}</p>
           <p className="mt-2 text-xs font-semibold text-slate-400">
             {equipe.turma} · {equipe.eixo} · líder: {equipe.lider}
           </p>
         </div>
-      </div>
+        <Badge tone="blue">{equipe.integrantes} integrante(s)</Badge>
+      </button>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <div className="text-xs">
-          <p className="font-semibold text-slate-400">integrantes</p>
-          <p className="break-words font-semibold text-slate-700">{equipe.integrantes}</p>
-        </div>
-        <div className="text-xs">
-          <p className="font-semibold text-slate-400">projeto</p>
-          <p className="break-words font-semibold text-slate-700">{equipe.projetoId ? `#${equipe.projetoId}` : "não informado"}</p>
-        </div>
-      </div>
+      <AnimatePresence initial={false}>
+        {aberta ? (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden border-t border-slate-100"
+          >
+            <div className="space-y-4 p-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">Participantes</p>
+                {equipe.integrantesNomes.length > 0 ? (
+                  <ul className="mt-2 space-y-2">
+                    {equipe.integrantesNomes.map((nome) => (
+                      <li
+                        key={nome}
+                        className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700"
+                      >
+                        {nome}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2 text-sm font-semibold text-slate-400">Participantes não retornados pelo backend.</p>
+                )}
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <DetailLine label="Turma" value={equipe.turma} />
+                <DetailLine label="Tema" value={equipe.eixo} />
+              </div>
+
+              {onDetalhes ? (
+                <Button variant="secondary" onClick={() => onDetalhes(equipe.projetoId)}>
+                  <Search size={15} />
+                  Detalhes
+                </Button>
+              ) : null}
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }
@@ -1228,9 +1362,11 @@ function DashboardOrientador() {
     let motivoRecusa: string | undefined;
 
     if (status === "ajustes") {
-      motivoRecusa = window.prompt("Informe o motivo da recusa deste projeto:")?.trim();
+      motivoRecusa = await solicitarJustificativaReprovacao(
+        "Reprovar projeto",
+        "Informe o motivo da recusa. Essa mensagem ficará visível para a equipe."
+      );
       if (!motivoRecusa) {
-        mostrarAviso("Para reprovar, informe o motivo da recusa.");
         return;
       }
     }
@@ -1460,46 +1596,29 @@ function DashboardOrientador() {
             erro={erroDetalhe}
             onClose={fecharDetalheProjeto}
           />
-
-          <Card>
-            <div className="mb-5 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Equipes</p>
-                <h2 className="mt-1 text-lg font-bold text-slate-900">Minhas equipes</h2>
-              </div>
-              <Badge tone="blue">{equipesFiltradas.length}</Badge>
-            </div>
-
-            <div className="space-y-3">
-              {equipesFiltradas.length > 0 ? (
-                equipesFiltradas.map((equipe) => (
-                  <div key={equipe.id} className="rounded-lg border border-slate-200 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="break-words font-bold text-slate-900">{equipe.nome}</p>
-                        <p className="mt-1 break-words text-sm font-medium text-slate-500">
-                          {equipe.turma} · líder: {equipe.lider}
-                        </p>
-                        <p className="mt-1 break-words text-xs font-semibold text-slate-400">
-                          {equipe.integrantes} integrante(s) · {equipe.eixo}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="mt-4">
-                      <Button variant="secondary" onClick={() => abrirDetalheProjeto(equipe.projetoId)}>
-                        <Search size={15} />
-                        Detalhes
-                      </Button>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <EmptyState text="Nenhuma equipe aprovada para estes temas." />
-              )}
-            </div>
-          </Card>
         </div>
       </div>
+
+      <Card>
+        <div className="mb-5 flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Equipes</p>
+            <h2 className="mt-1 text-lg font-bold text-slate-900">Minhas equipes</h2>
+            <p className="mt-1 text-sm font-medium text-slate-500">Mais recentes primeiro.</p>
+          </div>
+          <Badge tone="blue">{equipesFiltradas.length}</Badge>
+        </div>
+
+        {equipesFiltradas.length > 0 ? (
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            {equipesFiltradas.map((equipe) => (
+              <EquipeCollapseCard key={equipe.id} equipe={equipe} onDetalhes={abrirDetalheProjeto} />
+            ))}
+          </div>
+        ) : (
+          <EmptyState text="Nenhuma equipe aprovada para estes temas." />
+        )}
+      </Card>
     </PageShell>
   );
 }
@@ -1507,22 +1626,38 @@ function DashboardOrientador() {
 export function TurmasOrientador() {
   const backend = useOrientadorBackendData();
   const equipesData = backend.equipes;
-  const turmasResumo = useMemo(() => {
-    const mapa = new Map<string, { id: string; nome: string; alunos: number }>();
+  const [temaFiltro, setTemaFiltro] = useState<number | "todos">("todos");
+  const [turmaFiltro, setTurmaFiltro] = useState("todas");
+  const [anoFiltro, setAnoFiltro] = useState("todos");
 
+  const temasDisponiveis = useMemo(() => {
+    const mapa = new Map<number, string>();
     equipesData.forEach((equipe) => {
-      const turma = mapa.get(equipe.turma) ?? {
-        id: equipe.turma.toLowerCase().replace(/\s+/g, "-"),
-        nome: equipe.turma,
-        alunos: 0,
-      };
-
-      turma.alunos += equipe.integrantes;
-      mapa.set(equipe.turma, turma);
+      if (equipe.temaId) mapa.set(equipe.temaId, equipe.eixo);
     });
-
-    return Array.from(mapa.values());
+    return Array.from(mapa.entries())
+      .map(([id, nome]) => ({ id, nome }))
+      .sort((a, b) => a.nome.localeCompare(b.nome));
   }, [equipesData]);
+  const turmasDisponiveis = useMemo(
+    () => Array.from(new Set(equipesData.map((equipe) => equipe.turmaNome))).sort(),
+    [equipesData]
+  );
+  const anosDisponiveis = useMemo(
+    () => Array.from(new Set(equipesData.map((equipe) => equipe.ano))).sort(),
+    [equipesData]
+  );
+  const equipesFiltradas = useMemo(
+    () =>
+      equipesData.filter((equipe) => {
+        const bateTema = temaFiltro === "todos" || equipe.temaId === temaFiltro;
+        const bateTurma = turmaFiltro === "todas" || equipe.turmaNome === turmaFiltro;
+        const bateAno = anoFiltro === "todos" || equipe.ano === anoFiltro;
+
+        return bateTema && bateTurma && bateAno;
+      }),
+    [anoFiltro, equipesData, temaFiltro, turmaFiltro]
+  );
 
   return (
     <PageShell
@@ -1530,54 +1665,83 @@ export function TurmasOrientador() {
       title="Minhas turmas"
       description="Resumo das turmas vinculadas, quantidade de equipes e alunos envolvidos."
     >
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
-        {turmasResumo.map((turma) => {
-          const equipesDaTurma = equipesData.filter((equipe) => equipe.turma === turma.nome);
+      <Card>
+        <div className="mb-5">
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Filtros</p>
+          <h2 className="mt-1 text-lg font-bold text-slate-900">Filtrar equipes</h2>
+        </div>
 
-          return (
-            <Card
-              key={turma.id}
-              className="h-full"
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <label className="space-y-2">
+            <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">Tema</span>
+            <select
+              value={String(temaFiltro)}
+              onChange={(event) => {
+                const value = event.target.value;
+                setTemaFiltro(value === "todos" ? "todos" : Number(value));
+              }}
+              className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-600 focus:ring-2 focus:ring-sectec-100"
             >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h2 className="break-words text-lg font-bold text-slate-900">{turma.nome}</h2>
-                  <p className="mt-1 text-sm font-semibold text-slate-400">{equipesDaTurma.length} equipe(s) vinculada(s)</p>
-                </div>
-              </div>
+              <option value="todos">Todos</option>
+              {temasDisponiveis.map((tema) => (
+                <option key={tema.id} value={tema.id}>
+                  {tema.nome}
+                </option>
+              ))}
+            </select>
+          </label>
 
-              <div className="mt-6 grid grid-cols-2 gap-2 sm:gap-3">
-                <div>
-                  <p className="text-2xl font-bold text-slate-900">{turma.alunos}</p>
-                  <p className="text-xs font-semibold text-slate-400">alunos</p>
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-slate-900">{equipesDaTurma.length}</p>
-                  <p className="text-xs font-semibold text-slate-400">equipes</p>
-                </div>
-              </div>
-            </Card>
-          );
-        })}
-        {turmasResumo.length === 0 && (
-          <Card className="md:col-span-2 xl:col-span-3">
-            <EmptyState text="Nenhuma turma retornada pelo backend." />
-          </Card>
-        )}
-      </div>
+          <label className="space-y-2">
+            <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">Turma</span>
+            <select
+              value={turmaFiltro}
+              onChange={(event) => setTurmaFiltro(event.target.value)}
+              className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-600 focus:ring-2 focus:ring-sectec-100"
+            >
+              <option value="todas">Todas</option>
+              {turmasDisponiveis.map((turma) => (
+                <option key={turma} value={turma}>
+                  {turma}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="space-y-2">
+            <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">Ano</span>
+            <select
+              value={anoFiltro}
+              onChange={(event) => setAnoFiltro(event.target.value)}
+              className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-600 focus:ring-2 focus:ring-sectec-100"
+            >
+              <option value="todos">Todos</option>
+              {anosDisponiveis.map((ano) => (
+                <option key={ano} value={ano}>
+                  {ano}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </Card>
 
       <Card>
         <div className="mb-5 flex items-center justify-between gap-3">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Mapa de orientação</p>
             <h2 className="mt-1 text-lg font-bold text-slate-900">Equipes por turma</h2>
+            <p className="mt-1 text-sm font-medium text-slate-500">{equipesFiltradas.length} equipe(s) encontrada(s)</p>
           </div>
           <Search className="text-slate-300" />
         </div>
 
-        <div className="space-y-3">
-          {equipesData.length > 0 ? (
-            equipesData.map((equipe) => <EquipeRow key={equipe.id} equipe={equipe} />)
+        <div>
+          {equipesFiltradas.length > 0 ? (
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              {equipesFiltradas.map((equipe) => (
+                <EquipeCollapseCard key={equipe.id} equipe={equipe} />
+              ))}
+            </div>
           ) : (
             <EmptyState text="Nenhuma equipe encontrada." />
           )}
@@ -1646,9 +1810,11 @@ export function EntregasOrientador() {
 
     let opiniao: string | undefined;
     if (status === "recusado") {
-      opiniao = window.prompt("Informe a opinião/justificativa da reprovação:")?.trim();
+      opiniao = await solicitarJustificativaReprovacao(
+        "Reprovar entrega",
+        "Informe a orientação para a equipe corrigir o arquivo enviado."
+      );
       if (!opiniao) {
-        setAviso("Para reprovar, informe a opinião do orientador.");
         return;
       }
     }
@@ -1661,34 +1827,11 @@ export function EntregasOrientador() {
     }
   }
 
-  async function marcarLoteRevisado() {
-    const entregasPendentes = entregasFiltradas.filter((entrega) => entrega.status === "pendente");
-    const total = entregasPendentes.length;
-
-    if (!total) {
-      setAviso("Não há entregas pendentes neste filtro.");
-      return;
-    }
-
-    try {
-      await Promise.all(entregasPendentes.map((entrega) => entregasBackend.revisarEntrega(entrega)));
-      setAviso(`${total} entrega(s) aprovada(s) no backend.`);
-    } catch (error) {
-      setAviso(error instanceof Error ? error.message : "Não foi possível aprovar o lote completo.");
-    }
-  }
-
   return (
     <PageShell
       eyebrow="Entregas"
       title="Arquivos para revisar"
       description="Fila de relatórios, protótipos, banners e evidências enviados pelas equipes."
-      actions={
-        <Button variant="secondary" onClick={marcarLoteRevisado}>
-          <CheckCircle2 size={16} />
-          Aprovar lote
-        </Button>
-      }
     >
       <Card>
         <div className="mb-5 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
@@ -1824,33 +1967,7 @@ export function EntregasOrientador() {
 }
 
 export function ConfigOrientador() {
-  const nome = typeof window !== "undefined" ? localStorage.getItem("nome") ?? "Orientador" : "Orientador";
-
-  return (
-    <PageShell
-      eyebrow="Sistema"
-      title="Configurações do orientador"
-      description="Dados básicos do perfil usado no acompanhamento das orientações."
-    >
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-        <Card className="lg:col-span-7">
-          <div className="mb-6 flex items-center gap-3">
-            <Settings2 className="text-sectec-600" />
-            <h2 className="text-lg font-bold text-slate-900">Perfil do orientador</h2>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4">
-            <div className="space-y-2">
-              <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">Nome</span>
-              <div className="min-h-11 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-700">
-                {nome}
-              </div>
-            </div>
-          </div>
-        </Card>
-      </div>
-    </PageShell>
-  );
+  return <ConfigPerfil userRole="orientador" />;
 }
 
 export default DashboardOrientador;
