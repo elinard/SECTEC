@@ -258,10 +258,23 @@ function escaparHtml(value: string | number | null | undefined) {
 }
 
 function abrirPdfImpressao(titulo: string, linhas: string[]) {
-  const janela = window.open("", "_blank", "noopener,noreferrer");
-  if (!janela) return;
+  const iframe = document.createElement("iframe");
+  iframe.style.position = "fixed";
+  iframe.style.right = "0";
+  iframe.style.bottom = "0";
+  iframe.style.width = "0";
+  iframe.style.height = "0";
+  iframe.style.border = "0";
+  document.body.appendChild(iframe);
 
-  janela.document.write(`
+  const documento = iframe.contentWindow?.document;
+  if (!documento) {
+    document.body.removeChild(iframe);
+    return;
+  }
+
+  documento.open();
+  documento.write(`
     <html>
       <head>
         <title>${titulo}</title>
@@ -277,9 +290,51 @@ function abrirPdfImpressao(titulo: string, linhas: string[]) {
       </body>
     </html>
   `);
-  janela.document.close();
-  janela.focus();
-  janela.print();
+  documento.close();
+
+  setTimeout(() => {
+    iframe.contentWindow?.focus();
+    iframe.contentWindow?.print();
+    setTimeout(() => document.body.removeChild(iframe), 1000);
+  }, 250);
+}
+
+function Pagination({
+  page,
+  totalPages,
+  onPageChange,
+}: {
+  page: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+}) {
+  if (totalPages <= 1) return null;
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-600 shadow-sm">
+      <span>
+        Página {page} de {totalPages}
+      </span>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => onPageChange(Math.max(1, page - 1))}
+          disabled={page === 1}
+          className="inline-flex cursor-pointer items-center gap-2 rounded-2xl border border-slate-200 px-3 py-2 text-xs font-black transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Anterior
+        </button>
+        <button
+          type="button"
+          onClick={() => onPageChange(Math.min(totalPages, page + 1))}
+          disabled={page === totalPages}
+          className="inline-flex cursor-pointer items-center gap-2 rounded-2xl border border-slate-200 px-3 py-2 text-xs font-black transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Próxima
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function RelatorioStatusAlunos() {
@@ -294,6 +349,7 @@ function RelatorioStatusAlunos() {
   const [eventoEixo, setEventoEixo] = useState("todos");
   const [turmaProjetoFiltro, setTurmaProjetoFiltro] = useState("todas");
   const [anoProjetoFiltro, setAnoProjetoFiltro] = useState("todos");
+  const [paginaRelatorio, setPaginaRelatorio] = useState(1);
 
   const [alunosSemProjeto, setAlunosSemProjeto] = useState<ReportState<AlunosSemProjetoResponse>>(emptyState);
   const [comissaoPorEvento, setComissaoPorEvento] = useState<ReportState<ComissaoPorEventoResponse>>(emptyState);
@@ -304,6 +360,10 @@ function RelatorioStatusAlunos() {
   useEffect(() => {
     if (abaUrl && tabs.some((tab) => tab.id === abaUrl)) setAbaAtiva(abaUrl);
   }, [abaUrl]);
+
+  useEffect(() => {
+    setPaginaRelatorio(1);
+  }, [abaAtiva, busca, grupoAlunos, eventoComissaoFiltro, turmaComissaoFiltro, anoComissaoFiltro, eventoEixo, turmaProjetoFiltro, anoProjetoFiltro]);
 
   async function carregar<T>(
     endpoint: string,
@@ -457,6 +517,18 @@ function RelatorioStatusAlunos() {
     (total, orientador) => total + orientador.totalProjetosAceitos,
     0,
   );
+  const itensPorPagina = 8;
+
+  function paginar<T>(items: T[]) {
+    const totalPages = Math.max(1, Math.ceil(items.length / itensPorPagina));
+    const page = Math.min(paginaRelatorio, totalPages);
+    const inicio = (page - 1) * itensPorPagina;
+    return {
+      page,
+      totalPages,
+      items: items.slice(inicio, inicio + itensPorPagina),
+    };
+  }
 
   function dadosExportacaoAtual() {
     if (abaAtiva === "alunos-sem-projeto") {
@@ -584,6 +656,20 @@ function RelatorioStatusAlunos() {
     if (alunosSemProjeto.error) return <ErrorBox state={alunosSemProjeto} onRetry={() => carregar(realReports["alunos-sem-projeto"], setAlunosSemProjeto)} />;
     if (!somaAlunosSemProjeto(alunosSemProjeto.data)) return <Empty message="Nenhum aluno sem projeto encontrado." />;
 
+    const alunosLista = alunosFiltrados.flatMap(([grupo, alunos]) =>
+      alunos.map((aluno) => ({
+        grupo,
+        grupoLabel: formatarGrupoTurma(grupo, alunos),
+        aluno,
+      })),
+    );
+    const pagina = paginar(alunosLista);
+    const gruposPaginados = pagina.items.reduce<Record<string, { label: string; alunos: AlunoRelatorio[] }>>((acc, item) => {
+      acc[item.grupo] ??= { label: item.grupoLabel, alunos: [] };
+      acc[item.grupo].alunos.push(item.aluno);
+      return acc;
+    }, {});
+
     return (
       <div className="space-y-4">
         <div className="grid gap-3 md:grid-cols-[1fr_260px]">
@@ -612,14 +698,14 @@ function RelatorioStatusAlunos() {
 
         {alunosFiltrados.length === 0 ? <Empty message="Nenhum aluno sem projeto encontrado." /> : null}
 
-        {alunosFiltrados.map(([grupo, alunos]) => (
+        {Object.entries(gruposPaginados).map(([grupo, dados]) => (
           <Card key={grupo}>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <h2 className="text-lg font-black text-slate-950">{formatarGrupoTurma(grupo, alunos)}</h2>
-              <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">{alunos.length} aluno(s)</span>
+              <h2 className="text-lg font-black text-slate-950">{dados.label}</h2>
+              <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">{dados.alunos.length} nesta página</span>
             </div>
             <div className="mt-4 grid gap-2">
-              {alunos.map((aluno) => (
+              {dados.alunos.map((aluno) => (
                 <div key={aluno.id} className="flex flex-col gap-2 rounded-2xl border border-slate-100 p-3 transition hover:bg-emerald-50/40 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="font-black text-slate-900">{aluno.nome}</p>
@@ -631,6 +717,8 @@ function RelatorioStatusAlunos() {
             </div>
           </Card>
         ))}
+
+        <Pagination page={pagina.page} totalPages={pagina.totalPages} onPageChange={setPaginaRelatorio} />
       </div>
     );
   }
@@ -639,6 +727,8 @@ function RelatorioStatusAlunos() {
     if (comissaoPorEvento.loading) return <Skeleton />;
     if (comissaoPorEvento.error) return <ErrorBox state={comissaoPorEvento} onRetry={() => carregar(realReports["comissao-por-evento"], setComissaoPorEvento)} />;
     if (!somaComissao(comissaoPorEvento.data)) return <Empty message="Nenhum histórico de comissão encontrado." />;
+
+    const pagina = paginar(comissaoFiltrada);
 
     return (
       <div className="space-y-4">
@@ -675,7 +765,7 @@ function RelatorioStatusAlunos() {
         {comissaoFiltrada.length === 0 ? <Empty message="Nenhum histórico de comissão encontrado." /> : null}
 
         <div className="grid gap-4 lg:grid-cols-2">
-          {comissaoFiltrada.map(([evento, dados]) => (
+          {pagina.items.map(([evento, dados]) => (
             <Card key={evento}>
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -696,6 +786,8 @@ function RelatorioStatusAlunos() {
             </Card>
           ))}
         </div>
+
+        <Pagination page={pagina.page} totalPages={pagina.totalPages} onPageChange={setPaginaRelatorio} />
       </div>
     );
   }
@@ -704,6 +796,8 @@ function RelatorioStatusAlunos() {
     if (eixosTematicos.loading) return <Skeleton />;
     if (eixosTematicos.error) return <ErrorBox state={eixosTematicos} onRetry={() => carregar(realReports["eixos-tematicos"], setEixosTematicos)} />;
     if (!eixosResumo.eixos) return <Empty message="Nenhum eixo temático encontrado." />;
+
+    const pagina = paginar(eixosFiltrados);
 
     return (
       <div className="space-y-4">
@@ -733,7 +827,7 @@ function RelatorioStatusAlunos() {
 
         {eixosFiltrados.length === 0 ? <Empty message="Nenhum eixo temático encontrado." /> : null}
 
-        {eixosFiltrados.map(([evento, dados]) => (
+        {pagina.items.map(([evento, dados]) => (
           <Card key={evento}>
             <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Evento #{dados.eventoId}</p>
             <h2 className="mt-2 text-lg font-black text-slate-950">{evento}</h2>
@@ -755,6 +849,8 @@ function RelatorioStatusAlunos() {
             </div>
           </Card>
         ))}
+
+        <Pagination page={pagina.page} totalPages={pagina.totalPages} onPageChange={setPaginaRelatorio} />
       </div>
     );
   }
@@ -763,6 +859,8 @@ function RelatorioStatusAlunos() {
     if (projetosPorOrientador.loading) return <Skeleton />;
     if (projetosPorOrientador.error) return <ErrorBox state={projetosPorOrientador} onRetry={() => carregar(realReports["projetos-por-orientador"], setProjetosPorOrientador)} />;
     if (!projetosPorOrientador.data?.length) return <Empty message="Nenhum projeto por orientador encontrado." />;
+
+    const pagina = paginar(orientadoresFiltrados);
 
     return (
       <div className="space-y-4">
@@ -779,7 +877,7 @@ function RelatorioStatusAlunos() {
         {orientadoresFiltrados.length === 0 ? <Empty message="Nenhum projeto por orientador encontrado." /> : null}
 
         <div className="grid gap-4 lg:grid-cols-2">
-          {orientadoresFiltrados.map((orientador) => (
+          {pagina.items.map((orientador) => (
             <Card key={orientador.orientadorId}>
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -804,6 +902,8 @@ function RelatorioStatusAlunos() {
             </Card>
           ))}
         </div>
+
+        <Pagination page={pagina.page} totalPages={pagina.totalPages} onPageChange={setPaginaRelatorio} />
       </div>
     );
   }
@@ -813,6 +913,8 @@ function RelatorioStatusAlunos() {
     if (projetosPorTurma.error) return <ErrorBox state={projetosPorTurma} onRetry={() => carregar(realReports["projetos-por-turma"], setProjetosPorTurma)} />;
 
     if (!Object.keys(projetosPorTurma.data ?? {}).length) return <Empty message="Nenhum projeto por turma encontrado." />;
+
+    const pagina = paginar(turmasFiltradas);
 
     return (
       <div className="space-y-4">
@@ -834,7 +936,7 @@ function RelatorioStatusAlunos() {
         {turmasFiltradas.length === 0 ? <Empty message="Nenhum projeto por turma encontrado." /> : null}
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {turmasFiltradas.map((turma) => {
+          {pagina.items.map((turma) => {
             const progresso = turma.totalCriados ? Math.round((turma.totalAprovados / turma.totalCriados) * 100) : 0;
 
             return (
@@ -859,6 +961,8 @@ function RelatorioStatusAlunos() {
             );
           })}
         </div>
+
+        <Pagination page={pagina.page} totalPages={pagina.totalPages} onPageChange={setPaginaRelatorio} />
       </div>
     );
   }

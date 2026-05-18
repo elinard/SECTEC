@@ -14,7 +14,6 @@ import {
   PiTextAlignLeft,
   PiUsersThree,
   PiWarningCircle,
-  PiXCircle,
   PiUploadSimple,
   PiYoutubeLogo,
 } from "react-icons/pi";
@@ -157,6 +156,7 @@ type EventoApi = {
   descricao?: string | null;
   prazoInicial: string;
   prazoFinal: string;
+  status?: "ativo" | "inativo" | string;
   inscricao?: PeriodoEventoApi | null;
   aceitacao?: PeriodoEventoApi | null;
   submissao?: PeriodoEventoApi | null;
@@ -387,15 +387,6 @@ function PainelDetalhes({ aberto, titulo, onClose, children }: { aberto: boolean
             </button>
             <h2 className="truncate text-xl font-black text-slate-950">{titulo}</h2>
           </div>
-
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900"
-            aria-label="Fechar painel de detalhes"
-          >
-            ×
-          </button>
         </div>
 
         {children}
@@ -1088,20 +1079,64 @@ function EventosCoordenacao() {
     }
   }
 
-  async function handleExcluirEvento(eventoId: number) {
+  async function handleAlternarStatusEvento(evento: EventoApi) {
+    const estaInativo = evento.status === "inativo";
     const result = await Swal.fire({
-      icon: "warning", title: "Excluir evento?", text: "Essa acao nao pode ser desfeita.",
+      icon: "warning",
+      title: estaInativo ? "Ativar evento?" : "Desativar evento?",
+      text: estaInativo ? "O evento voltará a aparecer como ativo." : "O evento será marcado como inativo. Os dados não serão apagados.",
       showCancelButton: true, confirmButtonColor: "#15803d", cancelButtonColor: "#e2e8f0",
-      confirmButtonText: "Excluir", cancelButtonText: "Cancelar",
+      confirmButtonText: estaInativo ? "Ativar" : "Desativar",
+      cancelButtonText: "Cancelar",
     });
     if (!result.isConfirmed) return;
 
     try {
-      await apiRequest(`/evento/${eventoId}`, { method: "DELETE" });
-      Swal.fire({ icon: "success", title: "Evento removido", showConfirmButton: false, timer: 1200, timerProgressBar: true });
+      if (estaInativo) {
+        await apiRequest(`/evento/${evento.id}`, { method: "PATCH", body: { status: "ativo" } });
+      } else {
+        await apiRequest(`/evento/${evento.id}`, { method: "DELETE" });
+      }
+
+      Swal.fire({ icon: "success", title: estaInativo ? "Evento ativado" : "Evento desativado", showConfirmButton: false, timer: 1200, timerProgressBar: true });
       await carregarEventos();
     } catch (error) {
-      Swal.fire({ icon: "error", title: "Erro ao excluir", text: error instanceof Error ? error.message : "Tente novamente.", confirmButtonColor: "#15803d" });
+      Swal.fire({ icon: "error", title: "Erro ao alterar status", text: error instanceof Error ? error.message : "Tente novamente.", confirmButtonColor: "#15803d" });
+    }
+  }
+
+  async function handleRemoverTema(tema: TemaEventoApi) {
+    const result = await Swal.fire({
+      icon: "warning",
+      title: "Remover tema?",
+      text: `O tema "${tema.nome}" só será removido se não tiver orientadores ou projetos vinculados.`,
+      showCancelButton: true,
+      confirmButtonText: "Remover tema",
+      cancelButtonText: "Cancelar",
+      confirmButtonColor: "#dc2626",
+      cancelButtonColor: "#64748b",
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+      await apiRequest(`/evento/temas/${tema.id}`, { method: "DELETE" });
+      await Swal.fire({ icon: "success", title: "Tema removido", showConfirmButton: false, timer: 1200, timerProgressBar: true });
+      await carregarEventos();
+
+      if (eventoSelecionado) {
+        setEventoSelecionado({
+          ...eventoSelecionado,
+          temas: (eventoSelecionado.temas ?? []).filter((item) => item.id !== tema.id),
+        });
+      }
+    } catch (error) {
+      await Swal.fire({
+        icon: "error",
+        title: "Erro ao remover tema",
+        text: error instanceof Error ? error.message : "Tente novamente.",
+        confirmButtonColor: "#15803d",
+      });
     }
   }
 
@@ -1357,16 +1392,24 @@ function EventosCoordenacao() {
                        <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-600">{new Date(evento.prazoInicial).getFullYear()}</span>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => abrirDetalhesEvento(evento)}
-                        aria-label={`Ver detalhes do evento ${evento.titulo}`}
-                        className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-sectec-300 hover:bg-sectec-50 hover:text-sectec-700"
-                      >
-                        <Eye size={16} />
-                      </button>
-                      <button type="button" onClick={() => handleEdit(evento)} className="cursor-pointer flex h-8 items-center justify-center rounded-xl bg-slate-50 px-3 text-xs font-black text-slate-600 transition hover:bg-sectec-50 hover:text-sectec-700">Editar</button>
-                      <button type="button" onClick={() => handleExcluirEvento(evento.id)} className="cursor-pointer flex h-8 w-8 items-center justify-center rounded-xl bg-slate-50 text-slate-400 transition hover:bg-red-50 hover:text-red-600"><PiXCircle size={16} /></button>
+                      <Tooltip label="Ver detalhes">
+                        <button
+                          type="button"
+                          onClick={() => abrirDetalhesEvento(evento)}
+                          aria-label={`Ver detalhes do evento ${evento.titulo}`}
+                          className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:-translate-y-0.5 hover:border-sectec-300 hover:bg-sectec-50 hover:text-sectec-700"
+                        >
+                          <Eye size={16} />
+                        </button>
+                      </Tooltip>
+                      <Tooltip label="Editar evento">
+                        <button type="button" onClick={() => handleEdit(evento)} className="cursor-pointer flex h-8 items-center justify-center rounded-xl bg-slate-50 px-3 text-xs font-black text-slate-600 transition hover:-translate-y-0.5 hover:bg-sectec-50 hover:text-sectec-700">Editar</button>
+                      </Tooltip>
+                      <Tooltip label={evento.status === "inativo" ? "Ativar evento" : "Desativar evento"}>
+                        <button type="button" onClick={() => handleAlternarStatusEvento(evento)} className={`cursor-pointer flex h-8 items-center justify-center rounded-xl px-3 text-xs font-black transition hover:-translate-y-0.5 ${evento.status === "inativo" ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100" : "bg-red-50 text-red-600 hover:bg-red-100"}`}>
+                          {evento.status === "inativo" ? "Ativar" : "Desativar"}
+                        </button>
+                      </Tooltip>
                     </div>
                   </div>
                   
@@ -1461,9 +1504,19 @@ function EventosCoordenacao() {
                   {(eventoSelecionado.temas ?? []).map((tema) => (
                     <span
                       key={tema.id}
-                      className="inline-flex items-center rounded-full border border-sectec-100 bg-sectec-50 px-3 py-1 text-xs font-bold text-sectec-700"
+                      className="inline-flex items-center gap-2 rounded-full border border-sectec-100 bg-sectec-50 px-3 py-1 text-xs font-bold text-sectec-700"
                     >
                       {tema.nome}
+                      <Tooltip label="Remover tema">
+                        <button
+                          type="button"
+                          onClick={() => handleRemoverTema(tema)}
+                          className="inline-flex h-5 w-5 cursor-pointer items-center justify-center rounded-full text-sectec-600 transition hover:bg-red-100 hover:text-red-700"
+                          aria-label={`Remover tema ${tema.nome}`}
+                        >
+                          <X size={12} />
+                        </button>
+                      </Tooltip>
                     </span>
                   ))}
                 </div>
@@ -1816,10 +1869,10 @@ function UsuariosCoordenacao() {
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {[
-            { label: "Total de alunos", value: totalAlunos, accent: "from-emerald-500 to-teal-600", icon: <PiUsersThree size={18} />, target: "alunos" as const },
-            { label: "Total de orientadores", value: totalOrientadores, accent: "from-sky-500 to-cyan-600", icon: <PiBookOpen size={18} />, target: "orientadores" as const },
-            { label: "Total de comissão", value: totalComissao, accent: "from-amber-500 to-orange-600", icon: <PiCheckCircle size={18} />, target: "comissao" as const },
-            { label: "Total geral", value: totalGeral, accent: "from-slate-700 to-slate-950", icon: <UsersRound size={18} />, target: "alunos" as const },
+            { label: "Total de alunos", value: totalAlunos, icon: <PiUsersThree size={18} />, target: "alunos" as const },
+            { label: "Total de orientadores", value: totalOrientadores, icon: <PiBookOpen size={18} />, target: "orientadores" as const },
+            { label: "Total de comissão", value: totalComissao, icon: <PiCheckCircle size={18} />, target: "comissao" as const },
+            { label: "Total geral", value: totalGeral, icon: <UsersRound size={18} />, target: "alunos" as const },
           ].map((card) => (
             <button
               key={card.label}
@@ -1830,17 +1883,16 @@ function UsuariosCoordenacao() {
                 setTurmaFiltro("todas");
                 setAnoFiltro("todos");
               }}
-              className={`group relative overflow-hidden rounded-3xl border bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
-                abaAtiva === card.target ? "border-emerald-200 ring-4 ring-emerald-50" : "border-slate-200"
+              className={`group relative overflow-hidden rounded-3xl border bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md ${
+                abaAtiva === card.target ? "border-slate-300 ring-4 ring-slate-100" : "border-slate-200"
               }`}
             >
-              <div className={`absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r ${card.accent}`} />
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">{card.label}</p>
                   <strong className="mt-3 block text-3xl font-black text-slate-950">{card.value}</strong>
                 </div>
-                <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br ${card.accent} text-white shadow-sm`}>
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-700">
                   {card.icon}
                 </span>
               </div>
