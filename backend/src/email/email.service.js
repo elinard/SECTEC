@@ -51,7 +51,7 @@ var EmailService = /** @class */ (function () {
         this.transporter = nodemailer.createTransport({
             // 🚀 CORREÇÃO: Definindo explicitamente o host e a porta segura
             host: 'smtp.gmail.com',
-            port: 465,
+            port: 587,
             secure: true,
             auth: {
                 user: this.config.get('GMAIL_USER'),
