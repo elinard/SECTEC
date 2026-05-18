@@ -8,11 +8,18 @@ export class EmailService {
 
   constructor(private config: ConfigService) {
     this.transporter = nodemailer.createTransport({
-      service: 'gmail',
+      // 🚀 CORREÇÃO: Definindo explicitamente o host e a porta segura
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true, // true para porta 465 (SSL)
       auth: {
         user: this.config.get<string>('GMAIL_USER'),
         pass: this.config.get<string>('GMAIL_APP_PASS'),
       },
+      // ⚙️ CONFIGURAÇÃO DE REDE: Força timeouts saudáveis
+      connectionTimeout: 10000, // 10 segundos para conectar
+      greetingTimeout: 10000,   // 10 segundos aguardando saudação do SMTP
+      socketTimeout: 15000,     // 15 segundos de inatividade máxima no socket
     });
   }
 
