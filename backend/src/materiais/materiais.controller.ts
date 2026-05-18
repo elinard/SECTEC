@@ -23,7 +23,8 @@ import {
   ApiParam 
 } from '@nestjs/swagger';
 import { diskStorage } from 'multer';
-import { extname } from 'path';
+import { mkdirSync } from 'fs';
+import { extname, join } from 'path';
 
 import { MateriaisService } from './materiais.service';
 import { CreateMaterialDto } from './dto/create-material.dto';
@@ -49,7 +50,11 @@ export class MateriaisController {
   @UseInterceptors(
     FileInterceptor('file', {
       storage: diskStorage({
-        destination: './tmp',
+        destination: (req, file, cb) => {
+          const uploadDir = join(process.cwd(), 'tmp');
+          mkdirSync(uploadDir, { recursive: true });
+          cb(null, uploadDir);
+        },
         filename: (req, file, cb) => {
           const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
           cb(null, `${file.fieldname}-${uniqueSuffix}${extname(file.originalname)}`);

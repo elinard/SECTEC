@@ -194,12 +194,6 @@ function liderFromProjeto(projeto?: ProjetoApi) {
   return projeto?.alunoAutor?.nome ?? projeto?.projetoAlunos?.[0]?.aluno?.nome ?? "Aluno não informado";
 }
 
-function nomeCurto(nome: string) {
-  const partes = nome.trim().split(/\s+/).filter(Boolean);
-  if (partes.length <= 2) return nome;
-  return `${partes[0]} ${partes[partes.length - 1]}`;
-}
-
 function integrantesFromProjeto(projeto?: ProjetoApi) {
   const ids = new Set<number | string>();
 
@@ -1104,17 +1098,17 @@ function ProjetoDetalheCard({
               label="Integrantes"
               value={
                 integrantes.length > 0 ? (
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <ul className="space-y-2">
                     {integrantes.map((nome) => (
-                      <span
+                      <li
                         key={nome}
                         title={nome}
                         className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700"
                       >
-                        {nomeCurto(nome)}
-                      </span>
+                        {nome}
+                      </li>
                     ))}
-                  </div>
+                  </ul>
                 ) : (
                   "Nenhum integrante extra retornado"
                 )

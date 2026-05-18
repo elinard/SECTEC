@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Plus, FlaskConical, Users, ChevronRight, X, Search, UserPlus, UserMinus, ChevronDown, Upload, Video, FileText, Lock, TriangleAlert, Calendar, Pencil } from "lucide-react";
 import { MainLayout } from "../componentes/SideBarUniversal";
 import Swal from "sweetalert2";
-import { apiRequest, type UsuarioApi } from "../lib/api";
+import { API_BASE_URL, apiRequest, type UsuarioApi } from "../lib/api";
 
 type FaseAtual = 1 | 2 | 3 | 4;
 type Etapa = 1 | 2 | 3;
@@ -1073,17 +1073,27 @@ function Dashboard() {
                               setEnviandoMaterial(true);
                               try {
                                 const token = localStorage.getItem('token');
+                                const lerErroUpload = async (res: Response, fallback: string) => {
+                                  try {
+                                    const data = await res.json();
+                                    if (typeof data?.message === "string") return data.message;
+                                    if (Array.isArray(data?.message)) return data.message.join(" ");
+                                  } catch {
+                                    // A resposta pode vir vazia ou em outro formato.
+                                  }
+                                  return fallback;
+                                };
                                 const enviarArquivo = async (file: File, tipo: 'pdf' | 'pdf_relatorio', erro: string) => {
                                   const formData = new FormData();
                                   formData.append('file', file);
                                   formData.append('projetoId', projeto.id);
                                   formData.append('tipo', tipo);
-                                  const res = await fetch('https://sectec-ja.up.railway.app/api/materiais', {
+                                  const res = await fetch(`${API_BASE_URL}/materiais`, {
                                     method: 'POST',
                                     headers: { Authorization: `Bearer ${token}` },
                                     body: formData,
                                   });
-                                  if (!res.ok) throw new Error(erro);
+                                  if (!res.ok) throw new Error(await lerErroUpload(res, erro));
                                   const material = await res.json();
                                   setMateriais(prev => [material.material ?? material, ...prev]);
                                 };
@@ -1106,12 +1116,12 @@ function Dashboard() {
                                   formData.append('projetoId', projeto.id);
                                   formData.append('tipo', 'link');
                                   formData.append('conteudo', linkYoutube);
-                                  const res = await fetch('https://sectec-ja.up.railway.app/api/materiais', {
+                                  const res = await fetch(`${API_BASE_URL}/materiais`, {
                                     method: 'POST',
                                     headers: { Authorization: `Bearer ${token}` },
                                     body: formData,
                                   });
-                                  if (!res.ok) throw new Error('Erro ao enviar link');
+                                  if (!res.ok) throw new Error(await lerErroUpload(res, 'Erro ao enviar link'));
                                   const material = await res.json();
                                   setMateriais(prev => [material.material ?? material, ...prev]);
                                   setLinkYoutube('');
@@ -1188,7 +1198,7 @@ function Dashboard() {
                                   {m.conteudo}
                                 </a>
                               ) : m.id ? (
-                                <a href={`https://sectec-ja.up.railway.app/api/files/download/projeto/${projeto?.id}/material/${m.id}`} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-800 hover:underline break-all mb-2 flex items-center gap-1">
+                                <a href={`${API_BASE_URL}/files/download/projeto/${projeto?.id}/material/${m.id}`} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-800 hover:underline break-all mb-2 flex items-center gap-1">
                                   <FileText size={12} className="shrink-0" />
                                   Visualizar {getMaterialLabel(m.tipo)}
                                 </a>
