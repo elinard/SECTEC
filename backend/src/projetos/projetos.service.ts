@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, QueryRunner, Repository, Between } from 'typeorm';
+import { DataSource, QueryRunner, Repository, Between } from 'typeorm';
 
 import { AuditoriaService } from 'src/auditoria/auditoria.service';
 import { Evento, EventoStatus } from 'src/evento/entities/evento.entity';
@@ -220,8 +220,24 @@ export class ProjetosService {
       throw new ForbiddenException('Sem permissao para editar este projeto.');
     }
 
-    if (dto.alunosIds && role !== 'coordenador') {
-      throw new ForbiddenException('Apenas coordenadores alteram integrantes.');
+    let eventoId = dto.evento || projeto.evento?.id;
+
+    if (!eventoId) {
+      const ultimo = await this.buscarUltimoEvento();
+      eventoId = ultimo.id;
+    }
+
+    if (dto.temaId) {
+      await this.validarEventoETema(eventoId, dto.temaId);
+    }
+
+    if (dto.alunosIds) {
+      this.validateGroupSize(dto.alunosIds);
+      await this.ensureAlunosAreAvailable(
+        eventoId,
+        [...dto.alunosIds, projeto.alunoAutor.id],
+        projeto.id,
+      );
     }
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -229,16 +245,6 @@ export class ProjetosService {
     await queryRunner.startTransaction();
 
     try {
-      let eventoId = dto.evento || projeto.evento?.id;
-
-      if (!eventoId) {
-        const ultimo = await this.buscarUltimoEvento();
-        eventoId = ultimo.id;
-      }
-
-      if (dto.temaId) {
-        await this.validarEventoETema(eventoId, dto.temaId);
-      }
 
       const dadosAtualizados: Partial<Projeto> = {
         titulo: dto.titulo ?? projeto.titulo,
@@ -254,8 +260,8 @@ export class ProjetosService {
       this.projetoRepository.merge(projeto, dadosAtualizados);
       await queryRunner.manager.save(projeto);
 
-      // Se o coordenador mudou a banca/equipe, limpa e reinsere os participantes
-      if (dto.alunosIds && role === 'coordenador') {
+      // Se a equipe foi alterada, limpa e reinsere os participantes
+      if (dto.alunosIds) {
         await queryRunner.manager.delete(ProjetoAluno, {
           projeto: { id: projeto.id },
         });
@@ -496,17 +502,52 @@ export class ProjetosService {
   /**
    * Certifica-se de que nenhum dos alunos enviados já está alocado em outro projeto no evento atual.
    */
-  private async ensureAlunosAreAvailable(eventoId: number, todosIds: number[]) {
-    const ocupados = await this.projetoAlunoRepository.find({
-      where: {
-        aluno: { id: In(todosIds) },
-        projeto: { evento: { id: eventoId } },
-      },
-      relations: ['aluno'],
-    });
+  private async ensureAlunosAreAvailable(
+    eventoId: number,
+    todosIds: number[],
+    projetoIdIgnorado?: number,
+  ) {
+    const idsUnicos = [...new Set(todosIds.filter((id) => Number.isFinite(id)))];
+    if (idsUnicos.length === 0) return;
+
+    const placeholders = idsUnicos.map(() => '?').join(', ');
+    const filtroProjetoAutor = projetoIdIgnorado ? 'AND p.id != ?' : '';
+    const filtroProjetoIntegrante = projetoIdIgnorado ? 'AND p.id != ?' : '';
+    const params = projetoIdIgnorado
+      ? [
+          eventoId,
+          ...idsUnicos,
+          projetoIdIgnorado,
+          eventoId,
+          ...idsUnicos,
+          projetoIdIgnorado,
+        ]
+      : [eventoId, ...idsUnicos, eventoId, ...idsUnicos];
+
+    const ocupados = await this.dataSource.query(
+      `
+        SELECT DISTINCT u.nome
+        FROM (
+          SELECT p.aluno_autor_id AS aluno_id
+          FROM projetos p
+          WHERE p.evento_id = ?
+            AND p.aluno_autor_id IN (${placeholders})
+            ${filtroProjetoAutor}
+          UNION
+          SELECT pa.aluno_id AS aluno_id
+          FROM projeto_alunos pa
+          INNER JOIN projetos p ON p.id = pa.projeto_id
+          WHERE p.evento_id = ?
+            AND pa.aluno_id IN (${placeholders})
+            ${filtroProjetoIntegrante}
+        ) ocupados
+        INNER JOIN usuarios u ON u.id = ocupados.aluno_id
+      `,
+      params,
+    );
 
     if (ocupados.length > 0) {
-      const nomes = ocupados.map((p) => p.aluno.nome).join(', ');
+      const nomes = ocupados.map((p: { nome: string }) => p.nome).join(', ');
       throw new BadRequestException(`Alunos ja vinculados a este evento: ${nomes}`);
     }
   }
@@ -608,6 +649,7 @@ export class ProjetosService {
     const mensagensErro: Record<string, string> = {
       pendente: 'Ja existe uma solicitacao pendente para este orientador.',
       aceito: 'Este orientador ja aceitou orientar este projeto.',
+      recusado: 'Este orientador ja recusou este projeto. Escolha um novo orientador.',
     };
 
     const erro = mensagensErro[solicitacao.status];
@@ -615,12 +657,12 @@ export class ProjetosService {
   }
 
   /**
-   * Centraliza a filtragem de orientadores de um projeto para expor apenas os aceitos.
+   * Centraliza a filtragem de orientadores de um projeto para expor apenas solicitações relevantes ao aluno.
    */
  private filtrarOrientadoresAceitos(projeto: Projeto) {
   if (projeto.orientadores) {
     projeto.orientadores = projeto.orientadores.filter(
-      (relacao) => relacao.status === 'aceito' || relacao.status === 'recusado'
+      (relacao) => relacao.status === 'aceito' || relacao.status === 'recusado' || relacao.status === 'pendente'
     );
   } else {
     projeto.orientadores = [];

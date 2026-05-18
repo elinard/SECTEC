@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Plus, FlaskConical, Users, ChevronRight, X, Search, UserPlus, UserMinus, ChevronDown, Upload, Video, FileText, CheckCircle, Lock, TriangleAlert, Calendar, Pencil } from "lucide-react";
+import { Plus, FlaskConical, Users, ChevronRight, X, Search, UserPlus, UserMinus, ChevronDown, Upload, Video, FileText, Lock, TriangleAlert, Calendar, Pencil } from "lucide-react";
 import { MainLayout } from "../componentes/SideBarUniversal";
 import Swal from "sweetalert2";
 import { apiRequest, type UsuarioApi } from "../lib/api";
@@ -14,7 +14,8 @@ type Projeto = {
   id: string; titulo: string; descricao: string; eixo: string; temaId?: number;
   membros: Membro[]; orientadorId: string; status: StatusProjeto; linkYoutube?: string;
   autorId?: string;
-  orientadorNome?: string | null; // 👈 adiciona
+  orientadorNome?: string | null;
+  orientadoresSolicitadosIds?: string[];
 };
 type TemaApi = {
   id: string | number;
@@ -41,14 +42,12 @@ type EventoApi = {
   temas?: TemaApi[];
 };
 
-
-// INTERFACE ATUALIZADA: Agora com tema (objeto) ao invés de temaId
 type ProjetoApi = {
   id: string | number;
   titulo: string;
   descricao: string;
   temaId?: string | number;
-  tema?: { id: string | number; nome: string }; // 👈
+  tema?: { id: string | number; nome: string };
   alunoAutor?: UsuarioApi;
   projetoAlunos?: Array<{ id: string | number; aluno?: UsuarioApi }>;
   orientadores?: Array<{
@@ -65,8 +64,15 @@ type Material = {
   conteudo: string;
   opiniao: string;
   criadoEm: string;
-  driveLink?: string | null; // 👈 adiciona
+  driveLink?: string | null;
 };
+
+function getMaterialLabel(tipo: string) {
+  if (tipo === "pdf_relatorio") return "Relatório";
+  if (tipo === "pdf") return "Banner";
+  if (tipo === "link") return "Vídeo";
+  return "Material";
+}
 
 const FASE_PADRAO: FaseAtual = 1;
 const FASE_LABELS: Record<FaseAtual, string> = { 1: "Inscrição", 2: "Desenvolvimento", 3: "Submissão", 4: "Avaliação" };
@@ -91,10 +97,10 @@ const STATUS_TOOLTIP: Record<StatusProjeto, string> = {
   "Aceito": "Orientador aprovou! Você já pode iniciar o desenvolvimento.",
   "Recusado": "O orientador recusou o projeto. Entre em contato para saber o motivo.",
   "Em Desenvolvimento": "Projeto em andamento. Continue com sua pesquisa!",
-  "Submetido": "Relatório e vídeo enviados. Aguarde a avaliação da banca.",
+  "Submetido": "Relatório, banner e vídeo enviados. Aguarde a avaliação da banca.",
   "Avaliado": "A banca examinadora já avaliou seu projeto.",
 };
-const SUBMISSAO_TOOLTIP = "Fase 3: envio do relatório final em PDF e link do vídeo no YouTube.";
+const SUBMISSAO_TOOLTIP = "Fase 3: envio do relatório final, banner em PDF e link do vídeo no YouTube.";
 
 const MIN_MEMBROS = 3;
 const MAX_MEMBROS = 7;
@@ -273,15 +279,12 @@ function buildFasesFeira(evento?: EventoApi | null): typeof FASES_FEIRA {
   ];
 }
 
-// FUNÇÃO ATUALIZADA: Agora usa o objeto tema diretamente da API
 function mapProjetoApiToProjeto(projeto: ProjetoApi, temasDisponiveis: TemaApi[] = []): Projeto & { orientadorAceito?: Orientador } {
   const membrosMap = new Map<string, Membro>();
 
-  // 👇 autor primeiro
   const autor = membroFromUsuario(projeto.alunoAutor);
   if (autor) membrosMap.set(autor.id, autor);
 
-  // 👇 depois os integrantes
   projeto.projetoAlunos?.forEach((item) => {
     const membro = membroFromUsuario(item.aluno);
     if (membro && !membrosMap.has(membro.id)) {
@@ -291,7 +294,6 @@ function mapProjetoApiToProjeto(projeto: ProjetoApi, temasDisponiveis: TemaApi[]
 
   const orientacaoAceita = projeto.orientadores?.find((item) => item.status === "aceito");
   const orientadorInfo = orientacaoAceita?.orientador;
-  const primeiraOrientacao = orientacaoAceita ?? projeto.orientadores?.[0];
   const temaId = projeto.temaId ? Number(projeto.temaId) : projeto.tema?.id ? Number(projeto.tema.id) : undefined;
   const temaNome =
     projeto.tema?.nome ??
@@ -305,9 +307,19 @@ function mapProjetoApiToProjeto(projeto: ProjetoApi, temasDisponiveis: TemaApi[]
     temaId,
     membros: Array.from(membrosMap.values()),
     orientadorId: orientadorInfo ? String(orientadorInfo.id) : "",
-    orientadorNome: orientadorInfo?.nome ?? null, // 👈
+    orientadorNome: orientadorInfo?.nome ?? null,
+    orientadoresSolicitadosIds: projeto.orientadores
+      ?.map((item) => item.orientador?.id)
+      .filter((id): id is string | number => id !== undefined && id !== null)
+      .map(String) ?? [],
     status: statusFromProjetoApi(projeto),
-    autorId: autor?.id, // 👈
+    autorId: autor?.id ?? (projeto.alunoAutor?.id ? String(projeto.alunoAutor.id) : undefined),
+    orientadorAceito: orientadorInfo ? {
+      id: String(orientadorInfo.id),
+      nome: orientadorInfo.nome,
+      disciplina: orientadorInfo.email_institucional ?? 'Orientador',
+      temasIds: []
+    } : undefined,
   };
 };
 
@@ -366,6 +378,7 @@ function Dashboard() {
   const [projeto, setProjeto] = useState<Projeto | null>(null);
   const [modalAberto, setModalAberto] = useState(false);
   const [editandoProjeto, setEditandoProjeto] = useState(false);
+  const [reenviandoOrientadores, setReenviandoOrientadores] = useState(false);
   const [descricaoExpandida, setDescricaoExpandida] = useState(false);
   const [aba, setAba] = useState<"painel" | "submissao">("painel");
 
@@ -383,7 +396,9 @@ function Dashboard() {
   // ── Submissão ──
   const [linkYoutube, setLinkYoutube] = useState("");
   const [arquivoPdf, setArquivoPdf] = useState<File | null>(null);
+  const [arquivoBanner, setArquivoBanner] = useState<File | null>(null);
   const inputPdfRef = useRef<HTMLInputElement>(null);
+  const inputBannerRef = useRef<HTMLInputElement>(null);
   const [criando, setCriando] = useState(false);
 
   // ── API data ──
@@ -405,8 +420,6 @@ function Dashboard() {
 
   const [orientadorProjeto, setOrientadorProjeto] = useState<Orientador | null>(null);
 
-  const [temSolicitacaoEnviada, setTemSolicitacaoEnviada] = useState(false);
-
   const ehAutor = projeto?.autorId === ALUNO_LOGADO.id;
 
   useEffect(() => {
@@ -426,8 +439,6 @@ function Dashboard() {
           apiRequest<ProjetoApi | null>("/projetos/meu-projeto").catch(() => null),
         ]);
         if (!active) return;
-
-        // Debug: verificar o que a API retornou
 
         const eventoAtualApi = eventoVigente ?? [...eventos].sort((a, b) => Number(b.id) - Number(a.id))[0] ?? null;
         const temas = eventoAtualApi?.temas ?? [];
@@ -450,19 +461,15 @@ function Dashboard() {
           console.log('📦 Projeto retornado da API:', meuProjeto);
           console.log('📝 Tema do projeto:', meuProjeto.tema);
           console.log('📛 Nome do tema:', meuProjeto.tema?.nome);
-          console.log('📦 Projeto completo:', meuProjeto);       // 👈 adiciona
-          console.log('👥 projetoAlunos:', meuProjeto.projetoAlunos); // 👈 adiciona
-          console.log('👤 alunoAutor:', meuProjeto.alunoAutor);  // 👈 adiciona
+          console.log('👥 projetoAlunos:', meuProjeto.projetoAlunos);
+          console.log('👤 alunoAutor:', meuProjeto.alunoAutor);
           console.log('🎓 orientadores:', meuProjeto.orientadores);
           console.log('🎓 Orientadores raw:', meuProjeto.orientadores);
 
           const projetoMapeado = mapProjetoApiToProjeto(meuProjeto, temas);
           setProjeto(projetoMapeado);
-          console.log('📊 Status do projeto:', projetoMapeado.status);
-          const temSolicitacao = (meuProjeto.orientadores?.length ?? 0) > 0;
-          setTemSolicitacaoEnviada(temSolicitacao);
 
-          // 👇 Salva o orientador do projeto
+
           if (projetoMapeado.orientadorAceito) {
             setOrientadorProjeto(projetoMapeado.orientadorAceito);
           }
@@ -483,7 +490,6 @@ function Dashboard() {
           }))
         );
 
-        // REMOVIDO: setProjeto duplicado - já foi chamado dentro do if(meuProjeto) acima
         if (meuProjeto) {
           apiRequest<Material[]>(`/materiais/projeto/${meuProjeto.id}`)
             .then(setMateriais)
@@ -503,13 +509,13 @@ function Dashboard() {
   }, []);
 
   // ── Computed ──
-  const salas = ["todas", ...Array.from(new Set(alunosDisponiveis.map((a) => a.sala).filter(Boolean))).sort()];
-  const turmas = ["todas", ...Array.from(new Set(alunosDisponiveis.map((a) => a.turma ?? "").filter(Boolean))).sort()];
-
   const eixoSelecionado = eixosDisponiveis.find((item) => String(item.id) === eixo);
   const orientadoresFiltradosPorEixo = eixo
     ? orientadoresDisponiveis.filter((orientadorItem) => orientadorAtendeEixo(orientadorItem, eixo, eixoSelecionado))
     : [];
+  const orientadoresDisponiveisParaSolicitacao = reenviandoOrientadores
+    ? orientadoresFiltradosPorEixo.filter((orientador) => !projeto?.orientadoresSolicitadosIds?.includes(orientador.id))
+    : orientadoresFiltradosPorEixo;
   const referenciaTurmaEquipe = getReferenciaTurmaEquipe(membros);
 
   const alunosFiltrados = alunosDisponiveis.filter((a) => {
@@ -528,10 +534,26 @@ function Dashboard() {
   const projetoAceito = projeto?.status === "Aceito" || projeto?.status === "Em Desenvolvimento";
   const submissaoDesbloqueada = projetoAceito && faseAtual === 3 && projeto?.status !== "Submetido";
   const youtubeValido = linkYoutube === "" || /^(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)[\w-]{11}/.test(linkYoutube);
+  const materialRelatorio = materiais.find((material) => material.tipo === "pdf_relatorio");
+  const materialBanner = materiais.find((material) => material.tipo === "pdf");
+  const materialLink = materiais.find((material) => material.tipo === "link");
+  const precisaRelatorio = !materialRelatorio || materialRelatorio.status === "recusado";
+  const precisaBanner = !materialBanner || materialBanner.status === "recusado";
+  const precisaLink = !materialLink || materialLink.status === "recusado";
+  const podeEnviarSubmissao =
+    submissaoDesbloqueada &&
+    !enviandoMaterial &&
+    (precisaRelatorio || precisaBanner || precisaLink) &&
+    (!precisaRelatorio || Boolean(arquivoPdf)) &&
+    (!precisaBanner || Boolean(arquivoBanner)) &&
+    (!precisaLink || (Boolean(linkYoutube) && youtubeValido));
   const passwordChangedKey = `passwordChangedAt:${localStorage.getItem("userId") ?? "me"}`;
   const deveMostrarAvisoSenha = !localStorage.getItem(passwordChangedKey) && !avisoSenhaDispensado;
 
-  const podeAvancarEtapa1 = titulo.trim().length > 0 && descricao.trim().length >= 30 && eixo !== "";
+  // Em modo de edição, só precisa de título e descrição para avançar (eixo fica bloqueado)
+  const podeAvancarEtapa1 = editandoProjeto
+    ? titulo.trim().length > 0 && descricao.trim().length >= 30
+    : titulo.trim().length > 0 && descricao.trim().length >= 30 && eixo !== "";
   const podeAvancarEtapa2 = solicitacoes.length > 0;
 
   function dispensarAvisoSenha() {
@@ -542,6 +564,7 @@ function Dashboard() {
   function fecharModal() {
     setModalAberto(false);
     setEditandoProjeto(false);
+    setReenviandoOrientadores(false);
     setDescricaoExpandida(false);
     setEtapa(1);
     setTitulo(""); setDescricao(""); setEixo("");
@@ -556,25 +579,39 @@ function Dashboard() {
     const orientadoresDoEixo = orientadoresDisponiveis.filter((orientadorItem) =>
       orientadorAtendeEixo(orientadorItem, eixoId, proximoEixo)
     );
-    setSolicitacoes(orientadoresDoEixo.length === 1 ? [orientadoresDoEixo[0].id] : []);
+    const orientadoresSelecionaveis = reenviandoOrientadores
+      ? orientadoresDoEixo.filter((orientador) => !projeto?.orientadoresSolicitadosIds?.includes(orientador.id))
+      : orientadoresDoEixo;
+    setSolicitacoes(orientadoresSelecionaveis.length === 1 ? [orientadoresSelecionaveis[0].id] : []);
   }
 
+  // ALTERADO: sempre começa na etapa 1, eixo fica bloqueado visualmente
   function abrirEdicaoProjeto() {
     if (!projeto) return;
     setEditandoProjeto(true);
-
-    // Se já tem solicitação, começa direto na etapa 3 (Equipe)
-    if (temSolicitacaoEnviada) {
-      setEtapa(3);
-    } else {
-      setEtapa(1);
-    }
-
+    setReenviandoOrientadores(false);
+    setEtapa(1);
     setTitulo(projeto.titulo);
     setDescricao(projeto.descricao);
     setEixo(projeto.temaId ? String(projeto.temaId) : "");
     setSolicitacoes(projeto.orientadorId ? [projeto.orientadorId] : []);
     setMembros(projeto.membros);
+    setBuscaAluno("");
+    setFiltrSala("todas");
+    setFiltrTurma("todas");
+    setModalAberto(true);
+  }
+
+  function abrirSolicitacaoNovosOrientadores() {
+    if (!projeto) return;
+    setEditandoProjeto(false);
+    setReenviandoOrientadores(true);
+    setEtapa(2);
+    setTitulo("");
+    setDescricao("");
+    setEixo(projeto.temaId ? String(projeto.temaId) : "");
+    setSolicitacoes([]);
+    setMembros([ALUNO_LOGADO]);
     setBuscaAluno("");
     setFiltrSala("todas");
     setFiltrTurma("todas");
@@ -607,12 +644,30 @@ function Dashboard() {
   // Se o projeto já existe e só está solicitando novos orientadores
   async function handleCriarProjeto() {
     // Se o projeto já existe e está recusado, só envia novas solicitações
-    if (projeto && projeto.status === "Recusado" && etapa === 2) {
+    if (reenviandoOrientadores && projeto) {
+      const temaId = Number(eixo);
+      const orientadoresIds = solicitacoes.map(Number).filter((id) => Number.isFinite(id));
+      if (!eixo || !Number.isFinite(temaId)) {
+        Swal.fire({
+          icon: "warning",
+          title: "Eixo obrigatório",
+          text: "Selecione um eixo temático antes de solicitar novos orientadores.",
+          confirmButtonColor: "#15803d",
+        });
+        return;
+      }
+      if (orientadoresIds.length === 0) return;
+
       setCriando(true);
       try {
+        await apiRequest<ProjetoApi>(`/projetos/${projeto.id}`, {
+          method: "PATCH",
+          body: { temaId },
+        });
+
         await apiRequest("/projetos/solicitar-orientador", {
           method: "POST",
-          body: { orientadoresIds: solicitacoes.map(Number).filter((id) => Number.isFinite(id)) },
+          body: { orientadoresIds },
         });
         Swal.fire({
           icon: "success",
@@ -620,7 +675,13 @@ function Dashboard() {
           text: "Aguarde a resposta dos orientadores.",
           confirmButtonColor: "#15803d",
         });
-        setProjeto(prev => prev ? { ...prev, status: "Aguardando Aprovação" } : prev);
+        setProjeto(prev => prev ? {
+          ...prev,
+          eixo: eixoSelecionado?.nome ?? prev.eixo,
+          temaId,
+          status: "Aguardando Aprovação",
+          orientadoresSolicitadosIds: [...new Set([...(prev.orientadoresSolicitadosIds ?? []), ...solicitacoes])],
+        } : prev);
         fecharModal();
       } catch (error) {
         Swal.fire({
@@ -672,7 +733,7 @@ function Dashboard() {
     }
 
     const temaId = Number(eixo);
-    if (!Number.isFinite(temaId)) {
+    if (!editandoProjeto && !Number.isFinite(temaId)) {
       Swal.fire({
         icon: "warning",
         title: "Eixo obrigatório",
@@ -692,14 +753,15 @@ function Dashboard() {
       const projetoSalvo = editandoProjeto && projeto
         ? await apiRequest<ProjetoApi>(`/projetos/${projeto.id}`, {
           method: "PATCH",
-          body: { titulo, descricao, temaId },
+          // Ao editar, envia apenas título, descrição e membros (sem alterar temaId)
+          body: { titulo, descricao, alunosIds },
         })
         : await apiRequest<ProjetoApi>("/projetos", {
           method: "POST",
           body: { titulo, descricao, temaId, alunosIds },
         });
 
-      if (solicitacoes.length > 0) {
+      if (!editandoProjeto && solicitacoes.length > 0) {
         await apiRequest("/projetos/solicitar-orientador", {
           method: "POST",
           body: { orientadoresIds: solicitacoes.map(Number).filter((id) => Number.isFinite(id)) },
@@ -732,14 +794,13 @@ function Dashboard() {
     }
   }
 
-  function handleSubmeter(e: React.FormEvent) {
-    e.preventDefault();
-    if (!arquivoPdf || !linkYoutube) return;
-    setProjeto((p) => p ? { ...p, status: "Submetido", linkYoutube } : p);
-  }
-
   const descricaoLonga = (projeto?.descricao.length ?? 0) > 110;
-  const STEP_LABELS = ["Projeto", "Orientador", "Equipe"];
+  // Em modo de edição, o stepper mostra apenas "Projeto" e "Equipe"
+  const STEP_LABELS = reenviandoOrientadores
+    ? ["Eixo e Orientador"]
+    : editandoProjeto
+      ? ["Projeto", "Equipe"]
+      : ["Projeto", "Orientador", "Equipe"];
 
   return (
     <MainLayout userRole="aluno">
@@ -892,13 +953,13 @@ function Dashboard() {
 
                       <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4">
                         <h3 className="text-sm font-semibold text-slate-700 mb-3">Orientador</h3>
-                        {projeto.orientadorNome ? (
+                        {orientadorExibicao ? (
                           <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-full bg-yellow-100 text-yellow-700 text-sm font-semibold flex items-center justify-center shrink-0">
-                              {projeto.orientadorNome.split(" ").at(-1)?.[0]}
+                              {orientadorExibicao.nome.split(" ").at(-1)?.[0] || orientadorExibicao.nome[0]}
                             </div>
                             <div className="min-w-0">
-                              <p className="text-sm font-medium text-slate-700 truncate">{projeto.orientadorNome}</p>
+                              <p className="text-sm font-medium text-slate-700 truncate">{orientadorExibicao.nome}</p>
                             </div>
                           </div>
                         ) : projeto.status === "Recusado" ? (
@@ -910,12 +971,7 @@ function Dashboard() {
                             {ehAutor && (
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setSolicitacoes([]);
-                                  setEixo(projeto.temaId ? String(projeto.temaId) : "");
-                                  setEtapa(2);
-                                  setModalAberto(true);
-                                }}
+                                onClick={abrirSolicitacaoNovosOrientadores}
                                 className="w-full flex items-center justify-center gap-1.5 py-2 text-xs font-semibold text-white bg-sectec-700 rounded-lg hover:bg-sectec-800 transition-colors"
                               >
                                 <Plus size={13} />
@@ -940,11 +996,10 @@ function Dashboard() {
                 {aba === "submissao" && (
                   <div className="w-full max-w-lg space-y-4">
 
-                    {/* ── Envio de materiais — só o autor pode enviar ── */}
                     {ehAutor && (
                       <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
                         <h2 className="text-sm sm:text-base font-semibold text-slate-900 mb-1">Submissão do Projeto</h2>
-                        <p className="text-xs sm:text-sm text-slate-500 mb-5">Envie o relatório final em PDF e o link do vídeo no YouTube.</p>
+                        <p className="text-xs sm:text-sm text-slate-500 mb-5">Envie o relatório final, o banner em PDF e o link do vídeo no YouTube.</p>
 
                         {faseAtual !== 3 && (
                           <div className="flex gap-3 bg-slate-50 border border-slate-200 rounded-xl p-4 mb-5">
@@ -980,6 +1035,20 @@ function Dashboard() {
                           </div>
 
                           <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1.5">Banner (PDF) *</label>
+                            <input ref={inputBannerRef} type="file" accept=".pdf" disabled={!submissaoDesbloqueada}
+                              onChange={(e) => setArquivoBanner(e.target.files?.[0] ?? null)} className="hidden" />
+                            <button type="button" disabled={!submissaoDesbloqueada} onClick={() => inputBannerRef.current?.click()}
+                              className={`w-full border-2 border-dashed rounded-xl p-4 flex flex-col items-center gap-2 transition-colors
+                ${submissaoDesbloqueada ? "border-slate-200 hover:border-sectec-400 hover:bg-sectec-50 cursor-pointer" : "border-slate-100 bg-slate-50 cursor-not-allowed opacity-60"}`}>
+                              {arquivoBanner
+                                ? <><FileText size={20} className="text-sectec-600" /><span className="text-xs font-medium text-sectec-700 break-all">{arquivoBanner.name}</span></>
+                                : <><Upload size={20} className="text-slate-400" /><span className="text-xs text-slate-500">{submissaoDesbloqueada ? "Toque para selecionar o banner" : "Campo bloqueado"}</span></>
+                              }
+                            </button>
+                          </div>
+
+                          <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1.5">Link do YouTube *</label>
                             <div className="relative">
                               <Video size={14} className={`absolute left-3 top-3 ${submissaoDesbloqueada ? "text-red-500" : "text-slate-300"}`} />
@@ -995,33 +1064,46 @@ function Dashboard() {
 
                           <button
                             type="button"
-                            disabled={!submissaoDesbloqueada || (!arquivoPdf && !linkYoutube) || enviandoMaterial}
+                            disabled={!podeEnviarSubmissao}
                             onClick={async () => {
                               if (!projeto) return;
+                              if (!podeEnviarSubmissao) return;
                               setEnviandoMaterial(true);
                               try {
-                                if (arquivoPdf) {
+                                const token = localStorage.getItem('token');
+                                const enviarArquivo = async (file: File, tipo: 'pdf' | 'pdf_relatorio', erro: string) => {
                                   const formData = new FormData();
-                                  formData.append('file', arquivoPdf);
+                                  formData.append('file', file);
                                   formData.append('projetoId', projeto.id);
-                                  formData.append('tipo', 'pdf');
-                                  const token = localStorage.getItem('token');
+                                  formData.append('tipo', tipo);
                                   const res = await fetch('http://localhost:3000/api/materiais', {
                                     method: 'POST',
                                     headers: { Authorization: `Bearer ${token}` },
                                     body: formData,
                                   });
-                                  if (!res.ok) throw new Error('Erro ao enviar PDF');
+                                  if (!res.ok) throw new Error(erro);
                                   const material = await res.json();
                                   setMateriais(prev => [material.material ?? material, ...prev]);
+                                };
+
+                                if (precisaRelatorio) {
+                                  if (!arquivoPdf) return;
+                                  await enviarArquivo(arquivoPdf, 'pdf_relatorio', 'Erro ao enviar relatório');
                                   setArquivoPdf(null);
                                 }
-                                if (linkYoutube && youtubeValido) {
+
+                                if (precisaBanner) {
+                                  if (!arquivoBanner) return;
+                                  await enviarArquivo(arquivoBanner, 'pdf', 'Erro ao enviar banner');
+                                  setArquivoBanner(null);
+                                }
+
+                                if (precisaLink) {
+                                  if (!linkYoutube || !youtubeValido) return;
                                   const formData = new FormData();
                                   formData.append('projetoId', projeto.id);
                                   formData.append('tipo', 'link');
                                   formData.append('conteudo', linkYoutube);
-                                  const token = localStorage.getItem('token');
                                   const res = await fetch('http://localhost:3000/api/materiais', {
                                     method: 'POST',
                                     headers: { Authorization: `Bearer ${token}` },
@@ -1032,7 +1114,8 @@ function Dashboard() {
                                   setMateriais(prev => [material.material ?? material, ...prev]);
                                   setLinkYoutube('');
                                 }
-                                Swal.fire({ icon: 'success', title: 'Material enviado!', text: 'Aguarde a análise do orientador.', confirmButtonColor: '#15803d' });
+
+                                Swal.fire({ icon: 'success', title: 'Submissão enviada!', text: 'Os itens enviados foram encaminhados para análise.', confirmButtonColor: '#15803d' });
                               } catch (e) {
                                 Swal.fire({ icon: 'error', title: 'Erro ao enviar', text: e instanceof Error ? e.message : 'Tente novamente.', confirmButtonColor: '#15803d' });
                               } finally {
@@ -1047,13 +1130,12 @@ function Dashboard() {
                                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
                               </svg>
                             )}
-                            {enviandoMaterial ? 'Enviando...' : 'Enviar Material'}
+                            {enviandoMaterial ? 'Enviando...' : 'Enviar Submissão'}
                           </button>
                         </div>
                       </div>
                     )}
 
-                    {/* ── Mensagem para integrantes ── */}
                     {!ehAutor && (
                       <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
                         <h2 className="text-sm sm:text-base font-semibold text-slate-900 mb-1">Submissão do Projeto</h2>
@@ -1066,7 +1148,6 @@ function Dashboard() {
                       </div>
                     )}
 
-                    {/* ── Histórico de materiais — todos veem ── */}
                     {materiais.length > 0 && (
                       <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
                         <h3 className="text-sm font-semibold text-slate-900 mb-4">Materiais Enviados</h3>
@@ -1083,7 +1164,7 @@ function Dashboard() {
                                     : <Video size={15} className="text-slate-500 shrink-0" />
                                   }
                                   <span className="text-xs font-semibold text-slate-700 uppercase">
-                                    {m.tipo === 'link' ? 'Vídeo' : 'PDF'}
+                                    {getMaterialLabel(m.tipo)}
                                   </span>
                                 </div>
                                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${m.status === 'aprovado' ? 'bg-green-100 text-green-700'
@@ -1097,7 +1178,6 @@ function Dashboard() {
                               </div>
 
                               {m.tipo === 'link' ? (
-
                                 <a href={m.conteudo} target="_blank"
                                   rel="noopener noreferrer"
                                   className="text-xs text-blue-600 hover:text-blue-800 hover:underline break-all mb-2 flex items-center gap-1"
@@ -1106,13 +1186,12 @@ function Dashboard() {
                                   {m.conteudo}
                                 </a>
                               ) : m.id ? (
-
                                 <a href={`http://localhost:3000/api/files/download/projeto/${projeto?.id}/material/${m.id}`} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-800 hover:underline break-all mb-2 flex items-center gap-1">
                                   <FileText size={12} className="shrink-0" />
-                                  Visualizar PDF
+                                  Visualizar {getMaterialLabel(m.tipo)}
                                 </a>
                               ) : (
-                                <p className="text-xs text-slate-500 mb-2 italic">PDF enviado — link indisponível</p>
+                                <p className="text-xs text-slate-500 mb-2 italic">{getMaterialLabel(m.tipo)} enviado — link indisponível</p>
                               )}
                               {(m.status === 'aprovado' || m.status === 'recusado') && m.opiniao && (
                                 <div className={`rounded-lg px-3 py-2 text-xs mt-2 ${m.status === 'aprovado' ? 'bg-green-100 text-green-800'
@@ -1143,7 +1222,7 @@ function Dashboard() {
             <FeiraTimeline faseAtual={faseAtual} fases={fasesFeira} />
           </div>
         </div>
-      </div >
+      </div>
 
       {/* ── MODAL PROGRESSIVO ── */}
       {modalAberto && (
@@ -1153,12 +1232,13 @@ function Dashboard() {
             <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-200">
               <div>
                 <h2 className="text-sm font-semibold text-slate-900 sm:text-base">
-                  {editandoProjeto ? "Editar Projeto Científico" : "Novo Projeto Científico"}
+                  {reenviandoOrientadores ? "Solicitar novos orientadores" : editandoProjeto ? "Editar Projeto Científico" : "Novo Projeto Científico"}
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5 hidden sm:block">
-                  {etapa === 1 && "Preencha os dados do projeto"}
-                  {etapa === 2 && "Escolha até 3 orientadores para solicitar"}
-                  {etapa === 3 && "Monte a equipe do projeto"}
+                  {reenviandoOrientadores && "Escolha o eixo temático e novos orientadores para este projeto"}
+                  {etapa === 1 && (editandoProjeto ? "Edite o título e a descrição do projeto" : "Preencha os dados do projeto")}
+                  {etapa === 2 && !editandoProjeto && !reenviandoOrientadores && "Escolha até 3 orientadores para solicitar"}
+                  {etapa === 3 && !reenviandoOrientadores && "Monte a equipe do projeto"}
                 </p>
               </div>
               <button onClick={fecharModal} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 active:bg-slate-200 transition-colors">
@@ -1166,19 +1246,22 @@ function Dashboard() {
               </button>
             </div>
 
-            {/* Stepper */}
+            {/* Stepper — em edição mostra só 2 passos: Projeto e Equipe */}
             <div className="flex items-center px-4 sm:px-6 pt-4 pb-2">
               {STEP_LABELS.map((label, i) => {
-                const step = (i + 1) as Etapa;
-                const done = etapa > step;
-                const active = etapa === step;
-
-                if (editandoProjeto && temSolicitacaoEnviada && (step === 1 || step === 2)) {
-                  return null;
-                }
+                // Em edição: índice 0 = etapa 1 (Projeto), índice 1 = etapa 3 (Equipe)
+                // Em criação: índice 0 = etapa 1, índice 1 = etapa 2, índice 2 = etapa 3
+                const stepVisual = i + 1;
+                const etapaReal = reenviandoOrientadores
+                  ? 2
+                  : editandoProjeto
+                  ? (i === 0 ? 1 : 3)
+                  : stepVisual;
+                const done = !reenviandoOrientadores && (etapa > etapaReal || (editandoProjeto && i === 0 && etapa === 3));
+                const active = etapa === etapaReal;
 
                 return (
-                  <div key={step} className="flex items-center flex-1 last:flex-none">
+                  <div key={label} className="flex items-center flex-1 last:flex-none">
                     <div className="flex flex-col items-center gap-1">
                       <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all
                         ${done ? "bg-sectec-600 border-sectec-600 text-white"
@@ -1188,7 +1271,7 @@ function Dashboard() {
                           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                             <path d="M2 6l2.5 2.5L10 3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                           </svg>
-                        ) : step}
+                        ) : stepVisual}
                       </div>
                       <span className={`text-[10px] font-semibold ${active ? "text-sectec-700" : done ? "text-slate-500" : "text-slate-300"}`}>
                         {label}
@@ -1204,8 +1287,9 @@ function Dashboard() {
 
             {/* Body */}
             <div className="min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
+
               {/* Etapa 1: Dados do Projeto */}
-              {etapa === 1 && !(editandoProjeto && temSolicitacaoEnviada) && (
+              {etapa === 1 && (
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Título *</label>
@@ -1233,33 +1317,54 @@ function Dashboard() {
                     />
                   </div>
 
-                  <div className="relative">
+                  {/* Eixo Temático: bloqueado em edição, editável em criação */}
+                  <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Eixo Temático *</label>
-                    <select
-                      value={eixo}
-                      onChange={(e) => handleEixoChange(e.target.value)}
-                      className="w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 py-2.5 pr-9 text-sm transition focus:border-sectec-600 focus:outline-none focus:ring-2 focus:ring-sectec-100"
-                    >
-                      <option value="">Selecione um eixo</option>
-                      {eixosDisponiveis.map((e) => <option key={String(e.id)} value={String(e.id)}>{e.nome}</option>)}
-                    </select>
-                    <ChevronDown size={13} className="absolute right-3 bottom-3 text-slate-400 pointer-events-none" />
+                    {editandoProjeto ? (
+                      <div className="w-full flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5 text-sm text-slate-400 cursor-not-allowed">
+                        <Lock size={13} className="shrink-0 text-slate-300" />
+                        <span>{eixoSelecionado?.nome ?? "Eixo não informado"}</span>
+                      </div>
+                    ) : (
+                      <div className="relative">
+                        <select
+                          value={eixo}
+                          onChange={(e) => handleEixoChange(e.target.value)}
+                          className="w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 py-2.5 pr-9 text-sm transition focus:border-sectec-600 focus:outline-none focus:ring-2 focus:ring-sectec-100"
+                        >
+                          <option value="">Selecione um eixo</option>
+                          {eixosDisponiveis.map((e) => <option key={String(e.id)} value={String(e.id)}>{e.nome}</option>)}
+                        </select>
+                        <ChevronDown size={13} className="absolute right-3 top-3.5 text-slate-400 pointer-events-none" />
+                      </div>
+                    )}
                   </div>
 
-                  {eixo && (
+                  {/* Aviso de edição limitada */}
+                  {editandoProjeto && (
+                    <div className="flex items-start gap-2 rounded-xl bg-blue-50 border border-blue-100 px-3 py-2.5 text-xs text-blue-700">
+                      <Lock size={12} className="mt-0.5 shrink-0" />
+                      <span>
+                        Ao editar, só é possível alterar <strong>título</strong>, <strong>descrição</strong> e <strong>integrantes</strong>. O eixo temático e os orientadores permanecem fixos.
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Dica de eixo — apenas em criação */}
+                  {!editandoProjeto && eixo && (
                     <div className="flex items-start gap-2 rounded-xl bg-sectec-50 border border-sectec-100 px-3 py-2.5 text-xs text-sectec-700">
                       <FlaskConical size={13} className="mt-0.5 shrink-0" />
                       <span>
                         Eixo selecionado: <strong>{eixoSelecionado?.nome ?? "não informado"}</strong>. No próximo passo você verá apenas orientadores disponíveis para este eixo.
-                        {orientadoresFiltradosPorEixo.length === 0 && " Nenhum orientador escolheu este eixo ainda."}
+                        {orientadoresDisponiveisParaSolicitacao.length === 0 && " Nenhum orientador escolheu este eixo ainda."}
                       </span>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Etapa 2: Orientadores */}
-              {etapa === 2 && !(editandoProjeto && temSolicitacaoEnviada) && (
+              {/* Etapa 2: Orientadores — apenas em criação */}
+              {etapa === 2 && !editandoProjeto && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <p className="text-xs text-slate-500">
@@ -1273,19 +1378,49 @@ function Dashboard() {
                     </span>
                   </div>
 
+                  {reenviandoOrientadores && (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Eixo Temático *</label>
+                      <div className="relative">
+                        <select
+                          value={eixo}
+                          onChange={(event) => handleEixoChange(event.target.value)}
+                          className="w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 py-2.5 pr-9 text-sm transition focus:border-sectec-600 focus:outline-none focus:ring-2 focus:ring-sectec-100"
+                        >
+                          <option value="">Selecione um eixo</option>
+                          {eixosDisponiveis.map((item) => (
+                            <option key={String(item.id)} value={String(item.id)}>{item.nome}</option>
+                          ))}
+                        </select>
+                        <ChevronDown size={13} className="absolute right-3 top-3.5 text-slate-400 pointer-events-none" />
+                      </div>
+                    </div>
+                  )}
+
+                  {reenviandoOrientadores && (
+                    <div className="flex items-start gap-2 rounded-xl bg-blue-50 border border-blue-100 px-3 py-2.5 text-xs text-blue-700">
+                      <Lock size={12} className="mt-0.5 shrink-0" />
+                      <span>
+                        Nesta etapa só é possível alterar o eixo temático e escolher novos orientadores. Título, descrição e equipe permanecem iguais.
+                      </span>
+                    </div>
+                  )}
+
                   {carregandoDados ? (
                     <p className="text-center text-xs text-slate-400 py-8">Carregando orientadores...</p>
-                  ) : orientadoresFiltradosPorEixo.length === 0 ? (
+                  ) : orientadoresDisponiveisParaSolicitacao.length === 0 ? (
                     <div className="flex flex-col items-center py-10 text-center">
                       <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center mb-3">
                         <Users size={20} className="text-slate-400" />
                       </div>
                       <p className="text-sm font-medium text-slate-600">Nenhum orientador disponível</p>
-                      <p className="text-xs text-slate-400 mt-1">Não há orientadores vinculados a este eixo temático.</p>
+                      <p className="text-xs text-slate-400 mt-1">
+                        {reenviandoOrientadores ? "Todos os orientadores deste eixo já foram solicitados." : "Não há orientadores vinculados a este eixo temático."}
+                      </p>
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {orientadoresFiltradosPorEixo.map((o) => {
+                      {orientadoresDisponiveisParaSolicitacao.map((o) => {
                         const selecionado = solicitacoes.includes(o.id);
                         const bloqueado = !selecionado && solicitacoes.length >= 3;
                         return (
@@ -1356,7 +1491,7 @@ function Dashboard() {
                             {m.turma ? ` · Turma ${m.turma}` : ""}
                           </p>
                         </div>
-                        {m.id === projeto?.autorId ? (
+                        {m.id === ALUNO_LOGADO.id || m.id === projeto?.autorId ? (
                           <span className="text-[10px] font-semibold bg-sectec-100 text-sectec-700 px-2 py-0.5 rounded-full shrink-0">Líder</span>
                         ) : (
                           <button
@@ -1453,23 +1588,6 @@ function Dashboard() {
                   </div>
                 </div>
               )}
-
-              {/* Mensagem informativa quando editando com solicitação */}
-              {editandoProjeto && temSolicitacaoEnviada && etapa !== 3 && (
-                <div className="rounded-xl bg-blue-50 border border-blue-200 p-4 mt-4">
-                  <div className="flex gap-3">
-                    <Lock size={18} className="text-blue-500 shrink-0 mt-0.5" />
-                    <div className="text-sm text-blue-700">
-                      <p className="font-semibold mb-1">Edição limitada</p>
-                      <p className="text-xs">
-                        Como você já enviou solicitações aos orientadores, não é possível alterar o
-                        <strong> Eixo Temático</strong> nem os <strong>Orientadores solicitados</strong>.
-                        Você pode editar apenas o <strong>Título, Descrição e Equipe</strong>.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* Footer */}
@@ -1477,24 +1595,54 @@ function Dashboard() {
               <button
                 type="button"
                 onClick={() => {
-                  if (editandoProjeto && temSolicitacaoEnviada) {
+                  if (reenviandoOrientadores || etapa === 1) {
                     fecharModal();
-                  } else if (etapa > 1) {
-                    setEtapa((e) => (e - 1) as Etapa);
+                  } else if (editandoProjeto && etapa === 3) {
+                    // Em edição, voltar da equipe vai para o projeto (etapa 1)
+                    setEtapa(1);
                   } else {
-                    fecharModal();
+                    setEtapa((e) => (e - 1) as Etapa);
                   }
                 }}
                 className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 active:bg-slate-200 sm:w-auto"
               >
-                {etapa === 1 || (editandoProjeto && temSolicitacaoEnviada) ? "Cancelar" : "← Voltar"}
+                {etapa === 1 || reenviandoOrientadores ? "Cancelar" : "← Voltar"}
               </button>
 
-              {etapa < 3 && !(editandoProjeto && temSolicitacaoEnviada) ? (
+              {/* Botão de avançar ou salvar */}
+              {reenviandoOrientadores ? (
                 <button
                   type="button"
-                  disabled={etapa === 1 ? !podeAvancarEtapa1 : !podeAvancarEtapa2}
-                  onClick={() => setEtapa((e) => (e + 1) as Etapa)}
+                  disabled={criando || !eixo || !podeAvancarEtapa2}
+                  onClick={handleCriarProjeto}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-sectec-700 px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-sectec-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto sm:px-5"
+                >
+                  {criando && (
+                    <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                    </svg>
+                  )}
+                  {criando ? "Enviando..." : "Enviar solicitações"}
+                </button>
+              ) : etapa === 1 ? (
+                <button
+                  type="button"
+                  disabled={!podeAvancarEtapa1}
+                  onClick={() => {
+                    // Em edição pula direto para a etapa de equipe (3)
+                    // Em criação vai para orientadores (2)
+                    setEtapa(editandoProjeto ? 3 : 2);
+                  }}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-sectec-700 px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-sectec-800 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed sm:w-auto sm:px-5"
+                >
+                  Continuar →
+                </button>
+              ) : etapa === 2 && !editandoProjeto ? (
+                <button
+                  type="button"
+                  disabled={!podeAvancarEtapa2}
+                  onClick={() => setEtapa(3)}
                   className="flex w-full items-center justify-center gap-2 rounded-lg bg-sectec-700 px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-sectec-800 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed sm:w-auto sm:px-5"
                 >
                   Continuar →

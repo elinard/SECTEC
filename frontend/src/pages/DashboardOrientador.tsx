@@ -110,7 +110,7 @@ type OrientacaoApi = {
 
 type MaterialApi = {
   id: number;
-  tipo: "pdf" | "link";
+  tipo: "pdf" | "pdf_relatorio" | "link";
   status: "em_analise" | "aprovado" | "recusado";
   conteudo: string;
   opiniao?: string;
@@ -309,7 +309,9 @@ function materialStatusToEntregaStatus(status: MaterialApi["status"]): StatusEnt
 }
 
 function materialEtapa(tipo: MaterialApi["tipo"]) {
-  return tipo === "pdf" ? "PDF do projeto" : "Link de evidência";
+  if (tipo === "pdf_relatorio") return "Relatório final";
+  if (tipo === "pdf") return "Banner";
+  return "Link de vídeo";
 }
 
 function materialArquivo(material: MaterialApi) {

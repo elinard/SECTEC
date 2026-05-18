@@ -118,6 +118,14 @@ export class ProjetosController {
     return this.projetosService.findProjetoAtualPorAluno(userId);
   }
 
+  @Get('alunos-ocupados')
+  async getAlunosOcupados(@Query('projetoId') projetoId?: string) {
+    const ids = await this.projetosService.findAlunosOcupados(
+      projetoId ? parseInt(projetoId) : undefined
+    );
+    return ids;
+  }
+
   @Get(':id/orientador-aceito')
   @ApiOperation({ summary: 'Retorna o orientador que aceitou orientar o projeto pelo ID' })
   async findOrientadorAceito(
@@ -175,16 +183,5 @@ export class ProjetosController {
   ) {
     return this.projetosService.remove(id, userId, role);
   }
-
-// src/projetos/projetos.controller.ts
-
-@Get('alunos-ocupados')
-@UseGuards(JwtAuthGuard)
-async getAlunosOcupados(@Query('projetoId') projetoId?: string) {
-  const ids = await this.projetosService.findAlunosOcupados(
-    projetoId ? parseInt(projetoId) : undefined
-  );
-  return ids;
-}
 
 }
