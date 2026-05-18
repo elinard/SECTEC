@@ -617,15 +617,15 @@ export class ProjetosService {
   /**
    * Centraliza a filtragem de orientadores de um projeto para expor apenas os aceitos.
    */
-  private filtrarOrientadoresAceitos(projeto: Projeto) {
-    if (projeto.orientadores) {
-      projeto.orientadores = projeto.orientadores.filter(
-        (relacao) => relacao.status === 'aceito'
-      );
-    } else {
-      projeto.orientadores = [];
-    }
+ private filtrarOrientadoresAceitos(projeto: Projeto) {
+  if (projeto.orientadores) {
+    projeto.orientadores = projeto.orientadores.filter(
+      (relacao) => relacao.status === 'aceito' || relacao.status === 'recusado'
+    );
+  } else {
+    projeto.orientadores = [];
   }
+}
   
   
     /**

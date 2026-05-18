@@ -13,7 +13,8 @@ type Orientador = { id: string; nome: string; disciplina: string; temasIds: stri
 type Projeto = {
   id: string; titulo: string; descricao: string; eixo: string; temaId?: number;
   membros: Membro[]; orientadorId: string; status: StatusProjeto; linkYoutube?: string;
-  autorId?: string; // 👈 adiciona aqui
+  autorId?: string;
+  orientadorNome?: string | null; // 👈 adiciona
 };
 type TemaApi = {
   id: string | number;
@@ -296,7 +297,6 @@ function mapProjetoApiToProjeto(projeto: ProjetoApi, temasDisponiveis: TemaApi[]
     projeto.tema?.nome ??
     temasDisponiveis.find((item) => Number(item.id) === temaId)?.nome ??
     (temaId ? `Eixo #${temaId}` : "Eixo não informado");
-
   return {
     id: String(projeto.id),
     titulo: projeto.titulo,
@@ -304,16 +304,12 @@ function mapProjetoApiToProjeto(projeto: ProjetoApi, temasDisponiveis: TemaApi[]
     eixo: temaNome,
     temaId,
     membros: Array.from(membrosMap.values()),
-    // 👇 salva o id do autor para identificar o líder corretamente
     orientadorId: orientadorInfo ? String(orientadorInfo.id) : "",
-    orientadorAceito: orientadorInfo ? {
-      id: String(orientadorInfo.id),
-      nome: orientadorInfo.nome,
-      disciplina: orientadorInfo.email_institucional ?? 'Orientador',
-      temasIds: []
-    } : undefined,
+    orientadorNome: orientadorInfo?.nome ?? null, // 👈
+    status: statusFromProjetoApi(projeto),
+    autorId: autor?.id, // 👈
   };
-}
+};
 
 function Tooltip({ children, text }: { children: React.ReactNode; text: string }) {
   return (
@@ -421,7 +417,9 @@ function Dashboard() {
       try {
         const [alunos, orientadores, ocupadosIds, eventos, eventoVigente, meuProjeto] = await Promise.all([
           apiRequest<UsuarioApi[]>("/users/alunos"),
-          apiRequest<UsuarioApi[]>("/users/orientadores"),
+          apiRequest<any[]>("/orientacoes/disponiveis").catch(() =>
+            apiRequest<UsuarioApi[]>("/users/orientadores")
+          ),
           apiRequest<Array<string | number>>("/projetos/alunos-ocupados").catch(() => []),
           apiRequest<EventoApi[]>("/evento").catch(() => []),
           apiRequest<EventoApi | null>("/evento/atual/vigente").catch(() => null),
@@ -456,10 +454,11 @@ function Dashboard() {
           console.log('👥 projetoAlunos:', meuProjeto.projetoAlunos); // 👈 adiciona
           console.log('👤 alunoAutor:', meuProjeto.alunoAutor);  // 👈 adiciona
           console.log('🎓 orientadores:', meuProjeto.orientadores);
+          console.log('🎓 Orientadores raw:', meuProjeto.orientadores);
 
           const projetoMapeado = mapProjetoApiToProjeto(meuProjeto, temas);
           setProjeto(projetoMapeado);
-
+          console.log('📊 Status do projeto:', projetoMapeado.status);
           const temSolicitacao = (meuProjeto.orientadores?.length ?? 0) > 0;
           setTemSolicitacaoEnviada(temSolicitacao);
 
@@ -480,7 +479,7 @@ function Dashboard() {
             id: String(o.id),
             nome: o.nome,
             disciplina: o.email_institucional ?? 'Orientador',
-            temasIds: (o.temasSelecionados ?? []).map((tema) => String(tema.id)),
+            temasIds: (o.temas ?? o.temasSelecionados ?? []).map((tema: any) => String(tema.id)),
           }))
         );
 
@@ -605,7 +604,37 @@ function Dashboard() {
     setMembros((prev) => [...prev, aluno]);
   }
 
+  // Se o projeto já existe e só está solicitando novos orientadores
   async function handleCriarProjeto() {
+    // Se o projeto já existe e está recusado, só envia novas solicitações
+    if (projeto && projeto.status === "Recusado" && etapa === 2) {
+      setCriando(true);
+      try {
+        await apiRequest("/projetos/solicitar-orientador", {
+          method: "POST",
+          body: { orientadoresIds: solicitacoes.map(Number).filter((id) => Number.isFinite(id)) },
+        });
+        Swal.fire({
+          icon: "success",
+          title: "Solicitações enviadas!",
+          text: "Aguarde a resposta dos orientadores.",
+          confirmButtonColor: "#15803d",
+        });
+        setProjeto(prev => prev ? { ...prev, status: "Aguardando Aprovação" } : prev);
+        fecharModal();
+      } catch (error) {
+        Swal.fire({
+          icon: "error",
+          title: "Erro ao enviar",
+          text: error instanceof Error ? error.message : "Tente novamente.",
+          confirmButtonColor: "#15803d",
+        });
+      } finally {
+        setCriando(false);
+      }
+      return;
+    }
+
     const membrosForaDaTurma = getMembrosForaDaTurma(membros);
     if (membrosForaDaTurma.length > 0) {
       mostrarAlertaTurma({
@@ -619,18 +648,18 @@ function Dashboard() {
     if (membros.length < MIN_MEMBROS) {
       Swal.fire({
         html: `
-            <div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:8px 0">
-              <div style="width:52px;height:52px;border-radius:14px;background:#f0fdf4;border:2px solid #a7f3d0;display:flex;align-items:center;justify-content:center">
-                <svg width="24" height="24" fill="none" stroke="#15803d" stroke-width="2.5" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-                </svg>
-              </div>
-              <div>
-                <p style="font-size:16px;font-weight:700;color:#0f172a;margin:0 0 6px">Equipe incompleta</p>
-                <p style="font-size:13px;color:#64748b;margin:0">A equipe precisa ter no mínimo <strong style="color:#15803d">${MIN_MEMBROS} membros</strong>.<br/>Você adicionou <strong>${membros.length}</strong> até agora.</p>
-              </div>
-            </div>
-          `,
+        <div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:8px 0">
+          <div style="width:52px;height:52px;border-radius:14px;background:#f0fdf4;border:2px solid #a7f3d0;display:flex;align-items:center;justify-content:center">
+            <svg width="24" height="24" fill="none" stroke="#15803d" stroke-width="2.5" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+            </svg>
+          </div>
+          <div>
+            <p style="font-size:16px;font-weight:700;color:#0f172a;margin:0 0 6px">Equipe incompleta</p>
+            <p style="font-size:13px;color:#64748b;margin:0">A equipe precisa ter no mínimo <strong style="color:#15803d">${MIN_MEMBROS} membros</strong>.<br/>Você adicionou <strong>${membros.length}</strong> até agora.</p>
+          </div>
+        </div>
+      `,
         showConfirmButton: true,
         confirmButtonText: "Entendi",
         confirmButtonColor: "#15803d",
@@ -641,6 +670,7 @@ function Dashboard() {
       });
       return;
     }
+
     const temaId = Number(eixo);
     if (!Number.isFinite(temaId)) {
       Swal.fire({
@@ -676,7 +706,6 @@ function Dashboard() {
         });
       }
 
-      // ATUALIZADO: Agora passa apenas o projeto, sem o parâmetro temas
       const projetoAtualizado = mapProjetoApiToProjeto(projetoSalvo, eixosDisponiveis);
       setProjeto({
         ...projetoAtualizado,
@@ -863,18 +892,39 @@ function Dashboard() {
 
                       <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4">
                         <h3 className="text-sm font-semibold text-slate-700 mb-3">Orientador</h3>
-                        {orientadorExibicao ? (  // 👈 Use a variável correta
+                        {projeto.orientadorNome ? (
                           <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-full bg-yellow-100 text-yellow-700 text-sm font-semibold flex items-center justify-center shrink-0">
-                              {orientadorExibicao.nome.split(" ").at(-1)?.[0] || orientadorExibicao.nome[0]}
+                              {projeto.orientadorNome.split(" ").at(-1)?.[0]}
                             </div>
                             <div className="min-w-0">
-                              <p className="text-sm font-medium text-slate-700 truncate">{orientadorExibicao.nome}</p>
-                              <p className="break-words text-xs text-slate-400">{orientadorExibicao.disciplina}</p>
+                              <p className="text-sm font-medium text-slate-700 truncate">{projeto.orientadorNome}</p>
                             </div>
                           </div>
+                        ) : projeto.status === "Recusado" ? (
+                          <div className="space-y-3">
+                            <div className="flex gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2">
+                              <TriangleAlert size={14} className="text-red-500 mt-0.5 shrink-0" />
+                              <p className="text-xs text-red-700">Todos os orientadores recusaram. Solicite novos orientadores.</p>
+                            </div>
+                            {ehAutor && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSolicitacoes([]);
+                                  setEixo(projeto.temaId ? String(projeto.temaId) : "");
+                                  setEtapa(2);
+                                  setModalAberto(true);
+                                }}
+                                className="w-full flex items-center justify-center gap-1.5 py-2 text-xs font-semibold text-white bg-sectec-700 rounded-lg hover:bg-sectec-800 transition-colors"
+                              >
+                                <Plus size={13} />
+                                Solicitar novos orientadores
+                              </button>
+                            )}
+                          </div>
                         ) : (
-                          <p className="text-xs text-slate-400">Nenhum orientador selecionado.</p>
+                          <p className="text-xs text-slate-400">Nenhum orientador aceitou ainda.</p>
                         )}
                         {faseAtual === 3 && projetoAceito && (
                           <button onClick={() => setAba("submissao")}
@@ -1095,7 +1145,7 @@ function Dashboard() {
         </div>
       </div >
 
-            {/* ── MODAL PROGRESSIVO ── */}
+      {/* ── MODAL PROGRESSIVO ── */}
       {modalAberto && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
           <div className="flex max-h-[95dvh] w-full flex-col rounded-t-2xl bg-white shadow-2xl sm:max-h-[90vh] sm:max-w-2xl sm:rounded-2xl">
