@@ -952,6 +952,8 @@ function TemasChecklist({
   const [modalAberto, setModalAberto] = useState(false);
 
   function toggleTema(temaId: number) {
+    if (selecionadosIds.includes(temaId) && selecionadosIds.length === 1) return;
+
     onChange(
       selecionadosIds.includes(temaId)
         ? selecionadosIds.filter((id) => id !== temaId)
@@ -968,7 +970,7 @@ function TemasChecklist({
             {selecionadosIds.length} eixo(s) ativo(s)
           </h2>
           <p className="mt-1 text-sm font-medium text-slate-500">
-            {eventoTitulo ? `Evento atual: ${eventoTitulo}` : "Eixos carregados pelo evento atual."}
+            {eventoTitulo ? `Evento atual: ${eventoTitulo}` : "Eixos carregados pelo evento atual."} Selecione pelo menos 1 eixo.
           </p>
         </div>
 
@@ -1030,6 +1032,7 @@ function TemasChecklist({
                           <input
                             type="checkbox"
                             checked={ativo}
+                            disabled={ativo && selecionadosIds.length === 1}
                             onChange={() => toggleTema(tema.id)}
                             className="h-4 w-4 shrink-0 accent-sectec-700"
                           />
@@ -1055,9 +1058,9 @@ function TemasChecklist({
                 <Button
                   onClick={() => {
                     onSave();
-                    setModalAberto(false);
+                    if (selecionadosIds.length > 0) setModalAberto(false);
                   }}
-                  disabled={carregando || salvando || temas.length === 0}
+                  disabled={carregando || salvando || temas.length === 0 || selecionadosIds.length === 0}
                 >
                   <Save size={16} />
                   {salvando ? "Salvando" : "Salvar temas"}
@@ -1316,6 +1319,11 @@ function DashboardOrientador() {
   }
 
   async function salvarTemas() {
+    if (temasBackend.temas.length > 0 && temasBackend.selecionadosIds.length === 0) {
+      mostrarAviso("Selecione pelo menos 1 eixo temático para orientar.");
+      return;
+    }
+
     try {
       await temasBackend.salvar(temasBackend.selecionadosIds);
       mostrarAviso("Temas do orientador salvos.");
