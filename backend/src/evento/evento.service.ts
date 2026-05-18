@@ -7,6 +7,8 @@ import { CreateTemasDto } from './dto/create-tema.dto';
 import { Evento, EventoStatus } from './entities/evento.entity'; 
 import { TemaEvento } from './entities/tema-evento.entity';
 import { User, UserRole } from '../users/entities/user.entity';
+import { ProjetoOrientador } from '../projetos/entities/projeto-orientador.entity'; 
+// 💡 NOTA: Ajuste o caminho relativo acima se a pasta do módulo de projetos não for essa exatamente.
 
 @Injectable()
 export class EventoService {
@@ -19,6 +21,9 @@ export class EventoService {
     
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    
+      @InjectRepository(ProjetoOrientador)
+  private readonly projetoOrientadorRepository: Repository<ProjetoOrientador>,
   ) {}
 
   async create(createEventoDto: CreateEventoDto) {
@@ -125,33 +130,65 @@ async findProfessoresPorTema(temaId: number) {
   }
 
     async sincronizarTemas(professorId: number, temasIds: number[]) {
-    const professor = await this.userRepository.findOne({
-      where: { id: professorId },
-      relations: ['temasSelecionados']
+  const professor = await this.userRepository.findOne({
+    where: { id: professorId },
+    relations: ['temasSelecionados']
+  });
+
+  if (!professor || professor.role_cargo !== UserRole.ORIENTADOR) {
+    throw new BadRequestException('Orientador não encontrado ou cargo inválido.');
+  }
+
+  // 1. Identificar quais IDs de temas o orientador está tentando REMOVER (desmarcar)
+  const temasAtuaisIds = professor.temasSelecionados.map(t => t.id);
+  const temasSendoRemovidos = temasAtuaisIds.filter(id => !temasIds.includes(id));
+
+  // 2. Se houver tentativa de remoção, aplica a validação de segurança baseada nas entidades
+  if (temasSendoRemovidos.length > 0) {
+    // Busca registros onde o orientador está vinculado a um projeto que use um dos temas removidos,
+    // filtrando apenas por orientações ativas ('aceito') ou convites ainda em aberto ('pendente')
+    const vinculosAtivos = await this.projetoOrientadorRepository.find({
+      where: {
+        orientador: { id: professorId },
+        status: In(['aceito', 'pendente']), // Bloqueia tanto o projeto atual quanto solicitações pendentes
+        projeto: {
+          temaId: In(temasSendoRemovidos) // Filtra direto pela coluna temaId mapeada no Projeto
+        }
+      },
+      relations: ['projeto', 'projeto.tema'] // Traz o relacionamento para podermos exibir o nome amigável do tema
     });
 
-    if (!professor || professor.role_cargo !== UserRole.ORIENTADOR) {
-      throw new BadRequestException('Orientador não encontrado ou cargo inválido.');
-    }
+    if (vinculosAtivos.length > 0) {
+      // Extrai os nomes únicos dos temas que causaram o bloqueio para listar no erro
+      const nomesTemasBloqueados = Array.from(
+        new Set(vinculosAtivos.map(v => v.projeto?.tema?.nome || `ID: ${v.projeto?.temaId}`))
+      ).map(nome => `"${nome}"`).join(', ');
 
-    const novosTemas = await this.temaRepository.findBy({
-      id: In(temasIds)
-    });
-
-    // 🚀 NOVA VALIDAÇÃO: Garante o piso mínimo de 4 temas válidos
-    if (novosTemas.length < 4) {
       throw new BadRequestException(
-        `Você precisa selecionar no mínimo 4 temas válidos. (Selecionados: ${novosTemas.length})`
+        `Não é possível remover os seguintes temas pois existem solicitações pendentes ou projetos sob sua orientação vinculados a eles: ${nomesTemasBloqueados}`
       );
     }
-
-    professor.temasSelecionados = novosTemas;
-    await this.userRepository.save(professor);
-
-    return {
-      message: 'Temas sincronizados com sucesso',
-      totalSelecionado: novosTemas.length
-    };
   }
+
+  const novosTemas = await this.temaRepository.findBy({
+    id: In(temasIds)
+  });
+
+  // 🚀 VALIDAÇÃO EXISTENTE: Garante o piso mínimo de 4 temas válidos
+  if (novosTemas.length < 4) {
+    throw new BadRequestException(
+      `Você precisa selecionar no mínimo 4 temas válidos. (Selecionados: ${novosTemas.length})`
+    );
+  }
+
+  professor.temasSelecionados = novosTemas;
+  await this.userRepository.save(professor);
+
+  return {
+    message: 'Temas sincronizados com sucesso',
+    totalSelecionado: novosTemas.length
+  };
+}
+
 
 }

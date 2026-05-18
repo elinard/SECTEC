@@ -41,4 +41,13 @@ export class OrientacoesController {
   ) {
     return this.orientacoesService.responder(id, userId, dto);
   }
+  
+  @Get('disponiveis')
+  @Roles(UserRole.ALUNO) // Garante que apenas alunos usem essa listagem
+  listarParaAluno(
+    @GetUser('userId') alunoId: number,
+  ) {
+    return this.orientacoesService.listarDisponiveisParaAluno(alunoId);
+  }
+
 }

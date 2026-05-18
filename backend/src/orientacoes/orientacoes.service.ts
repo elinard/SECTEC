@@ -5,18 +5,27 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In, Not, Between } from 'typeorm';
+import { EventoStatus } from '../evento/entities/evento.entity';
 import {
   ProjetoOrientador,
   StatusOrientacao,
 } from './entities/projeto-orientador.entity';
 import { ResponderOrientacaoDto } from './dto/responder-orientacao.dto';
+import { User } from '../users/entities/user.entity'; // Ajuste o caminho correto se necessário
+import { Projeto } from '../projetos/entities/projeto.entity';   // Ajuste o caminho correto se necessário
 
 @Injectable()
 export class OrientacoesService {
   constructor(
     @InjectRepository(ProjetoOrientador)
     private orientacoesRepository: Repository<ProjetoOrientador>,
+    
+    @InjectRepository(User)
+    private userRepository: Repository<User>, // 👈 Adicionado
+    
+    @InjectRepository(Projeto)
+    private projetoRepository: Repository<Projeto>, // 👈 Adicionado
   ) {}
 
     async findMinhasPendentes(orientadorId: number): Promise<ProjetoOrientador[]> {
@@ -158,5 +167,71 @@ export class OrientacoesService {
 
     return this.orientacoesRepository.save(orientacao);
   }
+  
+  
+  
+      async listarDisponiveisParaAluno(alunoId: number) {
+  const anoAtual = new Date().getFullYear();
+
+  // 1. Busca o projeto do aluno vinculado ao evento ATIVO do ano corrente
+  const projetoAluno = await this.projetoRepository.findOne({
+    where: { 
+      alunoAutor: { id: alunoId }, 
+      evento: { 
+        status: EventoStatus.ATIVO, 
+        prazoInicial: Between(
+          new Date(`${anoAtual}-01-01T00:00:00`), 
+          new Date(`${anoAtual}-12-31T23:59:59`)
+        )
+      } 
+    },
+    relations: ['evento'],
+  });
+
+  let orientadoresRecusadosIds: number[] = [];
+
+  // 2. Se o projeto já existir, localiza quais orientadores deram 'recusado' especificamente nele
+  if (projetoAluno) {
+    const vinculosRecusados = await this.orientacoesRepository.find({
+      where: {
+        projeto: { id: projetoAluno.id },
+        status: StatusOrientacao.RECUSADO,
+      },
+      relations: ['orientador'],
+    });
+    orientadoresRecusadosIds = vinculosRecusados.map((v) => v.orientador.id);
+  }
+
+  // 3. Monta a Query buscando TODOS os orientadores cadastrados no evento ativo
+  const query = this.userRepository.createQueryBuilder('orientador')
+    .innerJoinAndSelect('orientador.temasSelecionados', 'tema')
+    .innerJoin('tema.evento', 'evento') 
+    .where('orientador.role_cargo = :role', { role: 'orientador' }) // Busca TODOS do cargo orientador
+    .andWhere('evento.status = :eventoStatus', { eventoStatus: EventoStatus.ATIVO }) 
+    .andWhere('evento.prazo_inicial BETWEEN :inicioAno AND :fimAno', {
+      inicioAno: `${anoAtual}-01-01 00:00:00`,
+      fimAno: `${anoAtual}-12-31 23:59:59`,
+    });
+
+  // 4. Regra de Exclusão: Retira da lista Geral APENAS quem recusou (se houver alguém)
+  if (orientadoresRecusadosIds.length > 0) {
+    query.andWhere('orientador.id NOT IN (:...recusados)', { recusados: orientadoresRecusadosIds });
+  }
+
+  const orientadores = await query.getMany();
+
+  // 5. Retorna a lista completa com id, nome e temas mapeados
+  return orientadores.map((ori) => ({
+    id: ori.id,
+    nome: ori.nome,
+    temas: ori.temasSelecionados.map((t) => ({
+      id: t.id,
+      nome: t.nome,
+    })),
+  }));
+}
+
+
+
 
 }

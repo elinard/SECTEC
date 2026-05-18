@@ -4,21 +4,22 @@ import { ProjetoOrientador } from './entities/projeto-orientador.entity';
 import { OrientacoesService } from './orientacoes.service';
 import { OrientacoesController } from './orientacoes.controller';
 
-// Importe as outras entidades que a sua query do QueryBuilder utiliza nos Joins
+// Importações corretas de todas as entidades tocadas pelo Service
 import { Projeto } from '../projetos/entities/projeto.entity'; 
 import { ProjetoAluno } from '../projetos/entities/projeto-aluno.entity';
+import { User } from '../users/entities/user.entity'; // 🚀 IMPORTANTE: Adicionado para o userRepository funcionar
 
 @Module({
   imports: [
-    // Certifique-se de incluir as entidades que o QueryBuilder vai tocar/mapear
     TypeOrmModule.forFeature([
       ProjetoOrientador, 
       Projeto, 
-      ProjetoAluno
+      ProjetoAluno,
+      User // 🚀 IMPORTANTE: Injetando o repositório de usuários no escopo deste módulo
     ]),
   ],
   providers: [OrientacoesService],
   controllers: [OrientacoesController],
-  exports: [OrientacoesService], // Perfeito para caso outros módulos precisem dele
+  exports: [OrientacoesService],
 })
 export class OrientacoesModule {}
