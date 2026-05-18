@@ -5,7 +5,7 @@ import { MainLayout } from "../componentes/SideBarUniversal";
 import Swal from "sweetalert2";
 import { API_BASE_URL, apiRequest, type UsuarioApi } from "../lib/api";
 
-type FaseAtual = 1 | 2 | 3 | 4;
+type FaseAtual = 1 | 2 | 3;
 type Etapa = 1 | 2 | 3;
 type StatusProjeto = "Rascunho" | "Aguardando Aprovação" | "Aceito" | "Recusado" | "Em Desenvolvimento" | "Submetido" | "Avaliado";
 type Membro = { id: string; nome: string; sala: string; turma?: string };
@@ -75,7 +75,11 @@ function getMaterialLabel(tipo: string) {
 }
 
 const FASE_PADRAO: FaseAtual = 1;
-const FASE_LABELS: Record<FaseAtual, string> = { 1: "Inscrição", 2: "Desenvolvimento", 3: "Submissão", 4: "Avaliação" };
+const FASE_LABELS: Record<FaseAtual, string> = {
+  1: "Inscrição",
+  2: "Submissão",
+  3: "Avaliação"
+};
 const STATUS_STYLE: Record<StatusProjeto, string> = {
   "Rascunho": "bg-slate-100 text-slate-600",
   "Aguardando Aprovação": "bg-yellow-100 text-yellow-700",
@@ -86,10 +90,9 @@ const STATUS_STYLE: Record<StatusProjeto, string> = {
   "Avaliado": "bg-orange-100 text-orange-700",
 };
 const FASES_FEIRA = [
-  { fase: 1 as FaseAtual, label: "Inscrição", data: "01/05 – 15/05", descricao: "Cadastro do projeto e da equipe" },
-  { fase: 2 as FaseAtual, label: "Desenvolvimento", data: "16/05 – 30/06", descricao: "Desenvolvimento e orientação" },
-  { fase: 3 as FaseAtual, label: "Submissão", data: "01/07 – 10/07", descricao: "Envio do relatório e vídeo" },
-  { fase: 4 as FaseAtual, label: "Avaliação", data: "15/07 – 20/07", descricao: "Banca examinadora" },
+  { fase: 1 as FaseAtual, label: "Inscrição", descricao: "Cadastro do projeto e da equipe" },
+  { fase: 2 as FaseAtual, label: "Submissão", descricao: "Envio do relatório e vídeo" },
+  { fase: 3 as FaseAtual, label: "Avaliação", descricao: "Banca examinadora" },
 ];
 const STATUS_TOOLTIP: Record<StatusProjeto, string> = {
   "Rascunho": "Projeto salvo, mas ainda não enviado para análise.",
@@ -242,40 +245,50 @@ function formatarPeriodoEvento(periodo?: PeriodoEventoApi | null) {
 }
 
 function getFaseAtualEvento(evento?: EventoApi | null): FaseAtual {
-  if (!evento) return FASE_PADRAO;
+  if (!evento) return 1;
 
   const hoje = new Date();
   const fases = [
     { fase: 1 as FaseAtual, periodo: evento.inscricao },
-    { fase: 2 as FaseAtual, periodo: evento.aceitacao },
-    { fase: 3 as FaseAtual, periodo: evento.submissao },
-    { fase: 4 as FaseAtual, periodo: evento.avaliacao },
+    { fase: 2 as FaseAtual, periodo: evento.submissao },
+    { fase: 3 as FaseAtual, periodo: evento.avaliacao },
   ];
 
-  const faseEmAndamento = fases.find(({ periodo }) => {
+  // ✅ Pega TODAS as fases em andamento e retorna a de maior número
+  const fasesEmAndamento = fases.filter(({ periodo }) => {
     const inicio = parseEventoDate(periodo?.inicio);
     const fim = parseEventoDate(periodo?.fim, true);
     return inicio && fim && hoje >= inicio && hoje <= fim;
   });
 
-  if (faseEmAndamento) return faseEmAndamento.fase;
+  if (fasesEmAndamento.length > 0) {
+    return fasesEmAndamento[fasesEmAndamento.length - 1].fase;
+  }
 
+  // Se nenhuma está em andamento, pega a última encerrada
   const ultimaEncerrada = [...fases].reverse().find(({ periodo }) => {
     const fim = parseEventoDate(periodo?.fim, true);
     return fim && hoje > fim;
   });
 
-  return ultimaEncerrada?.fase ?? FASE_PADRAO;
+  return ultimaEncerrada?.fase ?? 1;
 }
 
-function buildFasesFeira(evento?: EventoApi | null): typeof FASES_FEIRA {
-  if (!evento) return FASES_FEIRA;
+function buildFasesFeira(evento?: EventoApi | null) {
+  const hoje = new Date();
+
+  function getStatus(periodo?: PeriodoEventoApi | null): string {
+    const inicio = parseEventoDate(periodo?.inicio);
+    if (!inicio) return "Não definido";
+    const hoje = new Date();
+    if (hoje >= inicio) return "Liberado";
+    return "Não liberado";
+  }
 
   return [
-    { fase: 1 as FaseAtual, label: "Inscrição", data: formatarPeriodoEvento(evento.inscricao), descricao: "Cadastro do projeto e da equipe" },
-    { fase: 2 as FaseAtual, label: "Desenvolvimento", data: formatarPeriodoEvento(evento.aceitacao), descricao: "Desenvolvimento e orientação" },
-    { fase: 3 as FaseAtual, label: "Submissão", data: formatarPeriodoEvento(evento.submissao), descricao: "Envio do relatório e vídeo" },
-    { fase: 4 as FaseAtual, label: "Avaliação", data: formatarPeriodoEvento(evento.avaliacao), descricao: "Banca examinadora" },
+    { fase: 1 as FaseAtual, label: "Inscrição", data: getStatus(evento?.inscricao), descricao: "Cadastro do projeto e da equipe" },
+    { fase: 2 as FaseAtual, label: "Submissão", data: getStatus(evento?.submissao), descricao: "Envio do relatório e vídeo" },
+    { fase: 3 as FaseAtual, label: "Avaliação", data: getStatus(evento?.avaliacao), descricao: "Banca examinadora" },
   ];
 }
 
@@ -337,7 +350,10 @@ function Tooltip({ children, text }: { children: React.ReactNode; text: string }
   );
 }
 
-function FeiraTimeline({ faseAtual, fases }: { faseAtual: FaseAtual; fases: typeof FASES_FEIRA }) {
+function FeiraTimeline({ faseAtual, fases }: {
+  faseAtual: FaseAtual;
+  fases: ReturnType<typeof buildFasesFeira>
+}) {
   return (
     <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
       <div className="flex items-center gap-2 mb-5">
@@ -351,19 +367,35 @@ function FeiraTimeline({ faseAtual, fases }: { faseAtual: FaseAtual; fases: type
             const done = fase < faseAtual;
             const active = fase === faseAtual;
             const pending = fase > faseAtual;
+            const liberado = data === "Liberado";
             return (
               <div key={fase} className="flex gap-4 relative">
                 <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 z-10 text-xs font-bold border-2
-                    ${done ? "bg-sectec-600 border-sectec-600 text-white" : active ? "bg-white border-sectec-600 text-sectec-700" : "bg-white border-slate-200 text-slate-400"}`}>
+                  ${done ? "bg-sectec-600 border-sectec-600 text-white"
+                    : active ? "bg-white border-sectec-600 text-sectec-700"
+                      : "bg-white border-slate-200 text-slate-400"}`}>
                   {done ? "✓" : fase}
                 </div>
                 <div className="min-w-0 pb-1">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <p className={`break-words text-sm font-semibold ${active ? "text-sectec-700" : pending ? "text-slate-400" : "text-slate-700"}`}>{label}</p>
-                    {active && <span className="text-[10px] font-semibold bg-sectec-100 text-sectec-700 px-2 py-0.5 rounded-full">Atual</span>}
+                    <p className={`break-words text-sm font-semibold ${active ? "text-sectec-700" : pending ? "text-slate-400" : "text-slate-700"}`}>
+                      {label}
+                    </p>
+                    {active && (
+                      <span className="text-[10px] font-semibold bg-sectec-100 text-sectec-700 px-2 py-0.5 rounded-full">
+                        Atual
+                      </span>
+                    )}
                   </div>
-                  <p className={`mt-0.5 break-words text-xs ${pending ? "text-slate-300" : "text-slate-400"}`}>{data}</p>
-                  <p className={`mt-0.5 break-words text-xs ${pending ? "text-slate-300" : "text-slate-500"}`}>{descricao}</p>
+                  <p className={`mt-0.5 break-words text-xs font-medium ${data === "Liberado" ? "text-sectec-600"
+                      : data === "Não liberado" ? "text-red-400"
+                        : "text-slate-400"
+                    }`}>
+                    {data}
+                  </p>
+                  <p className={`mt-0.5 break-words text-xs ${pending ? "text-slate-300" : "text-slate-500"}`}>
+                    {descricao}
+                  </p>
                 </div>
               </div>
             );
@@ -456,7 +488,6 @@ function Dashboard() {
             )
           );
         }
-
         if (meuProjeto) {
           console.log('📦 Projeto retornado da API:', meuProjeto);
           console.log('📝 Tema do projeto:', meuProjeto.tema);
@@ -465,6 +496,9 @@ function Dashboard() {
           console.log('👤 alunoAutor:', meuProjeto.alunoAutor);
           console.log('🎓 orientadores:', meuProjeto.orientadores);
           console.log('🎓 Orientadores raw:', meuProjeto.orientadores);
+          console.log('🗂️ meuProjeto:', meuProjeto);
+          console.log('📅 faseAtual:', getFaseAtualEvento(eventoAtualApi));
+          console.log('🗓️ eventoAtualApi:', JSON.stringify(eventoAtualApi, null, 2));
 
           const projetoMapeado = mapProjetoApiToProjeto(meuProjeto, temas);
           setProjeto(projetoMapeado);
@@ -532,7 +566,7 @@ function Dashboard() {
   const faseAtual = getFaseAtualEvento(eventoAtual);
   const fasesFeira = buildFasesFeira(eventoAtual);
   const projetoAceito = projeto?.status === "Aceito" || projeto?.status === "Em Desenvolvimento";
-  const submissaoDesbloqueada = projetoAceito && faseAtual === 3 && projeto?.status !== "Submetido";
+  const submissaoDesbloqueada = projetoAceito && faseAtual === 2 && projeto?.status !== "Submetido";
   const youtubeValido =
     linkYoutube === "" ||
     /^(https?:\/\/)?(www\.|m\.)?(youtube\.com\/(watch\?(.+&)?v=|shorts\/|embed\/)|youtu\.be\/)[\w-]{11}([?&].*)?$/i.test(linkYoutube.trim());
@@ -984,7 +1018,7 @@ function Dashboard() {
                         ) : (
                           <p className="text-xs text-slate-400">Nenhum orientador aceitou ainda.</p>
                         )}
-                        {faseAtual === 3 && projetoAceito && (
+                        {faseAtual === 2 && projetoAceito && (
                           <button onClick={() => setAba("submissao")}
                             className="mt-4 w-full flex items-center justify-center gap-1.5 py-2 text-xs font-semibold text-sectec-700 bg-sectec-50 rounded-lg hover:bg-sectec-100 transition-colors">
                             Ir para Submissão <ChevronRight size={13} />
@@ -1003,16 +1037,16 @@ function Dashboard() {
                         <h2 className="text-sm sm:text-base font-semibold text-slate-900 mb-1">Submissão do Projeto</h2>
                         <p className="text-xs sm:text-sm text-slate-500 mb-5">Envie o relatório final, o banner em PDF e o link do vídeo no YouTube.</p>
 
-                        {faseAtual !== 3 && (
+                        {faseAtual !== 2 && (
                           <div className="flex gap-3 bg-slate-50 border border-slate-200 rounded-xl p-4 mb-5">
                             <Lock size={15} className="text-slate-400 mt-0.5 shrink-0" />
                             <p className="text-xs sm:text-sm text-slate-500">
-                              Disponível apenas na <strong>Fase 3 — Submissão</strong>. Fase atual: {faseAtual}.
+                              Disponível apenas na <strong>Fase 2 — Submissão</strong>. Fase atual: {faseAtual}.
                             </p>
                           </div>
                         )}
 
-                        {faseAtual === 3 && !projetoAceito && (
+                        {faseAtual === 2 && !projetoAceito && (
                           <div className="flex gap-3 bg-yellow-50 border border-yellow-200 rounded-xl p-4 mb-5">
                             <TriangleAlert size={15} className="text-yellow-500 mt-0.5 shrink-0" />
                             <p className="text-xs sm:text-sm text-yellow-700">
@@ -1166,7 +1200,7 @@ function Dashboard() {
                         <div className="space-y-3">
                           {materiais.map((m) => (
                             <div key={m.id} className={`rounded-xl border p-4 ${m.status === 'aprovado' ? 'border-green-200 bg-green-50'
-                              : m.status === 'recusado' ? 'border-red-200 bg-red-50'
+                              : m.status === 'recusado' ? 'border-orange-200 bg-orange-50'
                                 : 'border-slate-200 bg-slate-50'
                               }`}>
                               <div className="flex items-start justify-between gap-3 mb-2">
@@ -1180,11 +1214,11 @@ function Dashboard() {
                                   </span>
                                 </div>
                                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${m.status === 'aprovado' ? 'bg-green-100 text-green-700'
-                                  : m.status === 'recusado' ? 'bg-red-100 text-red-700'
+                                  : m.status === 'recusado' ? 'bg-orange-100 text-orange-700'
                                     : 'bg-yellow-100 text-yellow-700'
                                   }`}>
                                   {m.status === 'aprovado' ? '✓ Aprovado'
-                                    : m.status === 'recusado' ? '✗ Recusado'
+                                    : m.status === 'recusado' ? '↩ Retornado'
                                       : '⏳ Em análise'}
                                 </span>
                               </div>
@@ -1210,7 +1244,7 @@ function Dashboard() {
                                   : 'bg-red-100 text-red-800'
                                   }`}>
                                   <span className="font-semibold">
-                                    {m.status === 'aprovado' ? '💬 Comentário do orientador:' : '❌ Motivo da recusa:'}
+                                    {m.status === 'aprovado' ? '💬 Comentário do orientador:' : '↩ Motivo do retorno:'}
                                   </span>
                                   <p className="mt-1">{m.opiniao}</p>
                                 </div>
@@ -1267,8 +1301,8 @@ function Dashboard() {
                 const etapaReal = reenviandoOrientadores
                   ? 2
                   : editandoProjeto
-                  ? (i === 0 ? 1 : 3)
-                  : stepVisual;
+                    ? (i === 0 ? 1 : 3)
+                    : stepVisual;
                 const done = !reenviandoOrientadores && (etapa > etapaReal || (editandoProjeto && i === 0 && etapa === 3));
                 const active = etapa === etapaReal;
 

@@ -1,5 +1,4 @@
-const LOCAL_API_BASE = "https://sectec-ja.up.railway.app/api";
-
+const LOCAL_API_BASE = "http://localhost:3000";
 function normalizeApiBaseUrl(rawUrl?: string) {
   const configuredUrl = rawUrl?.trim();
 

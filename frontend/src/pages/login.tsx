@@ -16,10 +16,10 @@ function Login() {
   const [showPassword, setShowPassword] = useState(false);
 
   async function handleForgotPassword() {
-  const { value: emailValue } = await Swal.fire({
-    title: "Recuperar senha",
-    html: `
-      <div class="sectec-forgot-content">
+    const { value: emailValue } = await Swal.fire({
+      title: "Recuperar senha",
+      html: `
+        <div class="sectec-forgot-content">
           <div class="sectec-forgot-icon" aria-hidden="true">
             <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
               <path d="M4.5 7.5A2.5 2.5 0 0 1 7 5h10a2.5 2.5 0 0 1 2.5 2.5v6A2.5 2.5 0 0 1 17 16H7a2.5 2.5 0 0 1-2.5-2.5v-6Z" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/>
@@ -27,66 +27,119 @@ function Login() {
               <path d="m14.8 18.1 1.55 1.55 3.15-3.3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
           </div>
-        <p class="sectec-forgot-copy">
-          Informe seu e-mail institucional para receber as instruções de redefinição.
-        </p>
-      </div>
-    `,
-    input: "email",
-    inputPlaceholder: "seu@aluno.ce.gov.br",
-    showCancelButton: true,
-    confirmButtonText: "Enviar instruções",
-    cancelButtonText: "Cancelar",
-    confirmButtonColor: "#15803d",
-    cancelButtonColor: "#64748b",
-    background: "#ffffff",
-    color: "#0f172a",
-    width: 480,
-    padding: "2rem",
-    buttonsStyling: false,
-    customClass: {
-      popup: "sectec-modal sectec-forgot-modal",
-      title: "sectec-modal-title sectec-forgot-title",
-      htmlContainer: "sectec-forgot-html",
-      input: "sectec-modal-input sectec-forgot-input",
-      actions: "sectec-forgot-actions",
-      confirmButton: "sectec-modal-confirm sectec-forgot-confirm",
-      cancelButton: "sectec-modal-cancel sectec-forgot-cancel",
-    },
-    inputValidator: (value) => {
-      if (!value) return "Digite seu e-mail institucional.";
-      return null;
-    },
-  });
-
-  if (!emailValue) return;
-
-  try {
-    await apiRequest("/auth/forgot-password", {
-      method: "POST",
-      auth: false,
-      body: {
-        email: emailValue,
+          <p class="sectec-forgot-copy">
+            Informe seu e-mail institucional para receber as instruções de redefinição.
+          </p>
+        </div>
+      `,
+      input: "email",
+      inputPlaceholder: "seu@aluno.ce.gov.br",
+      showCancelButton: true,
+      confirmButtonText: "Enviar instruções",
+      cancelButtonText: "Cancelar",
+      confirmButtonColor: "#15803d",
+      cancelButtonColor: "#64748b",
+      background: "#ffffff",
+      color: "#0f172a",
+      width: 480,
+      padding: "2rem",
+      buttonsStyling: false,
+      customClass: {
+        popup: "sectec-modal sectec-forgot-modal",
+        title: "sectec-modal-title sectec-forgot-title",
+        htmlContainer: "sectec-forgot-html",
+        input: "sectec-modal-input sectec-forgot-input",
+        actions: "sectec-forgot-actions",
+        confirmButton: "sectec-modal-confirm sectec-forgot-confirm",
+        cancelButton: "sectec-modal-cancel sectec-forgot-cancel",
+      },
+      inputValidator: (value) => {
+        if (!value) return "Digite seu e-mail institucional.";
+        return null;
       },
     });
 
+    if (!emailValue) return;
+
+    // ── Loading enquanto envia ──
     Swal.fire({
-      icon: "success",
-      title: "Instruções enviadas",
-      text: "Verifique seu email para redefinir sua senha.",
-      confirmButtonColor: "#15803d",
+      title: "Enviando...",
+      html: "Aguarde enquanto enviamos as instruções para o seu e-mail.",
+      allowOutsideClick: false,
+      allowEscapeKey: false,
+      showConfirmButton: false,
+      background: "#ffffff",
+      color: "#0f172a",
+      width: 430,
+      didOpen: () => Swal.showLoading(),
     });
-  } catch (error) {
-    Swal.fire({
-      icon: "error",
-      title: "Erro",
-      text:
-        error instanceof Error
-          ? error.message
-          : "Não foi possível enviar o email.",
-    });
+
+    try {
+      await apiRequest("/auth/forgot-password", {
+        method: "POST",
+        auth: false,
+        body: { email: emailValue },
+      });
+
+      // ── Sucesso ──
+      Swal.fire({
+        title: "Instruções enviadas",
+        html: `
+          <div style="display:flex; flex-direction:column; align-items:center; gap:10px;">
+            <div style="width:64px;height:64px;border-radius:20px;background:#f0fdf4;border:1px solid #dcfce7;display:flex;align-items:center;justify-content:center;margin-bottom:6px;">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+                <path d="M20 6L9 17L4 12" stroke="#15803d" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <p style="margin:0;color:#64748b;font-size:15px;line-height:1.5;">
+              Verifique sua caixa de entrada para redefinir sua senha.
+            </p>
+          </div>
+        `,
+        confirmButtonText: "Entendi",
+        confirmButtonColor: "#15803d",
+        background: "#ffffff",
+        color: "#0f172a",
+        width: 430,
+        padding: "2rem",
+        customClass: {
+          popup: "sectec-modal",
+          title: "sectec-modal-title",
+          confirmButton: "sectec-modal-confirm",
+        },
+      });
+    } catch (error) {
+      // ── Erro ──
+      Swal.fire({
+        title: "Erro ao enviar",
+        html: `
+          <div style="display:flex; flex-direction:column; align-items:center; gap:10px;">
+            <div style="width:64px;height:64px;border-radius:20px;background:#fef2f2;border:1px solid #fecaca;display:flex;align-items:center;justify-content:center;margin-bottom:6px;">
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
+                <path d="M12 8V12" stroke="#dc2626" stroke-width="2" stroke-linecap="round"/>
+                <circle cx="12" cy="16" r="1" fill="#dc2626"/>
+                <path d="M10.29 3.86L1.82 18A2 2 0 003.53 21H20.47A2 2 0 0022.18 18L13.71 3.86A2 2 0 0010.29 3.86Z" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <p style="margin:0;color:#64748b;font-size:15px;line-height:1.5;">
+              ${error instanceof Error ? error.message : "Não foi possível enviar o e-mail. Tente novamente."}
+            </p>
+          </div>
+        `,
+        confirmButtonText: "Tentar novamente",
+        confirmButtonColor: "#15803d",
+        background: "#ffffff",
+        color: "#0f172a",
+        width: 460,
+        padding: "2.2rem",
+        customClass: {
+          popup: "sectec-modal",
+          title: "sectec-modal-title",
+          confirmButton: "sectec-modal-confirm",
+        },
+      });
+    }
   }
-}
 
   async function handleLogin(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -105,18 +158,14 @@ function Login() {
         html: `
           <div style="display:flex; flex-direction:column; align-items:center; gap:10px;">
             <div style="width:64px;height:64px;border-radius:20px;background:#fef2f2;border:1px solid #fecaca;display:flex;align-items:center;justify-content:center;margin-bottom:6px;">
-              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
                 <path d="M12 8V12" stroke="#dc2626" stroke-width="2" stroke-linecap="round"/>
                 <circle cx="12" cy="16" r="1" fill="#dc2626"/>
                 <path d="M10.29 3.86L1.82 18A2 2 0 003.53 21H20.47A2 2 0 0022.18 18L13.71 3.86A2 2 0 0010.29 3.86Z" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </div>
             <p style="margin:0;color:#64748b;font-size:15px;line-height:1.5;">
-              ${
-                error instanceof Error
-                  ? error.message
-                  : "Verifique seu e-mail e senha e tente novamente."
-              }
+              ${error instanceof Error ? error.message : "Verifique seu e-mail e senha e tente novamente."}
             </p>
           </div>
         `,
@@ -143,7 +192,7 @@ function Login() {
       html: `
         <div style="display:flex; flex-direction:column; align-items:center; gap:10px;">
           <div style="width:64px;height:64px;border-radius:20px;background:#f0fdf4;border:1px solid #dcfce7;display:flex;align-items:center;justify-content:center;margin-bottom:6px;">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
               <path d="M20 6L9 17L4 12" stroke="#15803d" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
           </div>

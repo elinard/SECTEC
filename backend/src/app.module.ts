@@ -3,7 +3,6 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
 
 import { AppController } from './app.controller';
@@ -34,12 +33,7 @@ import { RelatorioModule } from './relatorio/relatorio.module';
     }),
     ScheduleModule.forRoot(),
 
-    // ── CONFIGURAÇÃO PARA SERVIR O REACT ──
-    ServeStaticModule.forRoot({
-      rootPath: '/app/frontend/dist',
-      exclude: ['/api'],
-    }),
-
+  
     CommonModule,
     UsersModule,
     AuthModule,

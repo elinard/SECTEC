@@ -463,32 +463,26 @@ export class ProjetosService {
    * Localiza o evento ativo do ano corrente filtrando pela data de início das inscrições.
    */
   private async buscarUltimoEvento(): Promise<Evento> {
-    const anoAtual = new Date().getFullYear();
-    const inicioAno = `${anoAtual}-01-01`;
-    const fimAno = `${anoAtual}-12-31`;
+  const anoAtual = new Date().getFullYear();
+  const inicioAno = new Date(`${anoAtual}-01-01T00:00:00`);
+  const fimAno = new Date(`${anoAtual}-12-31T23:59:59`);
 
-    const evento = await this.eventoRepository.findOne({
-      where: {
-        inscricao: {
-          inicio: Between(inicioAno as any, fimAno as any),
-        },
-        status: EventoStatus.ATIVO
-      },
-      order: {
-        criadoEm: 'DESC',
-      },
-      relations: ['temas'],
-    });
+  const evento = await this.eventoRepository
+    .createQueryBuilder('evento')
+    .leftJoinAndSelect('evento.temas', 'temas')
+    .where('evento.status = :status', { status: EventoStatus.ATIVO })
+    .andWhere('evento.prazo_inicial BETWEEN :inicioAno AND :fimAno', { inicioAno, fimAno })
+    .orderBy('evento.criado_em', 'DESC')
+    .getOne();
 
-    if (!evento) {
-      throw new NotFoundException(
-        `Nenhum evento ativo com periodo de inscricao iniciado foi encontrado para o ano de ${anoAtual}.`
-      );
-    }
-
-    return evento;
+  if (!evento) {
+    throw new NotFoundException(
+      `Nenhum evento ativo encontrado para o ano de ${anoAtual}.`
+    );
   }
 
+  return evento;
+}
   /**
    * Garante que o tamanho da equipe segue as diretrizes acadêmicas (entre 3 e 7 integrantes).
    */
