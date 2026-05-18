@@ -1,12 +1,20 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+// 🚀 CORREÇÃO: Importando o UsersSeed e o UsersModule no topo do arquivo
+import { UsersSeed } from './users/users.seed'; 
+import { UsersModule } from './users/users.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   
   // 1. Defina um prefixo global para todas as rotas da API (ex: /api)
   app.setGlobalPrefix('api'); 
+  
+  // 🚀 SEGURANÇA NA INJEÇÃO: Seleciona o UsersModule antes de dar o .get()
+  const seedService = app.select(UsersModule).get(UsersSeed);
+  await seedService.run();
+  
   app.enableCors();
 
   // 2. CONFIGURAÇÃO DO SWAGGER
@@ -15,7 +23,7 @@ async function bootstrap() {
     .setDescription('Sistema de Gerenciamento de Projetos - SECTEC')
     .setVersion('1.0')
     .addTag('projetos')
-     .addBearerAuth( // <-- ADICIONE ISSO AQUI
+    .addBearerAuth( 
       {
         type: 'http',
         scheme: 'bearer',
@@ -24,21 +32,17 @@ async function bootstrap() {
         description: 'Insira o seu token JWT aqui',
         in: 'header',
       },
-      'token-jwt', // Nome interno da segurança (usaremos nas rotas)
+      'token-jwt', 
     )
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
   
   // 3. Mude o endpoint do Swagger para /docs ou algo diferente de /api
-  // Se o Swagger ficar em /api, ele "atropela" as rotas reais da sua API
   SwaggerModule.setup('docs', app, document); 
 
   await app.listen(process.env.PORT ?? 3000);
   
-  // Agora você terá:
-  // API em: http://localhost:3000/api/...
-  // Swagger em: http://localhost:3000/docs
   console.log(`🚀 API rodando em: http://localhost:3000/api`);
   console.log(`📑 Swagger rodando em: http://localhost:3000/docs`);
 }
