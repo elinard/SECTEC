@@ -3,6 +3,8 @@ import { AnimatePresence, motion } from "motion/react";
 import {
   Check,
   CheckCircle2,
+  ChevronDown,
+  Download,
   Clock3,
   FileText,
   FolderOpen,
@@ -20,7 +22,7 @@ import {
   EIXOS_LIST,
   type EixoTematico,
 } from "../componentes/EixoDropdown";
-import { apiRequest } from "../lib/api";
+import { API_BASE_URL, apiRequest } from "../lib/api";
 
 type EixoProjeto = Exclude<EixoTematico, "todos">;
 type Risco = "alto" | "medio" | "baixo";
@@ -49,6 +51,8 @@ type Entrega = RegistroComEixo & {
   id: string;
   projetoId?: number;
   materialId?: number;
+  tipo: MaterialApi["tipo"] | "pdf_avulso";
+  conteudo?: string;
   arquivo: string;
   equipe: string;
   turma: string;
@@ -111,6 +115,7 @@ type MaterialApi = {
   conteudo: string;
   opiniao?: string;
   criadoEm?: string;
+  projeto?: ProjetoApi;
 };
 
 type ProjetoComMateriaisApi = ProjetoApi & {
@@ -322,6 +327,8 @@ function mapMaterialToEntrega(material: MaterialApi, orientacao: OrientacaoApi):
     id: `material-${material.id}`,
     projetoId: projeto?.id,
     materialId: material.id,
+    tipo: material.tipo,
+    conteudo: material.conteudo,
     arquivo: materialArquivo(material),
     equipe: projeto?.titulo ?? "Projeto sem título",
     turma: turmaFromProjeto(projeto),
@@ -343,6 +350,7 @@ function mapPdfToEntrega(pdf: PdfApi, orientacao: OrientacaoApi): Entrega {
     id: `pdf-${pdf.fileId}`,
     projetoId: projeto?.id,
     materialId: pdf.materialId,
+    tipo: "pdf_avulso",
     arquivo: pdf.originalName ?? `PDF #${pdf.fileId}`,
     equipe: projeto?.titulo ?? "Projeto sem título",
     turma: turmaFromProjeto(projeto),
@@ -358,6 +366,13 @@ function mapPdfToEntrega(pdf: PdfApi, orientacao: OrientacaoApi): Entrega {
 function mapProjetoPendenteToEntregas(projeto: ProjetoComMateriaisApi): Entrega[] {
   const orientacao = mapProjetoToOrientacao(projeto);
   return (projeto.materiais ?? []).map((material) => mapMaterialToEntrega(material, orientacao));
+}
+
+function mapMaterialOrientadoToEntrega(material: MaterialApi): Entrega {
+  return mapMaterialToEntrega(material, mapProjetoToOrientacao(material.projeto ?? {
+    id: 0,
+    titulo: "Projeto não informado",
+  }));
 }
 
 function useOrientadorBackendData() {
@@ -542,6 +557,18 @@ function useEntregasBackendData(orientacoes: OrientacaoApi[], orientacoesCarrega
       setCarregando(true);
 
       try {
+        const materiaisOrientados = await apiRequest<MaterialApi[]>("/materiais/projetos-orientados");
+        if (!active) return;
+
+        setEntregas(materiaisOrientados.map(mapMaterialOrientadoToEntrega));
+        setErro("");
+        setCarregando(false);
+        return;
+      } catch {
+        // Fallback para backends antigos que ainda não possuem a rota com todos os materiais.
+      }
+
+      try {
         const projetosPendentes = await apiRequest<ProjetoComMateriaisApi[]>("/materiais/pendentes-orientador");
         if (!active) return;
 
@@ -550,7 +577,7 @@ function useEntregasBackendData(orientacoes: OrientacaoApi[], orientacoesCarrega
         setCarregando(false);
         return;
       } catch {
-        // Fallback para backends antigos que ainda não possuem a rota dedicada.
+        // Fallback final para rotas antigas por projeto.
       }
 
       const orientacoesAceitas = orientacoes.filter((orientacao) => orientacao.status === "aceito" && orientacao.projeto?.id);
@@ -1570,6 +1597,7 @@ export function EntregasOrientador() {
   const backend = useOrientadorBackendData();
   const entregasBackend = useEntregasBackendData(backend.orientacoes, backend.carregando);
   const [filtro, setFiltro] = useState<"todas" | StatusEntrega>("todas");
+  const [gruposAbertos, setGruposAbertos] = useState<string[]>([]);
   const [, setAviso] = useState("");
   const entregasData = entregasBackend.entregas;
 
@@ -1577,6 +1605,46 @@ export function EntregasOrientador() {
     if (filtro === "todas") return entregasData;
     return entregasData.filter((entrega) => entrega.status === filtro);
   }, [entregasData, filtro]);
+  const gruposEntrega = useMemo(() => {
+    const mapa = new Map<string, { id: string; equipe: string; turma: string; aluno: string; entregas: Entrega[] }>();
+
+    entregasFiltradas.forEach((entrega) => {
+      const id = entrega.projetoId ? `projeto-${entrega.projetoId}` : `sem-projeto-${entrega.equipe}`;
+      const grupo = mapa.get(id) ?? {
+        id,
+        equipe: entrega.equipe,
+        turma: entrega.turma,
+        aluno: entrega.aluno,
+        entregas: [],
+      };
+
+      grupo.entregas.push(entrega);
+      mapa.set(id, grupo);
+    });
+
+    return Array.from(mapa.values());
+  }, [entregasFiltradas]);
+
+  function toggleGrupo(grupoId: string) {
+    setGruposAbertos((atuais) =>
+      atuais.includes(grupoId) ? atuais.filter((id) => id !== grupoId) : [...atuais, grupoId]
+    );
+  }
+
+  function abrirArquivo(entrega: Entrega) {
+    if (entrega.tipo === "link" && entrega.conteudo) {
+      window.open(entrega.conteudo, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    if (!entrega.projetoId || !entrega.materialId) return;
+    window.open(`${API_BASE_URL}/files/download/projeto/${entrega.projetoId}/material/${entrega.materialId}`, "_blank", "noopener,noreferrer");
+  }
+
+  function podeAbrirArquivo(entrega: Entrega) {
+    if (entrega.tipo === "link") return Boolean(entrega.conteudo);
+    return Boolean(entrega.projetoId && entrega.materialId);
+  }
 
   async function revisarEntrega(id: string, status: "aprovado" | "recusado" = "aprovado") {
     const entrega = entregasData.find((item) => item.id === id);
@@ -1654,125 +1722,107 @@ export function EntregasOrientador() {
           </div>
         </div>
 
-        {entregasFiltradas.length === 0 ? (
+        {gruposEntrega.length === 0 ? (
           <EmptyState text="Nenhuma entrega encontrada neste filtro." />
         ) : (
-          <>
-            <div className="space-y-3 md:hidden">
-              <AnimatePresence mode="popLayout">
-                {entregasFiltradas.map((entrega) => (
+          <div className="space-y-3">
+            <AnimatePresence mode="popLayout">
+              {gruposEntrega.map((grupo) => {
+                const aberto = gruposAbertos.includes(grupo.id);
+                const pendentes = grupo.entregas.filter((entrega) => entrega.status === "pendente").length;
+
+                return (
                   <motion.div
-                    key={entrega.id}
+                    key={grupo.id}
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -8 }}
-                    className="rounded-lg border border-slate-200 p-4"
+                    className="rounded-lg border border-slate-200"
                   >
-                    <div className="flex items-start justify-between gap-3">
+                    <button
+                      type="button"
+                      onClick={() => toggleGrupo(grupo.id)}
+                      className="flex w-full flex-col gap-3 p-4 text-left sm:flex-row sm:items-center sm:justify-between"
+                    >
                       <div className="min-w-0">
-                        <div className="flex items-start gap-2">
-                          <FileText size={16} className="mt-0.5 shrink-0 text-slate-400" />
-                          <p className="break-all font-semibold text-slate-900">{entrega.arquivo}</p>
+                        <div className="flex items-center gap-2">
+                          <ChevronDown
+                            size={17}
+                            className={cx("shrink-0 text-slate-400 transition", aberto && "rotate-180")}
+                          />
+                          <h3 className="break-words font-bold text-slate-900">{grupo.equipe}</h3>
                         </div>
-                        <p className="mt-2 break-words text-sm font-medium text-slate-500">{entrega.equipe}</p>
+                        <p className="mt-1 break-words text-sm font-medium text-slate-500">
+                          {grupo.aluno} · {grupo.turma}
+                        </p>
                       </div>
-                      <Badge tone={entregaTone(entrega.status)}>{entrega.status}</Badge>
-                    </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge tone="blue">{grupo.entregas.length} arquivo(s)</Badge>
+                        {pendentes > 0 ? <Badge tone="yellow">{pendentes} pendente(s)</Badge> : null}
+                      </div>
+                    </button>
 
-                    <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <DetailLine label="Aluno" value={entrega.aluno} />
-                      <DetailLine label="Etapa" value={entrega.etapa} />
-                      <DetailLine label="Turma" value={entrega.turma} />
-                      <DetailLine label="Data" value={entrega.data} />
-                    </div>
+                    <AnimatePresence initial={false}>
+                      {aberto ? (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          className="overflow-hidden border-t border-slate-100"
+                        >
+                          <div className="space-y-3 p-4">
+                            {grupo.entregas.map((entrega) => (
+                              <div key={entrega.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                  <div className="min-w-0">
+                                    <div className="flex items-start gap-2">
+                                      <FileText size={16} className="mt-0.5 shrink-0 text-slate-400" />
+                                      <p className="break-all font-semibold text-slate-900">{entrega.arquivo}</p>
+                                    </div>
+                                    <p className="mt-2 text-sm font-medium text-slate-500">
+                                      {entrega.etapa} · enviado em {entrega.data}
+                                    </p>
+                                  </div>
+                                  <Badge tone={entregaTone(entrega.status)}>{entrega.status}</Badge>
+                                </div>
 
-                    <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                      <Button
-                        variant="secondary"
-                        disabled={entrega.status !== "pendente"}
-                        onClick={() => revisarEntrega(entrega.id, "aprovado")}
-                      >
-                        <Check size={15} />
-                        Aprovar
-                      </Button>
-                      <Button
-                        variant="danger"
-                        disabled={entrega.status !== "pendente"}
-                        onClick={() => revisarEntrega(entrega.id, "recusado")}
-                      >
-                        <X size={15} />
-                        Reprovar
-                      </Button>
-                    </div>
+                                <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                                  <Button
+                                    variant="secondary"
+                                    disabled={!podeAbrirArquivo(entrega)}
+                                    onClick={() => abrirArquivo(entrega)}
+                                  >
+                                    <Download size={15} />
+                                    {entrega.tipo === "link" ? "Abrir link" : "Baixar"}
+                                  </Button>
+                                  <Button
+                                    variant="secondary"
+                                    disabled={entrega.status !== "pendente"}
+                                    onClick={() => revisarEntrega(entrega.id, "aprovado")}
+                                  >
+                                    <Check size={15} />
+                                    Aprovar
+                                  </Button>
+                                  <Button
+                                    variant="danger"
+                                    disabled={entrega.status !== "pendente"}
+                                    onClick={() => revisarEntrega(entrega.id, "recusado")}
+                                  >
+                                    <X size={15} />
+                                    Reprovar
+                                  </Button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </motion.div>
+                      ) : null}
+                    </AnimatePresence>
                   </motion.div>
-                ))}
-              </AnimatePresence>
-            </div>
-
-            <div className="hidden overflow-x-auto md:block">
-              <table className="w-full min-w-[920px] border-separate border-spacing-0 text-left">
-                <thead>
-                  <tr className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">
-                    <th className="border-b border-slate-200 py-3">Arquivo</th>
-                    <th className="border-b border-slate-200 py-3">Equipe</th>
-                    <th className="border-b border-slate-200 py-3">Aluno</th>
-                    <th className="border-b border-slate-200 py-3">Etapa</th>
-                    <th className="border-b border-slate-200 py-3">Data</th>
-                    <th className="border-b border-slate-200 py-3">Status</th>
-                    <th className="border-b border-slate-200 py-3 text-right">Ação</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  <AnimatePresence mode="popLayout">
-                    {entregasFiltradas.map((entrega) => (
-                      <motion.tr
-                        key={entrega.id}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="text-sm"
-                      >
-                        <td className="border-b border-slate-100 py-4 font-semibold text-slate-900">
-                          <div className="flex items-center gap-2">
-                            <FileText size={16} className="text-slate-400" />
-                            {entrega.arquivo}
-                          </div>
-                        </td>
-                        <td className="border-b border-slate-100 py-4 text-slate-600">{entrega.equipe}</td>
-                        <td className="border-b border-slate-100 py-4 text-slate-600">{entrega.aluno}</td>
-                        <td className="border-b border-slate-100 py-4 text-slate-600">{entrega.etapa}</td>
-                        <td className="border-b border-slate-100 py-4 text-slate-500">{entrega.data}</td>
-                        <td className="border-b border-slate-100 py-4">
-                          <Badge tone={entregaTone(entrega.status)}>{entrega.status}</Badge>
-                        </td>
-                        <td className="border-b border-slate-100 py-4 text-right">
-                          <div className="flex justify-end gap-2">
-                            <Button
-                              variant="secondary"
-                              disabled={entrega.status !== "pendente"}
-                              onClick={() => revisarEntrega(entrega.id, "aprovado")}
-                            >
-                              <Check size={15} />
-                              Aprovar
-                            </Button>
-                            <Button
-                              variant="danger"
-                              disabled={entrega.status !== "pendente"}
-                              onClick={() => revisarEntrega(entrega.id, "recusado")}
-                            >
-                              <X size={15} />
-                              Reprovar
-                            </Button>
-                          </div>
-                        </td>
-                      </motion.tr>
-                    ))}
-                  </AnimatePresence>
-                </tbody>
-              </table>
-            </div>
-          </>
+                );
+              })}
+            </AnimatePresence>
+          </div>
         )}
       </Card>
     </PageShell>
