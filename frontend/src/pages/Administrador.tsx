@@ -20,6 +20,7 @@ import {
 } from "react-icons/pi";
 import {
   AlertTriangle,
+  ArrowLeft,
   ArrowRight,
   CalendarRange,
   ClipboardCheck,
@@ -375,7 +376,17 @@ function PainelDetalhes({ aberto, titulo, onClose, children }: { aberto: boolean
     <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/40 backdrop-blur-sm">
       <div className="h-full w-full max-w-xl overflow-y-auto bg-white p-6 shadow-2xl">
         <div className="mb-6 flex items-center justify-between gap-4">
-          <h2 className="text-xl font-black text-slate-950">{titulo}</h2>
+          <div className="flex min-w-0 items-center gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 hover:text-slate-950"
+              aria-label="Voltar"
+            >
+              <ArrowLeft size={17} />
+            </button>
+            <h2 className="truncate text-xl font-black text-slate-950">{titulo}</h2>
+          </div>
 
           <button
             type="button"
@@ -573,20 +584,27 @@ function formatarData(value: string) {
   return data.toLocaleDateString("pt-BR");
 }
 
-function extrairProjetosDaResposta(data: unknown): any[] {
+function extrairProjetosDaResposta(data: unknown): ProjetoCoordenacaoListagem[] {
   if (!Array.isArray(data)) return [];
 
-  return data.flatMap((item: any) => {
-    if (Array.isArray(item.projetos)) {
-      return item.projetos.map((projeto: any) => ({
+  const projetos: ProjetoCoordenacaoListagem[] = [];
+
+  data.forEach((item) => {
+    const eventoOuProjeto = item as EventoComProjetosApi & ProjetoCoordenacaoListagem;
+
+    if (Array.isArray(eventoOuProjeto.projetos)) {
+      projetos.push(...eventoOuProjeto.projetos.map((projeto) => ({
         ...projeto,
-        eventoTitulo: projeto.evento?.titulo ?? item.titulo,
-        eventoId: projeto.evento?.id ?? item.id,
-      }));
+        eventoTitulo: projeto.evento?.titulo ?? eventoOuProjeto.titulo,
+        eventoId: projeto.evento?.id ?? eventoOuProjeto.id,
+      })));
+      return;
     }
 
-    return [item];
+    projetos.push(eventoOuProjeto);
   });
+
+  return projetos;
 }
 
 function getFaseAtual(evento: EventoApi | null) {
@@ -1482,7 +1500,7 @@ function UsuariosCoordenacao() {
   const [alunos, setAlunos] = useState<UsuarioCoordenacao[]>([]);
   const [orientadores, setOrientadores] = useState<UsuarioCoordenacao[]>([]);
   const [comissao, setComissao] = useState<UsuarioCoordenacao[]>([]);
-  const [projetosCoordenacao, setProjetosCoordenacao] = useState<any[]>([]);
+  const [projetosCoordenacao, setProjetosCoordenacao] = useState<ProjetoCoordenacaoListagem[]>([]);
   const [usuarioSelecionado, setUsuarioSelecionado] = useState<UsuarioCoordenacao | null>(null);
   const [detalhesAberto, setDetalhesAberto] = useState(false);
   const [carregando, setCarregando] = useState(false);
@@ -1533,8 +1551,15 @@ function UsuariosCoordenacao() {
 
   async function carregarProjetos() {
     try {
-      const dados = await apiRequest<any[]>('/projetos');
-      const flatten = Array.isArray(dados) ? dados.flatMap((item) => (Array.isArray(item.projetos) ? item.projetos.map((p: any) => ({ ...p, evento: p.evento ?? { id: item.id, titulo: item.titulo } })) : [item])) : [];
+      const dados = await apiRequest<unknown>("/projetos");
+      const flatten = extrairProjetosDaResposta(dados).map((projeto) => ({
+        ...projeto,
+        evento:
+          projeto.evento ??
+          (projeto.eventoId && projeto.eventoTitulo
+            ? { id: projeto.eventoId, titulo: projeto.eventoTitulo }
+            : undefined),
+      }));
       setProjetosCoordenacao(flatten);
     } catch {
       setProjetosCoordenacao([]);
@@ -1654,16 +1679,17 @@ function UsuariosCoordenacao() {
     return () => {
       ativo = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function getProjetosDoUsuario(usuario: UsuarioCoordenacao) {
     const usuarioId = String(usuario.id);
 
-    return projetosCoordenacao.filter((projeto: any) => {
+    return projetosCoordenacao.filter((projeto) => {
       const autorId = projeto.alunoAutor?.id ? String(projeto.alunoAutor.id) : null;
       const ehAutor = autorId === usuarioId;
       const ehIntegrante = Array.isArray(projeto.projetoAlunos)
-        ? projeto.projetoAlunos.some((v: any) => String(v.aluno?.id) === usuarioId)
+        ? projeto.projetoAlunos.some((vinculo) => String(vinculo.aluno?.id) === usuarioId)
         : false;
       return ehAutor || ehIntegrante;
     });
@@ -1774,21 +1800,30 @@ function UsuariosCoordenacao() {
         </div>
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {[
-            { label: "Total de alunos", value: totalAlunos },
-            { label: "Total de orientadores", value: totalOrientadores },
-            { label: "Total de comissão", value: totalComissao },
-            { label: "Total geral", value: totalGeral },
+          {[
+            { label: "Total de alunos", value: totalAlunos, accent: "from-emerald-500 to-teal-600", icon: <PiUsersThree size={18} /> },
+            { label: "Total de orientadores", value: totalOrientadores, accent: "from-sky-500 to-cyan-600", icon: <PiBookOpen size={18} /> },
+            { label: "Total de comissão", value: totalComissao, accent: "from-amber-500 to-orange-600", icon: <PiCheckCircle size={18} /> },
+            { label: "Total geral", value: totalGeral, accent: "from-slate-700 to-slate-950", icon: <UsersRound size={18} /> },
           ].map((card) => (
-            <article key={card.label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">{card.label}</p>
-              <strong className="mt-2 block text-2xl font-black text-slate-900">{card.value}</strong>
+            <article key={card.label} className="group relative overflow-hidden rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+              <div className={`absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r ${card.accent}`} />
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">{card.label}</p>
+                  <strong className="mt-3 block text-3xl font-black text-slate-950">{card.value}</strong>
+                </div>
+                <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br ${card.accent} text-white shadow-sm`}>
+                  {card.icon}
+                </span>
+              </div>
+              <p className="mt-3 text-xs font-semibold text-slate-400">Dados carregados do backend por perfil.</p>
             </article>
           ))}
         </div>
 
-        <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
+        <div className="mt-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex w-full overflow-x-auto rounded-2xl border border-slate-200 bg-slate-50 p-1 lg:w-auto">
             {[
               { id: "alunos", label: "Alunos" },
               { id: "orientadores", label: "Orientadores" },
@@ -1800,7 +1835,7 @@ function UsuariosCoordenacao() {
                   key={aba.id}
                   type="button"
                   onClick={() => setAbaAtiva(aba.id as "alunos" | "orientadores" | "comissao")}
-                  className={`cursor-pointer px-4 py-2 text-sm font-black transition ${
+                  className={`shrink-0 cursor-pointer px-4 py-2 text-sm font-black transition ${
                     ativa
                       ? "rounded-xl bg-white text-sectec-700 shadow-sm"
                       : "text-slate-500 hover:bg-sectec-50 hover:text-sectec-700"
@@ -1811,23 +1846,23 @@ function UsuariosCoordenacao() {
               );
             })}
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <label className="relative block">
+          <div className="grid w-full min-w-0 gap-2 sm:grid-cols-2 lg:flex lg:w-auto lg:flex-wrap lg:justify-end">
+            <label className="relative block min-w-0">
               <PiMagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
               <input
                 value={busca}
                 onChange={(event) => setBusca(event.target.value)}
                 placeholder="Buscar por nome ou email"
-                className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100 sm:w-60"
+                className="h-10 w-full min-w-0 rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100 lg:w-64"
               />
             </label>
             {podeFiltrarTurma && (
-              <label className="relative block">
+              <label className="relative block min-w-0">
                 <PiFunnel className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
                 <select
                   value={turmaFiltro}
                   onChange={(event) => setTurmaFiltro(event.target.value)}
-                  className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-8 text-sm font-black text-slate-600 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100 sm:w-48"
+                  className="h-10 w-full min-w-0 cursor-pointer appearance-none rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-8 text-sm font-black text-slate-600 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100 lg:w-48"
                 >
                   {turmasDisponiveis.map((turma) => (
                     <option key={turma} value={turma}>
@@ -1838,12 +1873,12 @@ function UsuariosCoordenacao() {
               </label>
             )}
             {podeFiltrarAno && (
-              <label className="relative block">
+              <label className="relative block min-w-0">
                 <PiCalendarBlank className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
                 <select
                   value={anoFiltro}
                   onChange={(event) => setAnoFiltro(event.target.value)}
-                  className="h-10 w-full cursor-pointer appearance-none rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-8 text-sm font-black text-slate-600 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100 sm:w-40"
+                  className="h-10 w-full min-w-0 cursor-pointer appearance-none rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-8 text-sm font-black text-slate-600 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100 lg:w-40"
                 >
                   {anosDisponiveis.map((ano) => (
                     <option key={ano} value={ano}>
@@ -1899,17 +1934,23 @@ function UsuariosCoordenacao() {
                   transition={{ duration: 0.18, ease: "easeOut" }}
                 >
                   {listaPaginada.map((usuario) => (
-                    <article key={usuario.id} className="grid gap-2 px-4 py-4 lg:grid-cols-[1fr_1fr_0.7fr_0.7fr_0.5fr] lg:items-center transition hover:bg-sectec-50/40">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-black text-slate-900">{usuario.nome}</p>
+                    <article key={usuario.id} className="grid gap-3 px-4 py-4 transition hover:bg-sectec-50/40 lg:grid-cols-[1fr_1fr_0.7fr_0.7fr_0.5fr] lg:items-center">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-600 to-slate-900 text-sm font-black text-white shadow-sm">
+                          {usuario.nome.charAt(0).toUpperCase()}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-black text-slate-900">{usuario.nome}</p>
+                          <p className="mt-0.5 text-xs font-bold text-slate-400 lg:hidden">{usuario.perfil}</p>
+                        </div>
                       </div>
-                      <p className="truncate text-sm font-semibold text-slate-600">{usuario.email || "-"}</p>
-                      <p className="truncate text-sm font-semibold text-slate-600">
+                      <p className="min-w-0 truncate rounded-2xl bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600 lg:bg-transparent lg:px-0 lg:py-0">{usuario.email || "-"}</p>
+                      <p className="w-fit rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700 lg:bg-transparent lg:px-0 lg:py-0 lg:text-sm lg:text-slate-600">
                         {usuario.turma || "-"}
-                        {usuario.ano ? ` · ${usuario.ano}` : ""}
+                        {usuario.ano ? ` · ${usuario.ano}º ano` : ""}
                       </p>
-                      <p className="text-sm font-black text-slate-700">{usuario.perfil}</p>
-                      <div className="flex justify-end">
+                      <p className="hidden text-sm font-black text-slate-700 lg:block">{usuario.perfil}</p>
+                      <div className="flex justify-start lg:justify-end">
                         <div className="flex items-center gap-2">
                           <Tooltip label="Ver detalhes">
                             <button
@@ -2327,7 +2368,7 @@ function ProjetosCoordenacao() {
           </Tooltip>
         </div>
 
-        <div className="mt-5 grid gap-3 lg:grid-cols-[1fr_220px_180px_210px]">
+        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_220px_180px_210px]">
           <label className="relative block">
             <PiMagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
             <input
@@ -2341,7 +2382,7 @@ function ProjetosCoordenacao() {
           <select
             value={eventoFiltro}
             onChange={(event) => setEventoFiltro(event.target.value)}
-            className="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-black text-slate-600 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100"
+            className="h-11 w-full cursor-pointer rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-black text-slate-600 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100"
           >
             <option value="todos">Todos os eventos</option>
             {eventosFiltro.map((evento) => (
@@ -2353,7 +2394,7 @@ function ProjetosCoordenacao() {
             <select
               value={turmaFiltro}
               onChange={(event) => setTurmaFiltro(event.target.value)}
-              className="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-black text-slate-600 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100"
+              className="h-11 w-full cursor-pointer rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-black text-slate-600 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100"
             >
               <option value="todas">Todas as turmas</option>
               {turmasDisponiveis.map((turma) => (
@@ -2366,7 +2407,7 @@ function ProjetosCoordenacao() {
             <select
               value={statusOrientacaoFiltro}
               onChange={(event) => setStatusOrientacaoFiltro(event.target.value)}
-              className="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-black text-slate-600 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100"
+              className="h-11 w-full cursor-pointer rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-black text-slate-600 outline-none transition focus:border-sectec-500 focus:bg-white focus:ring-2 focus:ring-sectec-100"
             >
               <option value="todos">Todas orientações</option>
               {statusOrientacaoDisponiveis.map((status) => (
@@ -2412,7 +2453,6 @@ function ProjetosCoordenacao() {
               {projetosFiltrados.map((projeto, index) => {
                 const autor = getAutorProjeto(projeto);
                 const integrantes = getIntegrantesProjeto(projeto);
-                const orientadores = getOrientadoresProjeto(projeto);
                 const projetoId = getProjetoId(projeto);
                 const materialId = getMaterialIdFromProjeto(projeto);
 
@@ -2422,31 +2462,53 @@ function ProjetosCoordenacao() {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.18, delay: index * 0.03 }}
-                    className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                    className="group overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-1 hover:border-emerald-200 hover:shadow-lg"
                   >
-                    <div className="flex h-20 items-center justify-between bg-gradient-to-br from-emerald-700 to-slate-900 px-5 text-white">
-                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10 text-lg font-black">
+                    <div className="relative flex h-24 items-center justify-between overflow-hidden bg-gradient-to-br from-emerald-700 via-teal-700 to-slate-950 px-5 text-white">
+                      <div className="absolute -right-8 -top-10 h-28 w-28 rounded-full bg-white/10" />
+                      <div className="absolute -bottom-12 left-16 h-24 w-24 rounded-full bg-emerald-300/10" />
+                      <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-white/15 text-lg font-black shadow-inner ring-1 ring-white/15">
                         {projeto.titulo.charAt(0).toUpperCase()}
                       </div>
-                      <span className="rounded-full bg-white/10 px-3 py-1 text-[11px] font-black uppercase text-white/75">
-                        Banner visual
-                      </span>
+                      <div className="relative flex flex-col items-end gap-2">
+                        <span className="rounded-full bg-white/10 px-3 py-1 text-[11px] font-black uppercase text-white/75 ring-1 ring-white/15">
+                          {getStatusOrientacaoProjeto(projeto)}
+                        </span>
+                        {projetoTemPdf(projeto) && (
+                          <span className="rounded-full bg-emerald-300/20 px-3 py-1 text-[10px] font-black uppercase text-emerald-50 ring-1 ring-white/15">
+                            PDF disponível
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     <div className="p-5">
                       <h3 className="line-clamp-2 text-base font-black text-slate-950">{projeto.titulo}</h3>
                       <p className="mt-2 line-clamp-3 text-sm font-medium leading-6 text-slate-500">{getProjetoDescricaoCurta(projeto)}</p>
 
-                      <div className="mt-4 space-y-2 text-xs font-semibold text-slate-500">
-                        <p><strong className="text-slate-700">Evento:</strong> {projeto.eventoTitulo ?? projeto.evento?.titulo ?? "Sem evento"}</p>
-                        <p><strong className="text-slate-700">Tema:</strong> {projeto.tema?.nome ?? "Sem tema"}</p>
-                        <p><strong className="text-slate-700">Autor:</strong> {autor?.nome ?? "Sem autor"}</p>
-                        <p><strong className="text-slate-700">Integrantes:</strong> {integrantes.length || "Sem integrantes adicionais"}</p>
-                        <p><strong className="text-slate-700">Orientação:</strong> {orientadores.length ? getStatusOrientacaoProjeto(projeto) : "Nenhum orientador aceito/vinculado"}</p>
-                        <p><strong className="text-slate-700">Criação:</strong> {getDataCriacaoProjeto(projeto)}</p>
+                      <div className="mt-4 grid gap-2 text-xs font-semibold text-slate-500">
+                        <div className="rounded-2xl bg-slate-50 px-3 py-2">
+                          <strong className="text-slate-700">Evento:</strong> {projeto.eventoTitulo ?? projeto.evento?.titulo ?? "Sem evento"}
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <div className="rounded-2xl bg-emerald-50 px-3 py-2 text-emerald-800">
+                            <strong>Tema:</strong> {projeto.tema?.nome ?? "Sem tema"}
+                          </div>
+                          <div className="rounded-2xl bg-slate-50 px-3 py-2">
+                            <strong className="text-slate-700">Criação:</strong> {getDataCriacaoProjeto(projeto)}
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border border-slate-100 px-3 py-2">
+                          <strong className="text-slate-700">Autor:</strong> {autor?.nome ?? "Sem autor"}
+                          <span className="ml-2 text-slate-400">· {integrantes.length || "sem"} integrantes adicionais</span>
+                        </div>
                       </div>
 
-                      <div className="mt-5 flex flex-wrap gap-2">
+                      <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-4">
+                        <div className="text-xs font-black uppercase tracking-wider text-slate-300">
+                          Gestão do projeto
+                        </div>
+                        <div className="flex flex-wrap justify-end gap-2">
                         <Tooltip label="Ver detalhes">
                           <button type="button" onClick={() => abrirDetalhesProjeto(projeto)} aria-label="Ver detalhes" className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 transition hover:bg-slate-50">
                             <Eye size={15} /> Ver
@@ -2476,6 +2538,7 @@ function ProjetosCoordenacao() {
                             </Tooltip>
                           </>
                         )}
+                        </div>
                       </div>
                     </div>
                   </motion.article>
@@ -2718,6 +2781,7 @@ function Administrador() {
 
   useEffect(() => {
     carregarDashboard();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const faseAtualReal = getFaseAtual(eventoVigente);
