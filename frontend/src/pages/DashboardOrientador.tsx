@@ -537,8 +537,9 @@ function useTemasOrientadorData() {
 
         if (!active) return;
         const temasEvento = evento?.temas ?? [];
+        const todosTemasIds = temasEvento.map((tema) => tema.id);
         setTemas(temasEvento);
-        setSelecionadosIds(temasSelecionadosIds);
+        setSelecionadosIds(temasSelecionadosIds.length > 0 ? temasSelecionadosIds : todosTemasIds);
         setEventoTitulo(evento?.titulo ?? "");
         setErro("");
       } catch (error) {
@@ -988,7 +989,7 @@ function TemasChecklist({
             {selecionadosIds.length} eixo(s) ativo(s)
           </h2>
           <p className="mt-1 text-sm font-medium text-slate-500">
-            {eventoTitulo ? `Evento atual: ${eventoTitulo}` : "Eixos carregados pelo evento atual."} Selecione pelo menos 1 eixo.
+            {eventoTitulo ? `Evento atual: ${eventoTitulo}` : "Eixos carregados pelo evento atual."} Desmarque os eixos que não deseja orientar.
           </p>
         </div>
 
@@ -1207,14 +1208,16 @@ function ProjetoDetalheCard({
 function EquipeCollapseCard({
   equipe,
   onDetalhes,
+  compacta = false,
 }: {
   equipe: Equipe;
   onDetalhes?: (projetoId?: number) => void;
+  compacta?: boolean;
 }) {
   const [aberta, setAberta] = useState(false);
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white">
+    <div className="self-start rounded-lg border border-slate-200 bg-white">
       <button
         type="button"
         onClick={() => setAberta((valor) => !valor)}
@@ -1249,7 +1252,7 @@ function EquipeCollapseCard({
                 <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">Participantes</p>
                 {equipe.integrantesNomes.length > 0 ? (
                   <ul className="mt-2 space-y-2">
-                    {equipe.integrantesNomes.map((nome) => (
+                    {(compacta ? equipe.integrantesNomes.slice(0, 4) : equipe.integrantesNomes).map((nome) => (
                       <li
                         key={nome}
                         className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700"
@@ -1257,16 +1260,23 @@ function EquipeCollapseCard({
                         {nome}
                       </li>
                     ))}
+                    {compacta && equipe.integrantesNomes.length > 4 ? (
+                      <li className="px-3 py-1 text-xs font-semibold text-slate-400">
+                        +{equipe.integrantesNomes.length - 4} participante(s)
+                      </li>
+                    ) : null}
                   </ul>
                 ) : (
                   <p className="mt-2 text-sm font-semibold text-slate-400">Participantes não retornados pelo backend.</p>
                 )}
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                <DetailLine label="Turma" value={equipe.turma} />
-                <DetailLine label="Tema" value={equipe.eixo} />
-              </div>
+              {!compacta ? (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <DetailLine label="Turma" value={equipe.turma} />
+                  <DetailLine label="Tema" value={equipe.eixo} />
+                </div>
+              ) : null}
 
               {onDetalhes ? (
                 <Button variant="secondary" onClick={() => onDetalhes(equipe.projetoId)}>
@@ -1596,29 +1606,29 @@ function DashboardOrientador() {
             erro={erroDetalhe}
             onClose={fecharDetalheProjeto}
           />
+
+          <Card>
+            <div className="mb-5 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Equipes</p>
+                <h2 className="mt-1 text-lg font-bold text-slate-900">Minhas equipes</h2>
+                <p className="mt-1 text-sm font-medium text-slate-500">Aceitas recentemente.</p>
+              </div>
+              <Badge tone="blue">{equipesFiltradas.length}</Badge>
+            </div>
+
+            {equipesFiltradas.length > 0 ? (
+              <div className="space-y-3">
+                {equipesFiltradas.slice(0, 4).map((equipe) => (
+                  <EquipeCollapseCard key={equipe.id} equipe={equipe} onDetalhes={abrirDetalheProjeto} compacta />
+                ))}
+              </div>
+            ) : (
+              <EmptyState text="Nenhuma equipe aprovada para estes temas." />
+            )}
+          </Card>
         </div>
       </div>
-
-      <Card>
-        <div className="mb-5 flex items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Equipes</p>
-            <h2 className="mt-1 text-lg font-bold text-slate-900">Minhas equipes</h2>
-            <p className="mt-1 text-sm font-medium text-slate-500">Mais recentes primeiro.</p>
-          </div>
-          <Badge tone="blue">{equipesFiltradas.length}</Badge>
-        </div>
-
-        {equipesFiltradas.length > 0 ? (
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            {equipesFiltradas.map((equipe) => (
-              <EquipeCollapseCard key={equipe.id} equipe={equipe} onDetalhes={abrirDetalheProjeto} />
-            ))}
-          </div>
-        ) : (
-          <EmptyState text="Nenhuma equipe aprovada para estes temas." />
-        )}
-      </Card>
     </PageShell>
   );
 }
@@ -1737,7 +1747,7 @@ export function TurmasOrientador() {
 
         <div>
           {equipesFiltradas.length > 0 ? (
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <div className="grid grid-cols-1 items-start gap-3 lg:grid-cols-2">
               {equipesFiltradas.map((equipe) => (
                 <EquipeCollapseCard key={equipe.id} equipe={equipe} />
               ))}
