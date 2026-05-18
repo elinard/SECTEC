@@ -228,8 +228,8 @@ function NotasAluno() {
         setErro(null);
 
         const [resProjeto, resNotas] = await Promise.all([
-          fetch(`http://localhost:3000/projetos/${projetoId}`, { headers }),
-          fetch(`http://localhost:3000/projetos/${projetoId}/notas`, { headers }),
+          fetch(`https://sectec-ja.up.railway.app/api/projetos/${projetoId}`, { headers }),
+          fetch(`https://sectec-ja.up.railway.app/api/projetos/${projetoId}/notas`, { headers }),
         ]);
 
         if (!resProjeto.ok || !resNotas.ok) {

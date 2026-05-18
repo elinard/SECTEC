@@ -225,8 +225,8 @@ function FormRelatorio({
     setSalvando(true);
     try {
       const url = relatorioExistente
-        ? `http://localhost:3000/relatorios/${relatorioExistente.id}`
-        : "http://localhost:3000/relatorios";
+        ? `https://sectec-ja.up.railway.app/api/relatorios/${relatorioExistente.id}`
+        : "https://sectec-ja.up.railway.app/api/relatorios";
       const method = relatorioExistente ? "PATCH" : "POST";
       const response = await fetch(url, {
         method,
@@ -260,8 +260,8 @@ function FormRelatorio({
     setSubmetendo(true);
     try {
       const url = relatorioExistente
-        ? `http://localhost:3000/relatorios/${relatorioExistente.id}/submeter`
-        : "http://localhost:3000/relatorios/submeter";
+        ? `https://sectec-ja.up.railway.app/api/relatorios/${relatorioExistente.id}/submeter`
+        : "https://sectec-ja.up.railway.app/api/relatorios/submeter";
       const response = await fetch(url, {
         method: "POST",
         headers: getAuthHeaders(),
@@ -514,8 +514,8 @@ export default function RelatoriosAluno() {
     const headers = { Authorization: `Bearer ${token}` } as HeadersInit;
 
     Promise.all([
-      fetch("http://localhost:3000/relatorios/permissao", { headers }).then((r) => r.json()),
-      fetch("http://localhost:3000/relatorios/meu", { headers })
+      fetch("https://sectec-ja.up.railway.app/api/relatorios/permissao", { headers }).then((r) => r.json()),
+      fetch("https://sectec-ja.up.railway.app/api/relatorios/meu", { headers })
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null),
     ])

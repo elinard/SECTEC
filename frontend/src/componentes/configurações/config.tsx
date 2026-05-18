@@ -48,7 +48,7 @@ function Config({ userRole = "aluno" }: { userRole?: UserRole }) {
 
     const token = localStorage.getItem("token");
 
-    const response = await fetch("http://localhost:3000/api/auth/change-password", {
+    const response = await fetch("https://sectec-ja.up.railway.app/api/auth/change-password", {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",

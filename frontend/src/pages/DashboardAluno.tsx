@@ -1078,7 +1078,7 @@ function Dashboard() {
                                   formData.append('file', file);
                                   formData.append('projetoId', projeto.id);
                                   formData.append('tipo', tipo);
-                                  const res = await fetch('http://localhost:3000/api/materiais', {
+                                  const res = await fetch('https://sectec-ja.up.railway.app/api/materiais', {
                                     method: 'POST',
                                     headers: { Authorization: `Bearer ${token}` },
                                     body: formData,
@@ -1106,7 +1106,7 @@ function Dashboard() {
                                   formData.append('projetoId', projeto.id);
                                   formData.append('tipo', 'link');
                                   formData.append('conteudo', linkYoutube);
-                                  const res = await fetch('http://localhost:3000/api/materiais', {
+                                  const res = await fetch('https://sectec-ja.up.railway.app/api/materiais', {
                                     method: 'POST',
                                     headers: { Authorization: `Bearer ${token}` },
                                     body: formData,
@@ -1188,7 +1188,7 @@ function Dashboard() {
                                   {m.conteudo}
                                 </a>
                               ) : m.id ? (
-                                <a href={`http://localhost:3000/api/files/download/projeto/${projeto?.id}/material/${m.id}`} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-800 hover:underline break-all mb-2 flex items-center gap-1">
+                                <a href={`https://sectec-ja.up.railway.app/api/files/download/projeto/${projeto?.id}/material/${m.id}`} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-800 hover:underline break-all mb-2 flex items-center gap-1">
                                   <FileText size={12} className="shrink-0" />
                                   Visualizar {getMaterialLabel(m.tipo)}
                                 </a>
