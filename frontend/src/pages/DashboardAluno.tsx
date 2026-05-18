@@ -273,7 +273,7 @@ function buildFasesFeira(evento?: EventoApi | null): typeof FASES_FEIRA {
 }
 
 // FUNÇÃO ATUALIZADA: Agora usa o objeto tema diretamente da API
-function mapProjetoApiToProjeto(projeto: ProjetoApi, temasDisponiveis: TemaApi[] = []): Projeto {
+function mapProjetoApiToProjeto(projeto: ProjetoApi, temasDisponiveis: TemaApi[] = []): Projeto & { orientadorAceito?: Orientador } {
   const membrosMap = new Map<string, Membro>();
 
   // 👇 autor primeiro
@@ -289,6 +289,7 @@ function mapProjetoApiToProjeto(projeto: ProjetoApi, temasDisponiveis: TemaApi[]
   });
 
   const orientacaoAceita = projeto.orientadores?.find((item) => item.status === "aceito");
+  const orientadorInfo = orientacaoAceita?.orientador;
   const primeiraOrientacao = orientacaoAceita ?? projeto.orientadores?.[0];
   const temaId = projeto.temaId ? Number(projeto.temaId) : projeto.tema?.id ? Number(projeto.tema.id) : undefined;
   const temaNome =
@@ -304,9 +305,13 @@ function mapProjetoApiToProjeto(projeto: ProjetoApi, temasDisponiveis: TemaApi[]
     temaId,
     membros: Array.from(membrosMap.values()),
     // 👇 salva o id do autor para identificar o líder corretamente
-    orientadorId: primeiraOrientacao?.orientador?.id ? String(primeiraOrientacao.orientador.id) : "",
-    status: statusFromProjetoApi(projeto),
-    autorId: autor?.id, // 👈 adiciona isso
+    orientadorId: orientadorInfo ? String(orientadorInfo.id) : "",
+    orientadorAceito: orientadorInfo ? {
+      id: String(orientadorInfo.id),
+      nome: orientadorInfo.nome,
+      disciplina: orientadorInfo.email_institucional ?? 'Orientador',
+      temasIds: []
+    } : undefined,
   };
 }
 
@@ -402,6 +407,10 @@ function Dashboard() {
   const [materiais, setMateriais] = useState<Material[]>([]);
   const [enviandoMaterial, setEnviandoMaterial] = useState(false);
 
+  const [orientadorProjeto, setOrientadorProjeto] = useState<Orientador | null>(null);
+
+  const [temSolicitacaoEnviada, setTemSolicitacaoEnviada] = useState(false);
+
   const ehAutor = projeto?.autorId === ALUNO_LOGADO.id;
 
   useEffect(() => {
@@ -421,14 +430,6 @@ function Dashboard() {
         if (!active) return;
 
         // Debug: verificar o que a API retornou
-        if (meuProjeto) {
-          console.log('📦 Projeto retornado da API:', meuProjeto);
-          console.log('📝 Tema do projeto:', meuProjeto.tema);
-          console.log('📛 Nome do tema:', meuProjeto.tema?.nome);
-          console.log('📦 Projeto completo:', meuProjeto);       // 👈 adiciona
-          console.log('👥 projetoAlunos:', meuProjeto.projetoAlunos); // 👈 adiciona
-          console.log('👤 alunoAutor:', meuProjeto.alunoAutor);  // 👈 adiciona
-        }
 
         const eventoAtualApi = eventoVigente ?? [...eventos].sort((a, b) => Number(b.id) - Number(a.id))[0] ?? null;
         const temas = eventoAtualApi?.temas ?? [];
@@ -446,6 +447,28 @@ function Dashboard() {
             )
           );
         }
+
+        if (meuProjeto) {
+          console.log('📦 Projeto retornado da API:', meuProjeto);
+          console.log('📝 Tema do projeto:', meuProjeto.tema);
+          console.log('📛 Nome do tema:', meuProjeto.tema?.nome);
+          console.log('📦 Projeto completo:', meuProjeto);       // 👈 adiciona
+          console.log('👥 projetoAlunos:', meuProjeto.projetoAlunos); // 👈 adiciona
+          console.log('👤 alunoAutor:', meuProjeto.alunoAutor);  // 👈 adiciona
+          console.log('🎓 orientadores:', meuProjeto.orientadores);
+
+          const projetoMapeado = mapProjetoApiToProjeto(meuProjeto, temas);
+          setProjeto(projetoMapeado);
+
+          const temSolicitacao = (meuProjeto.orientadores?.length ?? 0) > 0;
+          setTemSolicitacaoEnviada(temSolicitacao);
+
+          // 👇 Salva o orientador do projeto
+          if (projetoMapeado.orientadorAceito) {
+            setOrientadorProjeto(projetoMapeado.orientadorAceito);
+          }
+        }
+
         setAlunosDisponiveis(
           alunos
             .filter((a) => String(a.id) !== localStorage.getItem('userId') && !ocupadosNormalizados.includes(String(a.id)))
@@ -461,8 +484,7 @@ function Dashboard() {
           }))
         );
 
-        // ATUALIZADO: Agora passa apenas o projeto, sem o parâmetro temas
-        setProjeto(meuProjeto ? mapProjetoApiToProjeto(meuProjeto, temas) : null);
+        // REMOVIDO: setProjeto duplicado - já foi chamado dentro do if(meuProjeto) acima
         if (meuProjeto) {
           apiRequest<Material[]>(`/materiais/projeto/${meuProjeto.id}`)
             .then(setMateriais)
@@ -501,7 +523,7 @@ function Dashboard() {
     return !jaAdicionado && !jaTemEquipe && bateEquipe && bateNome && bateSala && bateTurma;
   });
 
-  const orientador = orientadoresDisponiveis.find((o) => o.id === solicitacoes[0]);
+  const orientadorExibicao = orientadorProjeto ?? orientadoresDisponiveis.find((o) => o.id === solicitacoes[0]);
   const faseAtual = getFaseAtualEvento(eventoAtual);
   const fasesFeira = buildFasesFeira(eventoAtual);
   const projetoAceito = projeto?.status === "Aceito" || projeto?.status === "Em Desenvolvimento";
@@ -541,13 +563,22 @@ function Dashboard() {
   function abrirEdicaoProjeto() {
     if (!projeto) return;
     setEditandoProjeto(true);
-    setEtapa(1);
+
+    // Se já tem solicitação, começa direto na etapa 3 (Equipe)
+    if (temSolicitacaoEnviada) {
+      setEtapa(3);
+    } else {
+      setEtapa(1);
+    }
+
     setTitulo(projeto.titulo);
     setDescricao(projeto.descricao);
     setEixo(projeto.temaId ? String(projeto.temaId) : "");
     setSolicitacoes(projeto.orientadorId ? [projeto.orientadorId] : []);
     setMembros(projeto.membros);
-    setBuscaAluno(""); setFiltrSala("todas"); setFiltrTurma("todas");
+    setBuscaAluno("");
+    setFiltrSala("todas");
+    setFiltrTurma("todas");
     setModalAberto(true);
   }
 
@@ -832,14 +863,14 @@ function Dashboard() {
 
                       <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4">
                         <h3 className="text-sm font-semibold text-slate-700 mb-3">Orientador</h3>
-                        {orientador ? (
+                        {orientadorExibicao ? (  // 👈 Use a variável correta
                           <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-full bg-yellow-100 text-yellow-700 text-sm font-semibold flex items-center justify-center shrink-0">
-                              {orientador.nome.split(" ").at(-1)?.[0]}
+                              {orientadorExibicao.nome.split(" ").at(-1)?.[0] || orientadorExibicao.nome[0]}
                             </div>
                             <div className="min-w-0">
-                              <p className="text-sm font-medium text-slate-700 truncate">{orientador.nome}</p>
-                              <p className="break-words text-xs text-slate-400">{orientador.nome}</p>
+                              <p className="text-sm font-medium text-slate-700 truncate">{orientadorExibicao.nome}</p>
+                              <p className="break-words text-xs text-slate-400">{orientadorExibicao.disciplina}</p>
                             </div>
                           </div>
                         ) : (
@@ -941,7 +972,7 @@ function Dashboard() {
                                   formData.append('tipo', 'link');
                                   formData.append('conteudo', linkYoutube);
                                   const token = localStorage.getItem('token');
-                                  const res = await fetch('http://localhost:3000/materiais', {
+                                  const res = await fetch('http://localhost:3000/api/materiais', {
                                     method: 'POST',
                                     headers: { Authorization: `Bearer ${token}` },
                                     body: formData,
@@ -1064,319 +1095,381 @@ function Dashboard() {
         </div>
       </div >
 
-      {/* ── MODAL PROGRESSIVO ── */}
-      {
-        modalAberto && (
-          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
-            <div className="flex max-h-[95dvh] w-full flex-col rounded-t-2xl bg-white shadow-2xl sm:max-h-[90vh] sm:max-w-2xl sm:rounded-2xl">
-
-              {/* Header */}
-              <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-200">
-                <div>
-                  <h2 className="text-sm font-semibold text-slate-900 sm:text-base">
-                    {editandoProjeto ? "Editar Projeto Científico" : "Novo Projeto Científico"}
-                  </h2>
-                  <p className="text-xs text-slate-500 mt-0.5 hidden sm:block">
-                    {etapa === 1 && "Preencha os dados do projeto"}
-                    {etapa === 2 && "Escolha até 3 orientadores para solicitar"}
-                    {etapa === 3 && "Monte a equipe do projeto"}
-                  </p>
-                </div>
-                <button onClick={fecharModal} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 active:bg-slate-200 transition-colors">
-                  <X size={17} />
-                </button>
+            {/* ── MODAL PROGRESSIVO ── */}
+      {modalAberto && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
+          <div className="flex max-h-[95dvh] w-full flex-col rounded-t-2xl bg-white shadow-2xl sm:max-h-[90vh] sm:max-w-2xl sm:rounded-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-200">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900 sm:text-base">
+                  {editandoProjeto ? "Editar Projeto Científico" : "Novo Projeto Científico"}
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5 hidden sm:block">
+                  {etapa === 1 && "Preencha os dados do projeto"}
+                  {etapa === 2 && "Escolha até 3 orientadores para solicitar"}
+                  {etapa === 3 && "Monte a equipe do projeto"}
+                </p>
               </div>
+              <button onClick={fecharModal} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 active:bg-slate-200 transition-colors">
+                <X size={17} />
+              </button>
+            </div>
 
-              {/* Stepper */}
-              <div className="flex items-center px-4 sm:px-6 pt-4 pb-2">
-                {STEP_LABELS.map((label, i) => {
-                  const step = (i + 1) as Etapa;
-                  const done = etapa > step;
-                  const active = etapa === step;
-                  return (
-                    <div key={step} className="flex items-center flex-1 last:flex-none">
-                      <div className="flex flex-col items-center gap-1">
-                        <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all
-                          ${done ? "bg-sectec-600 border-sectec-600 text-white"
-                            : active ? "bg-white border-sectec-600 text-sectec-700"
-                              : "bg-white border-slate-200 text-slate-400"}`}>
-                          {done ? (
-                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                              <path d="M2 6l2.5 2.5L10 3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                          ) : step}
-                        </div>
-                        <span className={`text-[10px] font-semibold ${active ? "text-sectec-700" : done ? "text-slate-500" : "text-slate-300"}`}>
-                          {label}
-                        </span>
+            {/* Stepper */}
+            <div className="flex items-center px-4 sm:px-6 pt-4 pb-2">
+              {STEP_LABELS.map((label, i) => {
+                const step = (i + 1) as Etapa;
+                const done = etapa > step;
+                const active = etapa === step;
+
+                if (editandoProjeto && temSolicitacaoEnviada && (step === 1 || step === 2)) {
+                  return null;
+                }
+
+                return (
+                  <div key={step} className="flex items-center flex-1 last:flex-none">
+                    <div className="flex flex-col items-center gap-1">
+                      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all
+                        ${done ? "bg-sectec-600 border-sectec-600 text-white"
+                          : active ? "bg-white border-sectec-600 text-sectec-700"
+                            : "bg-white border-slate-200 text-slate-400"}`}>
+                        {done ? (
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                            <path d="M2 6l2.5 2.5L10 3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        ) : step}
                       </div>
-                      {i < STEP_LABELS.length - 1 && (
-                        <div className={`flex-1 h-0.5 mx-2 mb-4 rounded transition-all ${done ? "bg-sectec-600" : "bg-slate-200"}`} />
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Body */}
-              <div className="min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
-
-                {/* ── Etapa 1: Dados do Projeto ── */}
-                {etapa === 1 && (
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Título *</label>
-                      <input
-                        value={titulo}
-                        onChange={(e) => setTitulo(e.target.value)}
-                        placeholder="Ex: Captação de energia solar em ambientes urbanos"
-                        className="w-full min-w-0 rounded-lg border border-slate-200 px-3 py-2.5 text-sm transition focus:border-sectec-600 focus:outline-none focus:ring-2 focus:ring-sectec-100"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">
-                        Descrição / Resumo *
-                        <span className={`ml-2 text-xs font-normal ${descricao.trim().length < 30 ? "text-amber-500" : "text-sectec-600"}`}>
-                          ({descricao.trim().length} / mín. 30 caracteres)
-                        </span>
-                      </label>
-                      <textarea
-                        rows={4}
-                        value={descricao}
-                        onChange={(e) => setDescricao(e.target.value)}
-                        placeholder="Descreva o objetivo e a metodologia do projeto..."
-                        className="w-full min-w-0 resize-none rounded-lg border border-slate-200 px-3 py-2.5 text-sm transition focus:border-sectec-600 focus:outline-none focus:ring-2 focus:ring-sectec-100"
-                      />
-                    </div>
-
-                    <div className="relative">
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Eixo Temático *</label>
-                      <select
-                        value={eixo}
-                        onChange={(e) => handleEixoChange(e.target.value)}
-                        className="w-full min-w-0 appearance-none rounded-lg border border-slate-200 bg-white px-3 py-2.5 pr-9 text-sm transition focus:border-sectec-600 focus:outline-none focus:ring-2 focus:ring-sectec-100"
-                      >
-                        <option value="">Selecione um eixo</option>
-                        {eixosDisponiveis.map((e) => <option key={String(e.id)} value={String(e.id)}>{e.nome}</option>)}
-                      </select>
-                      <ChevronDown size={13} className="absolute right-3 bottom-3 text-slate-400 pointer-events-none" />
-                    </div>
-
-                    {eixo && (
-                      <div className="flex items-start gap-2 rounded-xl bg-sectec-50 border border-sectec-100 px-3 py-2.5 text-xs text-sectec-700">
-                        <FlaskConical size={13} className="mt-0.5 shrink-0" />
-                        <span>
-                          Eixo selecionado: <strong>{eixoSelecionado?.nome ?? "não informado"}</strong>. No próximo passo você verá apenas orientadores disponíveis para este eixo.
-                          {orientadoresFiltradosPorEixo.length === 0 && " Nenhum orientador escolheu este eixo ainda."}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* ── Etapa 2: Orientadores ── */}
-                {etapa === 2 && (
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs text-slate-500">
-                        Orientadores disponíveis para <strong className="text-sectec-700">{eixoSelecionado?.nome ?? "este eixo"}</strong>
-                      </p>
-                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full
-                        ${solicitacoes.length === 0 ? "bg-slate-100 text-slate-500"
-                          : solicitacoes.length < 3 ? "bg-sectec-100 text-sectec-700"
-                            : "bg-yellow-100 text-yellow-700"}`}>
-                        {solicitacoes.length}/3 solicitados
+                      <span className={`text-[10px] font-semibold ${active ? "text-sectec-700" : done ? "text-slate-500" : "text-slate-300"}`}>
+                        {label}
                       </span>
                     </div>
+                    {i < STEP_LABELS.length - 1 && (
+                      <div className={`flex-1 h-0.5 mx-2 mb-4 rounded transition-all ${done ? "bg-sectec-600" : "bg-slate-200"}`} />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
 
-                    {carregandoDados ? (
-                      <p className="text-center text-xs text-slate-400 py-8">Carregando orientadores...</p>
-                    ) : orientadoresFiltradosPorEixo.length === 0 ? (
-                      <div className="flex flex-col items-center py-10 text-center">
-                        <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center mb-3">
-                          <Users size={20} className="text-slate-400" />
-                        </div>
-                        <p className="text-sm font-medium text-slate-600">Nenhum orientador disponível</p>
-                        <p className="text-xs text-slate-400 mt-1">Não há orientadores vinculados a este eixo temático.</p>
+            {/* Body */}
+            <div className="min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
+              {/* Etapa 1: Dados do Projeto */}
+              {etapa === 1 && !(editandoProjeto && temSolicitacaoEnviada) && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Título *</label>
+                    <input
+                      value={titulo}
+                      onChange={(e) => setTitulo(e.target.value)}
+                      placeholder="Ex: Captação de energia solar em ambientes urbanos"
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm transition focus:border-sectec-600 focus:outline-none focus:ring-2 focus:ring-sectec-100"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Descrição / Resumo *
+                      <span className={`ml-2 text-xs font-normal ${descricao.trim().length < 30 ? "text-amber-500" : "text-sectec-600"}`}>
+                        ({descricao.trim().length} / mín. 30 caracteres)
+                      </span>
+                    </label>
+                    <textarea
+                      rows={4}
+                      value={descricao}
+                      onChange={(e) => setDescricao(e.target.value)}
+                      placeholder="Descreva o objetivo e a metodologia do projeto..."
+                      className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2.5 text-sm transition focus:border-sectec-600 focus:outline-none focus:ring-2 focus:ring-sectec-100"
+                    />
+                  </div>
+
+                  <div className="relative">
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Eixo Temático *</label>
+                    <select
+                      value={eixo}
+                      onChange={(e) => handleEixoChange(e.target.value)}
+                      className="w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 py-2.5 pr-9 text-sm transition focus:border-sectec-600 focus:outline-none focus:ring-2 focus:ring-sectec-100"
+                    >
+                      <option value="">Selecione um eixo</option>
+                      {eixosDisponiveis.map((e) => <option key={String(e.id)} value={String(e.id)}>{e.nome}</option>)}
+                    </select>
+                    <ChevronDown size={13} className="absolute right-3 bottom-3 text-slate-400 pointer-events-none" />
+                  </div>
+
+                  {eixo && (
+                    <div className="flex items-start gap-2 rounded-xl bg-sectec-50 border border-sectec-100 px-3 py-2.5 text-xs text-sectec-700">
+                      <FlaskConical size={13} className="mt-0.5 shrink-0" />
+                      <span>
+                        Eixo selecionado: <strong>{eixoSelecionado?.nome ?? "não informado"}</strong>. No próximo passo você verá apenas orientadores disponíveis para este eixo.
+                        {orientadoresFiltradosPorEixo.length === 0 && " Nenhum orientador escolheu este eixo ainda."}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Etapa 2: Orientadores */}
+              {etapa === 2 && !(editandoProjeto && temSolicitacaoEnviada) && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-slate-500">
+                      Orientadores disponíveis para <strong className="text-sectec-700">{eixoSelecionado?.nome ?? "este eixo"}</strong>
+                    </p>
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full
+                      ${solicitacoes.length === 0 ? "bg-slate-100 text-slate-500"
+                        : solicitacoes.length < 3 ? "bg-sectec-100 text-sectec-700"
+                          : "bg-yellow-100 text-yellow-700"}`}>
+                      {solicitacoes.length}/3 solicitados
+                    </span>
+                  </div>
+
+                  {carregandoDados ? (
+                    <p className="text-center text-xs text-slate-400 py-8">Carregando orientadores...</p>
+                  ) : orientadoresFiltradosPorEixo.length === 0 ? (
+                    <div className="flex flex-col items-center py-10 text-center">
+                      <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center mb-3">
+                        <Users size={20} className="text-slate-400" />
                       </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {orientadoresFiltradosPorEixo.map((o) => {
-                          const selecionado = solicitacoes.includes(o.id);
-                          const bloqueado = !selecionado && solicitacoes.length >= 3;
-                          return (
+                      <p className="text-sm font-medium text-slate-600">Nenhum orientador disponível</p>
+                      <p className="text-xs text-slate-400 mt-1">Não há orientadores vinculados a este eixo temático.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {orientadoresFiltradosPorEixo.map((o) => {
+                        const selecionado = solicitacoes.includes(o.id);
+                        const bloqueado = !selecionado && solicitacoes.length >= 3;
+                        return (
+                          <button
+                            key={o.id}
+                            type="button"
+                            disabled={bloqueado}
+                            onClick={() => toggleSolicitacao(o.id)}
+                            className={`w-full flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all
+                              ${selecionado
+                                ? "border-sectec-400 bg-sectec-50 ring-1 ring-sectec-300"
+                                : bloqueado
+                                  ? "border-slate-100 bg-slate-50 opacity-40 cursor-not-allowed"
+                                  : "border-slate-200 bg-white hover:border-sectec-200 hover:bg-sectec-50"}`}
+                          >
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold shrink-0
+                              ${selecionado ? "bg-sectec-600 text-white" : "bg-yellow-100 text-yellow-700"}`}>
+                              {o.nome.split(" ").slice(-1)[0]?.[0] ?? "?"}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-slate-800 truncate">{o.nome}</p>
+                            </div>
+                            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all
+                              ${selecionado ? "bg-sectec-600 border-sectec-600" : "border-slate-300"}`}>
+                              {selecionado && (
+                                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                                  <path d="M2 5l2.5 2.5L8 3" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {solicitacoes.length > 0 && (
+                    <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 text-xs text-amber-800">
+                      <strong>Como funciona:</strong> Sua solicitação será enviada para os orientadores selecionados. O primeiro que aceitar será vinculado ao projeto.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Etapa 3: Equipe */}
+              {etapa === 3 && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-slate-500">Monte sua equipe</p>
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full
+                      ${membros.length > MAX_MEMBROS ? "bg-red-100 text-red-600"
+                        : membros.length < MIN_MEMBROS ? "bg-yellow-100 text-yellow-700"
+                          : "bg-sectec-100 text-sectec-700"}`}>
+                      {membros.length}/{MAX_MEMBROS} {membros.length < MIN_MEMBROS && `(mín. ${MIN_MEMBROS})`}
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    {membros.map((m) => (
+                      <div key={m.id} className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                        <div className="w-7 h-7 rounded-full bg-sectec-100 text-sectec-700 text-xs font-semibold flex items-center justify-center shrink-0">
+                          {m.nome[0].toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium text-slate-700 truncate">{m.nome}</p>
+                          <p className="text-[10px] text-slate-400">
+                            {m.sala ? `Sala ${m.sala}` : ""}
+                            {m.turma ? ` · Turma ${m.turma}` : ""}
+                          </p>
+                        </div>
+                        {m.id === projeto?.autorId ? (
+                          <span className="text-[10px] font-semibold bg-sectec-100 text-sectec-700 px-2 py-0.5 rounded-full shrink-0">Líder</span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setMembros((prev) => prev.filter((x) => x.id !== m.id))}
+                            className="text-slate-400 hover:text-red-500 active:text-red-600 transition-colors p-1.5 shrink-0"
+                            title="Remover membro"
+                          >
+                            <UserMinus size={14} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {membros.length < MAX_MEMBROS && (
+                    <div className="border border-slate-200 rounded-xl overflow-hidden">
+                      <div className="p-2 bg-slate-50 border-b border-slate-200">
+                        <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-md px-2 py-1.5">
+                          <Search size={11} className="text-slate-400 shrink-0" />
+                          <input
+                            value={buscaAluno}
+                            onChange={(e) => setBuscaAluno(e.target.value)}
+                            placeholder="Buscar aluno por nome..."
+                            className="flex-1 text-xs outline-none bg-transparent min-w-0"
+                          />
+                        </div>
+                      </div>
+                      <div className="max-h-44 overflow-y-auto">
+                        {carregandoDados ? (
+                          <p className="text-center text-xs text-slate-400 py-5">Carregando alunos...</p>
+                        ) : alunosFiltrados.length === 0 ? (
+                          <div className="text-center py-5">
+                            <p className="text-xs text-slate-400">Nenhum aluno encontrado</p>
+                            {(buscaAluno || filtrSala !== "todas" || filtrTurma !== "todas") && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setBuscaAluno("");
+                                  setFiltrSala("todas");
+                                  setFiltrTurma("todas");
+                                }}
+                                className="mt-2 text-xs text-sectec-600 hover:text-sectec-700"
+                              >
+                                Limpar filtros
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          alunosFiltrados.map((aluno) => (
                             <button
-                              key={o.id}
+                              key={aluno.id}
                               type="button"
-                              disabled={bloqueado}
-                              onClick={() => toggleSolicitacao(o.id)}
-                              className={`w-full flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all
-                                ${selecionado
-                                  ? "border-sectec-400 bg-sectec-50 ring-1 ring-sectec-300"
-                                  : bloqueado
-                                    ? "border-slate-100 bg-slate-50 opacity-40 cursor-not-allowed"
-                                    : "border-slate-200 bg-white hover:border-sectec-200 hover:bg-sectec-50"}`}
+                              onClick={() => adicionarMembro(aluno)}
+                              className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-slate-50 active:bg-slate-100 transition-colors border-b border-slate-100 last:border-0 text-left"
                             >
-                              <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold shrink-0
-                                ${selecionado ? "bg-sectec-600 text-white" : "bg-yellow-100 text-yellow-700"}`}>
-                                {o.nome.split(" ").slice(-1)[0]?.[0] ?? "?"}
+                              <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-600 text-[10px] font-semibold flex items-center justify-center shrink-0">
+                                {aluno.nome[0].toUpperCase()}
                               </div>
                               <div className="flex-1 min-w-0">
-                                <p className="text-sm font-semibold text-slate-800 truncate">{o.nome}</p>
+                                <p className="text-xs font-medium text-slate-700 truncate">{aluno.nome}</p>
+                                <p className="text-[10px] text-slate-400">
+                                  {aluno.sala ? `Sala ${aluno.sala}` : ""}
+                                  {aluno.turma ? ` · Turma ${aluno.turma}` : ""}
+                                </p>
                               </div>
-                              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all
-                                ${selecionado ? "bg-sectec-600 border-sectec-600" : "border-slate-300"}`}>
-                                {selecionado && (
-                                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                                    <path d="M2 5l2.5 2.5L8 3" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                                  </svg>
-                                )}
-                              </div>
+                              <UserPlus size={13} className="text-sectec-600 shrink-0" />
                             </button>
-                          );
-                        })}
+                          ))
+                        )}
                       </div>
-                    )}
+                    </div>
+                  )}
 
-                    {solicitacoes.length > 0 && (
-                      <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 text-xs text-amber-800">
-                        <strong>Como funciona:</strong> Sua solicitação será enviada para os orientadores selecionados. O primeiro que aceitar será vinculado ao projeto.
-                      </div>
-                    )}
+                  {membros.length >= MAX_MEMBROS && (
+                    <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 text-xs text-amber-700">
+                      <span className="font-semibold">⚠️ Limite atingido</span>
+                      <p className="mt-0.5">Sua equipe já atingiu o limite máximo de {MAX_MEMBROS} membros.</p>
+                    </div>
+                  )}
+
+                  <div className="flex items-start gap-2 rounded-xl bg-blue-50 border border-blue-100 px-3 py-2.5 text-xs text-blue-700">
+                    <TriangleAlert size={12} className="mt-0.5 shrink-0" />
+                    <span>
+                      Apenas alunos da <strong>mesma turma e ano</strong> são exibidos.
+                      Equipes com integrantes de turmas diferentes não são permitidas.
+                      {referenciaTurmaEquipe && (
+                        <span className="block mt-1 text-blue-600">
+                          Turma de referência: {referenciaTurmaEquipe.turma ? `Turma ${referenciaTurmaEquipe.turma}` : ''}
+                          {referenciaTurmaEquipe.sala ? ` Sala ${referenciaTurmaEquipe.sala}` : ''}
+                        </span>
+                      )}
+                    </span>
                   </div>
-                )}
+                </div>
+              )}
 
-                {/* ── Etapa 3: Equipe ── */}
-                {etapa === 3 && (
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs text-slate-500">Monte sua equipe</p>
-                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full
-                        ${membros.length > MAX_MEMBROS ? "bg-red-100 text-red-600"
-                          : membros.length < MIN_MEMBROS ? "bg-yellow-100 text-yellow-700"
-                            : "bg-sectec-100 text-sectec-700"}`}>
-                        {membros.length}/{MAX_MEMBROS} {membros.length < MIN_MEMBROS && `(mín. ${MIN_MEMBROS})`}
-                      </span>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      {membros.map((m) => (
-                        <div key={m.id} className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-                          <div className="w-7 h-7 rounded-full bg-sectec-100 text-sectec-700 text-xs font-semibold flex items-center justify-center shrink-0">{m.nome[0]}</div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-medium text-slate-700 truncate">{m.nome}</p>
-                            <p className="text-[10px] text-slate-400">
-                              {m.sala ? `Sala ${m.sala}` : ""}
-                              {m.turma ? ` · Turma ${m.turma}` : ""}
-                            </p>
-                          </div>
-                          {m.id === projeto?.autorId ? (
-                            <span className="text-[10px] font-semibold bg-sectec-100 text-sectec-700 px-2 py-0.5 rounded-full shrink-0">Líder</span>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => setMembros((prev) => prev.filter((x) => x.id !== m.id))}
-                              className="text-slate-400 hover:text-red-500 active:text-red-600 transition-colors p-1.5 shrink-0"
-                            >
-                              <UserMinus size={14} />
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-
-                    {membros.length < MAX_MEMBROS && (
-                      <div className="border border-slate-200 rounded-xl overflow-hidden">
-                        <div className="p-2 bg-slate-50 border-b border-slate-200">
-                          <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-md px-2 py-1.5">
-                            <Search size={11} className="text-slate-400 shrink-0" />
-                            <input
-                              value={buscaAluno}
-                              onChange={(e) => setBuscaAluno(e.target.value)}
-                              placeholder="Buscar aluno..."
-                              className="flex-1 text-xs outline-none bg-transparent min-w-0"
-                            />
-                          </div>
-                        </div>
-                        <div className="max-h-44 overflow-y-auto">
-                          {alunosFiltrados.length === 0 ? (
-                            <p className="text-center text-xs text-slate-400 py-5">
-                              {carregandoDados ? "Carregando alunos..." : "Nenhum aluno encontrado"}
-                            </p>
-                          ) : (
-                            alunosFiltrados.map((aluno) => (
-                              <button
-                                key={aluno.id}
-                                type="button"
-                                onClick={() => adicionarMembro(aluno)}
-                                className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-slate-50 active:bg-slate-100 transition-colors border-b border-slate-100 last:border-0"
-                              >
-                                <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-600 text-[10px] font-semibold flex items-center justify-center shrink-0">{aluno.nome[0]}</div>
-                                <div className="flex-1 min-w-0 text-left">
-                                  <p className="text-xs font-medium text-slate-700 truncate">{aluno.nome}</p>
-                                  <p className="text-[10px] text-slate-400">
-                                    {aluno.sala ? `Sala ${aluno.sala}` : ""}
-                                    {aluno.turma ? ` · Turma ${aluno.turma}` : ""}
-                                  </p>
-                                </div>
-                                <UserPlus size={13} className="text-sectec-600 shrink-0" />
-                              </button>
-                            ))
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="flex items-start gap-2 rounded-xl bg-blue-50 border border-blue-100 px-3 py-2.5 text-xs text-blue-700">
-                      <TriangleAlert size={12} className="mt-0.5 shrink-0" />
-                      <span>Apenas alunos da <strong>mesma turma e ano</strong> são exibidos. Equipes com integrantes de turmas diferentes não são permitidas.</span>
+              {/* Mensagem informativa quando editando com solicitação */}
+              {editandoProjeto && temSolicitacaoEnviada && etapa !== 3 && (
+                <div className="rounded-xl bg-blue-50 border border-blue-200 p-4 mt-4">
+                  <div className="flex gap-3">
+                    <Lock size={18} className="text-blue-500 shrink-0 mt-0.5" />
+                    <div className="text-sm text-blue-700">
+                      <p className="font-semibold mb-1">Edição limitada</p>
+                      <p className="text-xs">
+                        Como você já enviou solicitações aos orientadores, não é possível alterar o
+                        <strong> Eixo Temático</strong> nem os <strong>Orientadores solicitados</strong>.
+                        Você pode editar apenas o <strong>Título, Descrição e Equipe</strong>.
+                      </p>
                     </div>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
+            </div>
 
-              {/* Footer */}
-              <div className="flex flex-col-reverse gap-2 rounded-b-2xl border-t border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:justify-between sm:px-6 sm:py-4">
+            {/* Footer */}
+            <div className="flex flex-col-reverse gap-2 rounded-b-2xl border-t border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:justify-between sm:px-6 sm:py-4">
+              <button
+                type="button"
+                onClick={() => {
+                  if (editandoProjeto && temSolicitacaoEnviada) {
+                    fecharModal();
+                  } else if (etapa > 1) {
+                    setEtapa((e) => (e - 1) as Etapa);
+                  } else {
+                    fecharModal();
+                  }
+                }}
+                className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 active:bg-slate-200 sm:w-auto"
+              >
+                {etapa === 1 || (editandoProjeto && temSolicitacaoEnviada) ? "Cancelar" : "← Voltar"}
+              </button>
+
+              {etapa < 3 && !(editandoProjeto && temSolicitacaoEnviada) ? (
                 <button
                   type="button"
-                  onClick={() => etapa > 1 ? setEtapa((e) => (e - 1) as Etapa) : fecharModal()}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 active:bg-slate-200 sm:w-auto"
+                  disabled={etapa === 1 ? !podeAvancarEtapa1 : !podeAvancarEtapa2}
+                  onClick={() => setEtapa((e) => (e + 1) as Etapa)}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-sectec-700 px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-sectec-800 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed sm:w-auto sm:px-5"
                 >
-                  {etapa === 1 ? "Cancelar" : "← Voltar"}
+                  Continuar →
                 </button>
-
-                {etapa < 3 ? (
-                  <button
-                    type="button"
-                    disabled={etapa === 1 ? !podeAvancarEtapa1 : !podeAvancarEtapa2}
-                    onClick={() => setEtapa((e) => (e + 1) as Etapa)}
-                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-sectec-700 px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-sectec-800 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed sm:w-auto sm:px-5"
-                  >
-                    Continuar →
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    disabled={criando || membros.length < MIN_MEMBROS || membros.length > MAX_MEMBROS}
-                    onClick={handleCriarProjeto}
-                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-sectec-700 px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-sectec-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto sm:px-5"
-                  >
-                    {criando && (
-                      <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-                      </svg>
-                    )}
-                    {criando ? (editandoProjeto ? "Salvando..." : "Cadastrando...") : (editandoProjeto ? "Salvar alterações" : "Criar projeto")}
-                  </button>
-                )}
-              </div>
+              ) : (
+                <button
+                  type="button"
+                  disabled={criando || membros.length < MIN_MEMBROS || membros.length > MAX_MEMBROS}
+                  onClick={handleCriarProjeto}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-sectec-700 px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-sectec-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto sm:px-5"
+                >
+                  {criando && (
+                    <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                    </svg>
+                  )}
+                  {criando ? (editandoProjeto ? "Salvando..." : "Cadastrando...") : (editandoProjeto ? "Salvar alterações" : "Criar projeto")}
+                </button>
+              )}
             </div>
           </div>
-        )
-      }
-    </MainLayout >
+        </div>
+      )}
+    </MainLayout>
   );
 }
 

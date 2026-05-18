@@ -9,7 +9,8 @@ import {
   UseGuards,
   ForbiddenException,
   ParseIntPipe,
-  Req
+  Req,
+  Query
 } from '@nestjs/common';
 import { ProjetosService } from './projetos.service';
 
@@ -174,4 +175,16 @@ export class ProjetosController {
   ) {
     return this.projetosService.remove(id, userId, role);
   }
+
+// src/projetos/projetos.controller.ts
+
+@Get('alunos-ocupados')
+@UseGuards(JwtAuthGuard)
+async getAlunosOcupados(@Query('projetoId') projetoId?: string) {
+  const ids = await this.projetosService.findAlunosOcupados(
+    projetoId ? parseInt(projetoId) : undefined
+  );
+  return ids;
+}
+
 }

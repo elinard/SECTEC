@@ -657,9 +657,6 @@ export class ProjetosService {
     return vinculo;
   }
 
-
-
-
   // =========================================================================
   // MAPEAMENTO DE CONFIGURAÇÕES DE RELACIONAMENTO E CAMPOS (SELECT/RELATIONS)
   // =========================================================================
@@ -713,4 +710,65 @@ export class ProjetosService {
       },
     };
   }
+
+  // =========================================================================
+  // MÉTODO PARA BUSCAR ALUNOS OCUPADOS (CORRIGIDO)
+  // =========================================================================
+
+  /**
+   * Busca todos os IDs de alunos que já estão vinculados a algum projeto no evento atual.
+   * Útil para o frontend saber quais alunos não podem ser convidados para novos projetos.
+   */
+  // src/projetos/projetos.service.ts
+
+async findAlunosOcupados(projetoIdAtual?: number): Promise<number[]> {
+  try {
+    // Busca o evento atual primeiro
+    const eventoAtual = await this.buscarUltimoEvento();
+    
+    if (!eventoAtual) {
+      return [];
+    }
+
+    // Query para buscar todos os alunos ocupados no evento atual
+    const query = `
+      SELECT DISTINCT aluno_id FROM (
+        SELECT aluno_autor_id as aluno_id FROM projetos 
+        WHERE evento_id = ? AND aluno_autor_id IS NOT NULL
+        UNION
+        SELECT aluno_id FROM projeto_alunos pa
+        INNER JOIN projetos p ON p.id = pa.projeto_id
+        WHERE p.evento_id = ? AND pa.aluno_id IS NOT NULL
+      ) AS alunos_ocupados
+    `;
+    
+    let params: any[] = [eventoAtual.id, eventoAtual.id];
+    
+    // Se for para edição, exclui o projeto atual
+    if (projetoIdAtual) {
+      const queryComExclusao = `
+        SELECT DISTINCT aluno_id FROM (
+          SELECT aluno_autor_id as aluno_id FROM projetos 
+          WHERE evento_id = ? AND aluno_autor_id IS NOT NULL AND id != ?
+          UNION
+          SELECT aluno_id FROM projeto_alunos pa
+          INNER JOIN projetos p ON p.id = pa.projeto_id
+          WHERE p.evento_id = ? AND pa.aluno_id IS NOT NULL AND p.id != ?
+        ) AS alunos_ocupados
+      `;
+      params = [eventoAtual.id, projetoIdAtual, eventoAtual.id, projetoIdAtual];
+      
+      const rows = await this.dataSource.query(queryComExclusao, params);
+      return rows.map((row: any) => Number(row.aluno_id));
+    }
+    
+    const rows = await this.dataSource.query(query, params);
+    return rows.map((row: any) => Number(row.aluno_id));
+    
+  } catch (error) {
+    console.error('Erro ao buscar alunos ocupados:', error);
+    // Retorna array vazio em caso de erro para não quebrar o frontend
+    return [];
+  }
+}
 }
