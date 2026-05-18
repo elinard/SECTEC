@@ -79,9 +79,30 @@ export class MateriaisController {
   
   
   
-    @Patch(':id/avaliar')
+  @Patch(':id/avaliar')
   @ApiOperation({ summary: 'Aprova ou recusa o material postado por um aluno' })
   @ApiParam({ name: 'id', description: 'ID numérico do material a ser avaliado', type: Number })
+  @ApiBody({
+    schema: {
+      oneOf: [
+        {
+          type: 'object',
+          required: ['decisao'],
+          properties: {
+            decisao: { type: 'string', example: 'APROVAR' },
+          },
+        },
+        {
+          type: 'object',
+          required: ['decisao', 'opiniao'],
+          properties: {
+            decisao: { type: 'string', example: 'RECUSAR' },
+            opiniao: { type: 'string', example: 'Explique o ajuste necessário para o aluno.' },
+          },
+        },
+      ],
+    },
+  })
   async avaliarMaterial(
     @Param('id', ParseIntPipe) materialId: number,
     @Body() body: AvaliarMaterialDto,

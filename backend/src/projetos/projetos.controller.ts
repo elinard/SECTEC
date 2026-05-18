@@ -145,6 +145,7 @@ export class ProjetosController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Busca os detalhes de um projeto específico' })
+  @ApiResponse({ status: 200, description: 'Detalhes do projeto retornados com sucesso.', type: Object })
   async findOne(
     @Param('id', ParseIntPipe) id: number,
     @GetUser('userId') userId: number,
@@ -165,6 +166,7 @@ export class ProjetosController {
 
   @Patch(':id')
   @ApiOperation({ summary: 'Atualiza informações do projeto' })
+  @ApiResponse({ status: 200, description: 'Projeto atualizado com sucesso.', type: Object })
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateProjetoDto: UpdateProjetoDto,
