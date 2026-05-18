@@ -533,7 +533,9 @@ function Dashboard() {
   const fasesFeira = buildFasesFeira(eventoAtual);
   const projetoAceito = projeto?.status === "Aceito" || projeto?.status === "Em Desenvolvimento";
   const submissaoDesbloqueada = projetoAceito && faseAtual === 3 && projeto?.status !== "Submetido";
-  const youtubeValido = linkYoutube === "" || /^(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)[\w-]{11}/.test(linkYoutube);
+  const youtubeValido =
+    linkYoutube === "" ||
+    /^(https?:\/\/)?(www\.|m\.)?(youtube\.com\/(watch\?(.+&)?v=|shorts\/|embed\/)|youtu\.be\/)[\w-]{11}([?&].*)?$/i.test(linkYoutube.trim());
   const materialRelatorio = materiais.find((material) => material.tipo === "pdf_relatorio");
   const materialBanner = materiais.find((material) => material.tipo === "pdf");
   const materialLink = materiais.find((material) => material.tipo === "link");

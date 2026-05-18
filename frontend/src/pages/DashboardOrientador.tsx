@@ -117,6 +117,15 @@ type MaterialApi = {
   criadoEm?: string;
 };
 
+type ProjetoComMateriaisApi = ProjetoApi & {
+  materiais?: MaterialApi[];
+};
+
+type AvaliarMaterialResponse = {
+  mensagem: string;
+  material: MaterialApi;
+};
+
 type PdfApi = {
   fileId: number;
   materialId?: number;
@@ -363,6 +372,11 @@ function mapPdfToEntrega(pdf: PdfApi, orientacao: OrientacaoApi): Entrega {
   };
 }
 
+function mapProjetoPendenteToEntregas(projeto: ProjetoComMateriaisApi): Entrega[] {
+  const orientacao = mapProjetoToOrientacao(projeto);
+  return (projeto.materiais ?? []).map((material) => mapMaterialToEntrega(material, orientacao));
+}
+
 function useOrientadorBackendData() {
   const [orientacoes, setOrientacoes] = useState<OrientacaoApi[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -545,6 +559,20 @@ function useEntregasBackendData(orientacoes: OrientacaoApi[], orientacoesCarrega
     async function carregar() {
       if (orientacoesCarregando) return;
 
+      setCarregando(true);
+
+      try {
+        const projetosPendentes = await apiRequest<ProjetoComMateriaisApi[]>("/materiais/pendentes-orientador");
+        if (!active) return;
+
+        setEntregas(projetosPendentes.flatMap(mapProjetoPendenteToEntregas));
+        setErro("");
+        setCarregando(false);
+        return;
+      } catch {
+        // Fallback para backends antigos que ainda não possuem a rota dedicada.
+      }
+
       const orientacoesAceitas = orientacoes.filter((orientacao) => orientacao.status === "aceito" && orientacao.projeto?.id);
 
       if (orientacoesAceitas.length === 0) {
@@ -553,8 +581,6 @@ function useEntregasBackendData(orientacoes: OrientacaoApi[], orientacoesCarrega
         setCarregando(false);
         return;
       }
-
-      setCarregando(true);
 
       const respostas = await Promise.allSettled(
         orientacoesAceitas.map(async (orientacao) => {
@@ -574,7 +600,7 @@ function useEntregasBackendData(orientacoes: OrientacaoApi[], orientacoesCarrega
       const falhas = respostas.filter((resposta) => resposta.status === "rejected").length;
 
       setEntregas(entregasCarregadas);
-      setErro(falhas ? "Algumas entregas não puderam ser carregadas. O servidor publicado não tem /materiais para todos os projetos." : "");
+      setErro(falhas ? "Algumas entregas não puderam ser carregadas pela rota antiga de materiais." : "");
       setCarregando(false);
     }
 
@@ -585,18 +611,16 @@ function useEntregasBackendData(orientacoes: OrientacaoApi[], orientacoesCarrega
     };
   }, [orientacoes, orientacoesCarregando]);
 
-  async function revisarEntrega(entrega: Entrega, status: "aprovado" | "recusado" = "aprovado") {
+  async function revisarEntrega(entrega: Entrega, status: "aprovado" | "recusado" = "aprovado", opiniao?: string) {
     if (!entrega.materialId) {
       throw new Error("Sem endpoint no backend publicado para revisar esta entrega.");
     }
 
-    const atualizado = await apiRequest<MaterialApi>(`/materiais/${entrega.materialId}/revisar`, {
+    const resposta = await apiRequest<AvaliarMaterialResponse>(`/materiais/${entrega.materialId}/avaliar`, {
       method: "PATCH",
-      body: {
-        status,
-        opiniao: status === "aprovado" ? "Material revisado e aprovado pelo painel." : "Material revisado e recusado pelo painel.",
-      },
+      body: status === "aprovado" ? { decisao: "APROVAR" } : { decisao: "RECUSAR", opiniao },
     });
+    const atualizado = resposta.material;
 
     setEntregas((lista) =>
       lista.map((item) =>
@@ -1678,21 +1702,30 @@ export function EntregasOrientador() {
     return entregasPorEixo.filter((entrega) => entrega.status === filtro);
   }, [entregasPorEixo, filtro]);
 
-  async function revisarEntrega(id: string) {
+  async function revisarEntrega(id: string, status: "aprovado" | "recusado" = "aprovado") {
     const entrega = entregasData.find((item) => item.id === id);
     if (!entrega) return;
 
+    let opiniao: string | undefined;
+    if (status === "recusado") {
+      opiniao = window.prompt("Informe a opinião/justificativa da reprovação:")?.trim();
+      if (!opiniao) {
+        setAviso("Para reprovar, informe a opinião do orientador.");
+        return;
+      }
+    }
+
     try {
-      await entregasBackend.revisarEntrega(entrega);
-      setAviso("Entrega marcada como revisada no backend.");
+      await entregasBackend.revisarEntrega(entrega, status, opiniao);
+      setAviso(status === "aprovado" ? "Entrega aprovada no backend." : "Entrega reprovada no backend.");
     } catch (error) {
-      setAviso(error instanceof Error ? error.message : "Não foi possível revisar a entrega.");
+      setAviso(error instanceof Error ? error.message : "Não foi possível avaliar a entrega.");
     }
   }
 
   async function marcarLoteRevisado() {
-    const entregasPendentes = entregasFiltradas.filter((entrega) => entrega.status !== "revisada");
-    const total = entregasFiltradas.filter((entrega) => entrega.status !== "revisada").length;
+    const entregasPendentes = entregasFiltradas.filter((entrega) => entrega.status === "pendente");
+    const total = entregasPendentes.length;
 
     if (!total) {
       setAviso("Não há entregas pendentes neste filtro.");
@@ -1701,9 +1734,9 @@ export function EntregasOrientador() {
 
     try {
       await Promise.all(entregasPendentes.map((entrega) => entregasBackend.revisarEntrega(entrega)));
-      setAviso(`${total} entrega(s) marcada(s) como revisadas no backend.`);
+      setAviso(`${total} entrega(s) aprovada(s) no backend.`);
     } catch (error) {
-      setAviso(error instanceof Error ? error.message : "Não foi possível revisar o lote completo.");
+      setAviso(error instanceof Error ? error.message : "Não foi possível aprovar o lote completo.");
     }
   }
 
@@ -1715,7 +1748,7 @@ export function EntregasOrientador() {
       actions={
         <Button variant="secondary" onClick={marcarLoteRevisado}>
           <CheckCircle2 size={16} />
-          Marcar lote revisado
+          Aprovar lote
         </Button>
       }
     >
@@ -1724,7 +1757,7 @@ export function EntregasOrientador() {
           aviso ||
           (backend.carregando || entregasBackend.carregando
             ? "Carregando entregas do backend..."
-            : backend.erro || entregasBackend.erro || "Entregas são carregadas de /materiais apenas para projetos já aceitos.")
+            : backend.erro || entregasBackend.erro || "Entregas são carregadas de /materiais/pendentes-orientador para projetos já aceitos.")
         }
       />
 
@@ -1793,15 +1826,24 @@ export function EntregasOrientador() {
                       <DetailLine label="Data" value={entrega.data} />
                     </div>
 
-                    <Button
-                      variant="secondary"
-                      disabled={entrega.status === "revisada"}
-                      onClick={() => revisarEntrega(entrega.id)}
-                      className="mt-4"
-                    >
-                      <Check size={15} />
-                      Revisar
-                    </Button>
+                    <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                      <Button
+                        variant="secondary"
+                        disabled={entrega.status !== "pendente"}
+                        onClick={() => revisarEntrega(entrega.id, "aprovado")}
+                      >
+                        <Check size={15} />
+                        Aprovar
+                      </Button>
+                      <Button
+                        variant="danger"
+                        disabled={entrega.status !== "pendente"}
+                        onClick={() => revisarEntrega(entrega.id, "recusado")}
+                      >
+                        <X size={15} />
+                        Reprovar
+                      </Button>
+                    </div>
                   </motion.div>
                 ))}
               </AnimatePresence>
@@ -1845,14 +1887,24 @@ export function EntregasOrientador() {
                           <Badge tone={entregaTone(entrega.status)}>{entrega.status}</Badge>
                         </td>
                         <td className="border-b border-slate-100 py-4 text-right">
-                          <Button
-                            variant="secondary"
-                            disabled={entrega.status === "revisada"}
-                            onClick={() => revisarEntrega(entrega.id)}
-                          >
-                            <Check size={15} />
-                            Revisar
-                          </Button>
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              variant="secondary"
+                              disabled={entrega.status !== "pendente"}
+                              onClick={() => revisarEntrega(entrega.id, "aprovado")}
+                            >
+                              <Check size={15} />
+                              Aprovar
+                            </Button>
+                            <Button
+                              variant="danger"
+                              disabled={entrega.status !== "pendente"}
+                              onClick={() => revisarEntrega(entrega.id, "recusado")}
+                            >
+                              <X size={15} />
+                              Reprovar
+                            </Button>
+                          </div>
                         </td>
                       </motion.tr>
                     ))}
