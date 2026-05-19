@@ -1,7 +1,7 @@
 const LOCAL_API_BASE = "https://sectec-ja.up.railway.app";
 function normalizeApiBaseUrl(rawUrl?: string) {
   const configuredUrl = rawUrl?.trim();
-   
+
   if (!configuredUrl && import.meta.env.PROD) {
     throw new Error("VITE_API_URL não configurada no frontend.");
   }
