@@ -148,16 +148,8 @@
               </ProtectedRoute>
             }
           />
-          <Route
-            path="/dashboard/coordenacao/notas"
-            element={
-              <ProtectedRoute allowedRoles={["coordenador", "comissao"]}>
-                <Administrador />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/dashboard/coordenacao/usuarios"
+        <Route
+          path="/dashboard/coordenacao/usuarios"
             element={
               <ProtectedRoute allowedRoles={["coordenador", "comissao"]}>
                 <Administrador />
