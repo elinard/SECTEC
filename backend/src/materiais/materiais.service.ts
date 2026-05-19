@@ -52,6 +52,7 @@ export class MateriaisService {
 
     // 1. Validações preliminares obrigatórias
     const projeto = await this.buscarEValidarProjeto(projetoIdNum, file);
+    this.validarPeriodoAberto(projeto.evento?.submissao, 'submissao');
     this.validarPayloadPorTipo(dto.tipo, dto.conteudo, file);
 
     // 2. Busca se já existe um material do mesmo tipo para o projeto
@@ -306,12 +307,52 @@ console.log('ID do Autor no Banco:', typeof material.projeto.alunoAutor.id, mate
    * Garante a existência do projeto alvo no banco de dados.
    */
   private async buscarEValidarProjeto(projetoId: number, file: Express.Multer.File | undefined): Promise<Projeto> {
-    const projeto = await this.projetoRepository.findOne({ where: { id: projetoId } });
+    const projeto = await this.projetoRepository.findOne({
+      where: { id: projetoId },
+      relations: ['evento'],
+    });
     if (!projeto) {
       this.removerArquivoTemporario(file);
       throw new NotFoundException(`Projeto com ID ${projetoId} não foi encontrado.`);
     }
     return projeto;
+  }
+
+  private normalizarDataPeriodo(
+    value?: Date | string | null,
+    endOfDay = false,
+  ): Date | null {
+    if (!value) return null;
+
+    const date = value instanceof Date ? new Date(value) : new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    if (endOfDay) date.setHours(23, 59, 59, 999);
+    return date;
+  }
+
+  private validarPeriodoAberto(
+    periodo: { inicio?: Date | string | null; fim?: Date | string | null } | null | undefined,
+    nomePeriodo: string,
+  ) {
+    const inicio = this.normalizarDataPeriodo(periodo?.inicio);
+    const fim = this.normalizarDataPeriodo(periodo?.fim, true);
+    const agora = new Date();
+
+    if (!inicio || !fim) {
+      throw new BadRequestException(`O prazo de ${nomePeriodo} nao esta definido.`);
+    }
+
+    if (agora < inicio) {
+      throw new BadRequestException(
+        `O prazo de ${nomePeriodo} ainda nao comecou. (Inicio: ${inicio.toLocaleString()})`,
+      );
+    }
+
+    if (agora > fim) {
+      throw new BadRequestException(
+        `O prazo de ${nomePeriodo} encerrou em ${fim.toLocaleString()}.`,
+      );
+    }
   }
 
   /**
@@ -377,6 +418,7 @@ console.log('ID do Autor no Banco:', typeof material.projeto.alunoAutor.id, mate
     // 1. Busca o material alvo no banco de dados
     const material = await this.materiaisRepository.findOne({
       where: { id: materialId },
+      relations: ['projeto', 'projeto.evento'],
     });
 
     if (!material) {
@@ -384,6 +426,8 @@ console.log('ID do Autor no Banco:', typeof material.projeto.alunoAutor.id, mate
     }
 
     // 2. Só permite avaliar materiais que estão atualmente pendentes (Em análise)
+    this.validarPeriodoAberto(material.projeto?.evento?.avaliacao, 'avaliacao');
+
     if (material.status !== StatusMaterial.EM_ANALISE) {
       throw new ConflictException(
         `Este material não pode ser avaliado pois já encontra-se com o status '${material.status}'.`,

@@ -74,12 +74,6 @@ function getMaterialLabel(tipo: string) {
   return "Material";
 }
 
-const FASE_PADRAO: FaseAtual = 1;
-const FASE_LABELS: Record<FaseAtual, string> = {
-  1: "Inscrição",
-  2: "Submissão",
-  3: "Avaliação"
-};
 const STATUS_STYLE: Record<StatusProjeto, string> = {
   "Rascunho": "bg-slate-100 text-slate-600",
   "Aguardando Aprovação": "bg-yellow-100 text-yellow-700",
@@ -89,11 +83,6 @@ const STATUS_STYLE: Record<StatusProjeto, string> = {
   "Submetido": "bg-purple-100 text-purple-700",
   "Avaliado": "bg-orange-100 text-orange-700",
 };
-const FASES_FEIRA = [
-  { fase: 1 as FaseAtual, label: "Inscrição", descricao: "Cadastro do projeto e da equipe" },
-  { fase: 2 as FaseAtual, label: "Submissão", descricao: "Envio do relatório e vídeo" },
-  { fase: 3 as FaseAtual, label: "Avaliação", descricao: "Banca examinadora" },
-];
 const STATUS_TOOLTIP: Record<StatusProjeto, string> = {
   "Rascunho": "Projeto salvo, mas ainda não enviado para análise.",
   "Aguardando Aprovação": "Enviado! Seu orientador irá analisar e aprovar ou recusar.",
@@ -232,16 +221,31 @@ function parseEventoDate(value?: string | null, endOfDay = false) {
 
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
+  if (endOfDay) date.setHours(23, 59, 59, 999);
   return date;
 }
 
-function formatarPeriodoEvento(periodo?: PeriodoEventoApi | null) {
+type PeriodoStatus = "Liberado" | "Não liberado" | "Encerrado" | "Não definido";
+
+function getStatusPeriodoEvento(periodo?: PeriodoEventoApi | null, referencia = new Date()): PeriodoStatus {
   const inicio = parseEventoDate(periodo?.inicio);
-  const fim = parseEventoDate(periodo?.fim);
+  const fim = parseEventoDate(periodo?.fim, true);
 
   if (!inicio || !fim) return "Não definido";
+  if (referencia < inicio) return "Não liberado";
+  if (referencia > fim) return "Encerrado";
+  return "Liberado";
+}
 
-  return `${inicio.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} – ${fim.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}`;
+function periodoEstaAberto(periodo?: PeriodoEventoApi | null, referencia = new Date()) {
+  return getStatusPeriodoEvento(periodo, referencia) === "Liberado";
+}
+
+function getMensagemPeriodoInscricao(status: PeriodoStatus) {
+  if (status === "Liberado") return "Toque em \"Novo Projeto\" para se inscrever na feira.";
+  if (status === "Não liberado") return "O período de inscrições ainda não começou.";
+  if (status === "Encerrado") return "O período de inscrições encerrou.";
+  return "O período de inscrições ainda não foi definido.";
 }
 
 function getFaseAtualEvento(evento?: EventoApi | null): FaseAtual {
@@ -277,18 +281,10 @@ function getFaseAtualEvento(evento?: EventoApi | null): FaseAtual {
 function buildFasesFeira(evento?: EventoApi | null) {
   const hoje = new Date();
 
-  function getStatus(periodo?: PeriodoEventoApi | null): string {
-    const inicio = parseEventoDate(periodo?.inicio);
-    if (!inicio) return "Não definido";
-    const hoje = new Date();
-    if (hoje >= inicio) return "Liberado";
-    return "Não liberado";
-  }
-
   return [
-    { fase: 1 as FaseAtual, label: "Inscrição", data: getStatus(evento?.inscricao), descricao: "Cadastro do projeto e da equipe" },
-    { fase: 2 as FaseAtual, label: "Submissão", data: getStatus(evento?.submissao), descricao: "Envio do relatório e vídeo" },
-    { fase: 3 as FaseAtual, label: "Avaliação", data: getStatus(evento?.avaliacao), descricao: "Banca examinadora" },
+    { fase: 1 as FaseAtual, label: "Inscrição", data: getStatusPeriodoEvento(evento?.inscricao, hoje), descricao: "Cadastro do projeto e da equipe" },
+    { fase: 2 as FaseAtual, label: "Submissão", data: getStatusPeriodoEvento(evento?.submissao, hoje), descricao: "Envio do relatório e vídeo" },
+    { fase: 3 as FaseAtual, label: "Avaliação", data: getStatusPeriodoEvento(evento?.avaliacao, hoje), descricao: "Banca examinadora" },
   ];
 }
 
@@ -364,10 +360,9 @@ function FeiraTimeline({ faseAtual, fases }: {
         <div className="absolute left-3.5 top-3 bottom-3 w-px bg-slate-200" />
         <div className="space-y-5">
           {fases.map(({ fase, label, data, descricao }) => {
-            const done = fase < faseAtual;
-            const active = fase === faseAtual;
-            const pending = fase > faseAtual;
-            const liberado = data === "Liberado";
+            const active = data === "Liberado" && fase === faseAtual;
+            const done = data === "Encerrado" || fase < faseAtual;
+            const pending = !active && !done;
             return (
               <div key={fase} className="flex gap-4 relative">
                 <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 z-10 text-xs font-bold border-2
@@ -565,8 +560,13 @@ function Dashboard() {
   const orientadorExibicao = orientadorProjeto ?? orientadoresDisponiveis.find((o) => o.id === solicitacoes[0]);
   const faseAtual = getFaseAtualEvento(eventoAtual);
   const fasesFeira = buildFasesFeira(eventoAtual);
+  const faseAberta = fasesFeira.find((fase) => fase.data === "Liberado");
+  const faseAtualDescricao = faseAberta ? `${faseAberta.fase} — ${faseAberta.label}` : "Nenhuma fase aberta";
+  const statusInscricao = getStatusPeriodoEvento(eventoAtual?.inscricao);
+  const inscricaoAberta = statusInscricao === "Liberado";
+  const submissaoAberta = periodoEstaAberto(eventoAtual?.submissao);
   const projetoAceito = projeto?.status === "Aceito" || projeto?.status === "Em Desenvolvimento";
-  const submissaoDesbloqueada = projetoAceito && faseAtual === 2 && projeto?.status !== "Submetido";
+  const submissaoDesbloqueada = projetoAceito && submissaoAberta && projeto?.status !== "Submetido";
   const youtubeValido =
     linkYoutube === "" ||
     /^(https?:\/\/)?(www\.|m\.)?(youtube\.com\/(watch\?(.+&)?v=|shorts\/|embed\/)|youtu\.be\/)[\w-]{11}([?&].*)?$/i.test(linkYoutube.trim());
@@ -679,6 +679,16 @@ function Dashboard() {
 
   // Se o projeto já existe e só está solicitando novos orientadores
   async function handleCriarProjeto() {
+    if (!editandoProjeto && !inscricaoAberta) {
+      Swal.fire({
+        icon: "warning",
+        title: "Inscrição fora do prazo",
+        text: getMensagemPeriodoInscricao(statusInscricao),
+        confirmButtonColor: "#15803d",
+      });
+      return;
+    }
+
     // Se o projeto já existe e está recusado, só envia novas solicitações
     if (reenviandoOrientadores && projeto) {
       const temaId = Number(eixo);
@@ -869,7 +879,7 @@ function Dashboard() {
         <div className="mb-6 flex flex-col items-start justify-between gap-3 sm:mb-8 sm:flex-row">
           <div className="min-w-0">
             <p className="mb-1 break-words text-xs text-slate-500 sm:text-sm">
-              Fase atual: <span className="font-semibold text-sectec-700">{faseAtual} — {FASE_LABELS[faseAtual]}</span>
+              Fase atual: <span className="font-semibold text-sectec-700">{faseAtualDescricao}</span>
             </p>
             <h1 className="break-words text-xl font-bold leading-tight text-slate-900 sm:text-2xl">
               Seja bem-vindo(a), {ALUNO_LOGADO.nome.split(" ")[0]}! 👋
@@ -878,7 +888,7 @@ function Dashboard() {
               {projeto ? "Acompanhe o andamento do seu projeto abaixo." : "Você ainda não possui um projeto."}
             </p>
           </div>
-          {faseAtual === 1 && !projeto && (
+          {inscricaoAberta && !projeto && (
             <button
               onClick={() => setModalAberto(true)}
               className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-sectec-700 px-3 py-2 text-xs font-semibold text-white shadow-md transition-all hover:bg-sectec-800 active:scale-[0.98] sm:w-auto sm:gap-2 sm:px-4 sm:py-2.5 sm:text-sm"
@@ -897,7 +907,7 @@ function Dashboard() {
                 </div>
                 <h3 className="text-sm sm:text-base font-semibold text-slate-700 mb-1">Nenhum projeto inscrito</h3>
                 <p className="text-xs sm:text-sm text-slate-400 max-w-xs">
-                  {faseAtual === 1 ? "Toque em \"Novo Projeto\" para se inscrever na feira." : "O período de inscrições encerrou."}
+                  {getMensagemPeriodoInscricao(statusInscricao)}
                 </p>
               </div>
             )}
@@ -1018,7 +1028,7 @@ function Dashboard() {
                         ) : (
                           <p className="text-xs text-slate-400">Nenhum orientador aceitou ainda.</p>
                         )}
-                        {faseAtual === 2 && projetoAceito && (
+                        {submissaoAberta && projetoAceito && (
                           <button onClick={() => setAba("submissao")}
                             className="mt-4 w-full flex items-center justify-center gap-1.5 py-2 text-xs font-semibold text-sectec-700 bg-sectec-50 rounded-lg hover:bg-sectec-100 transition-colors">
                             Ir para Submissão <ChevronRight size={13} />
@@ -1037,16 +1047,16 @@ function Dashboard() {
                         <h2 className="text-sm sm:text-base font-semibold text-slate-900 mb-1">Submissão do Projeto</h2>
                         <p className="text-xs sm:text-sm text-slate-500 mb-5">Envie o relatório final, o banner em PDF e o link do vídeo no YouTube.</p>
 
-                        {faseAtual !== 2 && (
+                        {!submissaoAberta && (
                           <div className="flex gap-3 bg-slate-50 border border-slate-200 rounded-xl p-4 mb-5">
                             <Lock size={15} className="text-slate-400 mt-0.5 shrink-0" />
                             <p className="text-xs sm:text-sm text-slate-500">
-                              Disponível apenas na <strong>Fase 2 — Submissão</strong>. Fase atual: {faseAtual}.
+                              Disponível apenas dentro do prazo de <strong>Submissão</strong>.
                             </p>
                           </div>
                         )}
 
-                        {faseAtual === 2 && !projetoAceito && (
+                        {submissaoAberta && !projetoAceito && (
                           <div className="flex gap-3 bg-yellow-50 border border-yellow-200 rounded-xl p-4 mb-5">
                             <TriangleAlert size={15} className="text-yellow-500 mt-0.5 shrink-0" />
                             <p className="text-xs sm:text-sm text-yellow-700">

@@ -434,19 +434,7 @@ export class ProjetosService {
       throw new NotFoundException(`O evento #${eventoId} nao existe.`);
     }
 
-    const agora = new Date();
-
-    if (evento.inscricao?.inicio && agora < evento.inscricao.inicio) {
-      throw new BadRequestException(
-        `As inscricoes para este evento ainda nao comecaram. (Inicio: ${evento.inscricao.inicio.toLocaleString()})`,
-      );
-    }
-
-    if (evento.inscricao?.fim && agora > evento.inscricao.fim) {
-      throw new BadRequestException(
-        `O prazo de inscricao para este evento encerrou em ${evento.inscricao.fim.toLocaleString()}.`,
-      );
-    }
+    this.validarPeriodoAberto(evento.inscricao, 'inscricao');
 
     const temaValido = await this.temaEventoRepository.findOne({
       where: { id: temaId, evento: { id: eventoId } },
@@ -618,6 +606,43 @@ export class ProjetosService {
 
     if (!existe) {
       throw new BadRequestException('O tema do projeto nao esta disponivel para este evento.');
+    }
+  }
+
+  private normalizarDataPeriodo(
+    value?: Date | string | null,
+    endOfDay = false,
+  ): Date | null {
+    if (!value) return null;
+
+    const date = value instanceof Date ? new Date(value) : new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    if (endOfDay) date.setHours(23, 59, 59, 999);
+    return date;
+  }
+
+  private validarPeriodoAberto(
+    periodo: { inicio?: Date | string | null; fim?: Date | string | null } | null | undefined,
+    nomePeriodo: string,
+  ) {
+    const inicio = this.normalizarDataPeriodo(periodo?.inicio);
+    const fim = this.normalizarDataPeriodo(periodo?.fim, true);
+    const agora = new Date();
+
+    if (!inicio || !fim) {
+      throw new BadRequestException(`O prazo de ${nomePeriodo} nao esta definido.`);
+    }
+
+    if (agora < inicio) {
+      throw new BadRequestException(
+        `O prazo de ${nomePeriodo} ainda nao comecou. (Inicio: ${inicio.toLocaleString()})`,
+      );
+    }
+
+    if (agora > fim) {
+      throw new BadRequestException(
+        `O prazo de ${nomePeriodo} encerrou em ${fim.toLocaleString()}.`,
+      );
     }
   }
 
