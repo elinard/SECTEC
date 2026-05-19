@@ -23,7 +23,7 @@ export enum EventoStatus {
 }
 
 
-
+   
 // Value Object ajustado para apenas DATA
 export class Periodo {
   @Column({ type: 'datetime', nullable: true }) // Mudança para 'date'
