@@ -54,12 +54,9 @@ export class Evento {
   @Column(() => Periodo)
   avaliacao!: Periodo;
 
-  @Column(() => Periodo)
-  aceitacao!: Periodo;
-
   // --- Configurações Gerais ---
-  @Column({ name: 'coordenador_id', nullable: true })
-  coordenadorId?: number;
+@Column({ name: 'coordenador_id', nullable: true })
+coordenadorId?: number;
 
 @Column({ name: 'prazo_inicial', type: 'datetime', nullable: true }) // Adicione o nullable aqui
 prazoInicial!: Date;
