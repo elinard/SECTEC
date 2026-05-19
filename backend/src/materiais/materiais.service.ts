@@ -22,6 +22,8 @@ import { AvaliarMaterialDto, DecisaoAvaliacao } from
 import { Repository, Between } from 'typeorm'; // 🚀 ADICIONE O BETWEEN AQUI
 import { EventoStatus } from '../evento/entities/evento.entity'; // 🚀 ADICIONE ESTA LINHA
 
+const PRAZO_CANCELAMENTO_MATERIAL_MS = 24 * 60 * 60 * 1000;
+
 @Injectable()
 export class MateriaisService {
   constructor(
@@ -70,7 +72,7 @@ export class MateriaisService {
 
   /**
    * Permite ao aluno cancelar o envio de um material acadêmico feito por engano.
-   * Valida se a entrega ainda está em análise e se foi realizada há menos de 1 hora.
+   * Valida se a entrega ainda está em análise e se foi realizada há menos de 1 dia.
    * Remove de forma limpa o registro e expurga o arquivo binário do Google Drive.
    * 
    * @param materialId ID numérico do material a ser cancelado.
@@ -104,17 +106,13 @@ console.log('ID do Autor no Banco:', typeof material.projeto.alunoAutor.id, mate
       );
     }
 
-    // 3. Validação matemática do teto limite de 1 hora (3600000 ms)
+    // 3. Validação matemática do teto limite de 1 dia.
     const agora = new Date();
     const tempoDecorridoMs = agora.getTime() - new Date(material.criadoEm).getTime();
-    const umaHoraMs = 1000 * 60 * 60;
 
-    if (tempoDecorridoMs > umaHoraMs) {
-    	console.log(material.criadoEm);
-    	console.log(tempoDecorridoMs);
-    	console.log(umaHoraMs);
+    if (tempoDecorridoMs > PRAZO_CANCELAMENTO_MATERIAL_MS) {
       throw new BadRequestException(
-        'O prazo limite de 1 hora para o cancelamento deste material expirou.',
+        'O prazo limite de 1 dia para o cancelamento deste material expirou.',
       );
     }
 

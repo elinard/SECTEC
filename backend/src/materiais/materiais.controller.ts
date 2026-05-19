@@ -72,7 +72,7 @@ export class MateriaisController {
 
   @Delete(':id/cancelar')
   @Roles(UserRole.ALUNO)
-  @ApiOperation({ summary: 'Cancela o envio de um material antes da avaliação dentro da janela de 1 hora' })
+  @ApiOperation({ summary: 'Cancela o envio de um material em análise dentro da janela de 1 dia' })
   @ApiParam({ name: 'id', description: 'ID numérico do material a ser cancelado', type: Number })
   async cancelarMaterial(
     @Param('id', ParseIntPipe) materialId: number,

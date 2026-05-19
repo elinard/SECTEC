@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Plus, FlaskConical, Users, ChevronRight, X, Search, UserPlus, UserMinus, ChevronDown, Upload, Video, FileText, Lock, TriangleAlert, Calendar, Pencil } from "lucide-react";
+import { Plus, FlaskConical, Users, ChevronRight, X, Search, UserPlus, UserMinus, ChevronDown, Upload, Video, FileText, Lock, TriangleAlert, Calendar, Pencil, Trash2 } from "lucide-react";
 import { MainLayout } from "../componentes/SideBarUniversal";
 import Swal from "sweetalert2";
 import { API_BASE_URL, apiRequest, type UsuarioApi } from "../lib/api";
@@ -72,6 +72,18 @@ function getMaterialLabel(tipo: string) {
   if (tipo === "pdf") return "Banner";
   if (tipo === "link") return "Vídeo";
   return "Material";
+}
+
+const PRAZO_CANCELAMENTO_MATERIAL_MS = 24 * 60 * 60 * 1000;
+
+function podeCancelarMaterial(material: Material, referenciaMs = Date.now()) {
+  const criadoEmMs = new Date(material.criadoEm).getTime();
+  return (
+    material.status === "em_analise" &&
+    Number.isFinite(criadoEmMs) &&
+    referenciaMs >= criadoEmMs &&
+    referenciaMs - criadoEmMs <= PRAZO_CANCELAMENTO_MATERIAL_MS
+  );
 }
 
 const STATUS_STYLE: Record<StatusProjeto, string> = {
@@ -444,6 +456,8 @@ function Dashboard() {
 
   const [materiais, setMateriais] = useState<Material[]>([]);
   const [enviandoMaterial, setEnviandoMaterial] = useState(false);
+  const [cancelandoMaterialId, setCancelandoMaterialId] = useState<number | null>(null);
+  const [agoraMs, setAgoraMs] = useState(() => Date.now());
 
   const [orientadorProjeto, setOrientadorProjeto] = useState<Orientador | null>(null);
 
@@ -537,6 +551,11 @@ function Dashboard() {
     return () => { active = false; };
   }, []);
 
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setAgoraMs(Date.now()), 60 * 1000);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
   // ── Computed ──
   const eixoSelecionado = eixosDisponiveis.find((item) => String(item.id) === eixo);
   const orientadoresFiltradosPorEixo = eixo
@@ -576,13 +595,19 @@ function Dashboard() {
   const precisaRelatorio = !materialRelatorio || materialRelatorio.status === "recusado";
   const precisaBanner = !materialBanner || materialBanner.status === "recusado";
   const precisaLink = !materialLink || materialLink.status === "recusado";
+  const relatorioDisponivel = submissaoDesbloqueada && precisaRelatorio;
+  const bannerDisponivel = submissaoDesbloqueada && precisaBanner;
+  const linkDisponivel = submissaoDesbloqueada && precisaLink;
+  const relatorioSelecionado = relatorioDisponivel && Boolean(arquivoPdf);
+  const bannerSelecionado = bannerDisponivel && Boolean(arquivoBanner);
+  const linkSelecionado = linkDisponivel && Boolean(linkYoutube.trim());
+  const totalMateriaisSelecionados =
+    Number(relatorioSelecionado) + Number(bannerSelecionado) + Number(linkSelecionado);
   const podeEnviarSubmissao =
     submissaoDesbloqueada &&
     !enviandoMaterial &&
-    (precisaRelatorio || precisaBanner || precisaLink) &&
-    (!precisaRelatorio || Boolean(arquivoPdf)) &&
-    (!precisaBanner || Boolean(arquivoBanner)) &&
-    (!precisaLink || (Boolean(linkYoutube) && youtubeValido));
+    totalMateriaisSelecionados === 1 &&
+    (!linkSelecionado || youtubeValido);
   const passwordChangedKey = `passwordChangedAt:${localStorage.getItem("userId") ?? "me"}`;
   const deveMostrarAvisoSenha = !localStorage.getItem(passwordChangedKey) && !avisoSenhaDispensado;
 
@@ -675,6 +700,46 @@ function Dashboard() {
     }
 
     setMembros((prev) => [...prev, aluno]);
+  }
+
+  async function handleCancelarMaterial(material: Material) {
+    if (!ehAutor || !podeCancelarMaterial(material, agoraMs)) return;
+
+    const confirmacao = await Swal.fire({
+      icon: "warning",
+      title: "Cancelar envio?",
+      text: `O ${getMaterialLabel(material.tipo).toLowerCase()} será removido e poderá ser enviado novamente dentro do prazo de submissão.`,
+      showCancelButton: true,
+      confirmButtonText: "Sim, cancelar",
+      cancelButtonText: "Manter envio",
+      confirmButtonColor: "#dc2626",
+      cancelButtonColor: "#64748b",
+    });
+
+    if (!confirmacao.isConfirmed) return;
+
+    setCancelandoMaterialId(material.id);
+    try {
+      await apiRequest(`/materiais/${material.id}/cancelar`, {
+        method: "DELETE",
+      });
+      setMateriais((prev) => prev.filter((item) => item.id !== material.id));
+      Swal.fire({
+        icon: "success",
+        title: "Envio cancelado",
+        text: "O material foi removido da submissão.",
+        confirmButtonColor: "#15803d",
+      });
+    } catch (error) {
+      Swal.fire({
+        icon: "error",
+        title: "Não foi possível cancelar",
+        text: error instanceof Error ? error.message : "Tente novamente em instantes.",
+        confirmButtonColor: "#15803d",
+      });
+    } finally {
+      setCancelandoMaterialId(null);
+    }
   }
 
   // Se o projeto já existe e só está solicitando novos orientadores
@@ -1045,7 +1110,7 @@ function Dashboard() {
                     {ehAutor && (
                       <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
                         <h2 className="text-sm sm:text-base font-semibold text-slate-900 mb-1">Submissão do Projeto</h2>
-                        <p className="text-xs sm:text-sm text-slate-500 mb-5">Envie o relatório final, o banner em PDF e o link do vídeo no YouTube.</p>
+                        <p className="text-xs sm:text-sm text-slate-500 mb-5">Escolha e envie um material por vez.</p>
 
                         {!submissaoAberta && (
                           <div className="flex gap-3 bg-slate-50 border border-slate-200 rounded-xl p-4 mb-5">
@@ -1067,41 +1132,62 @@ function Dashboard() {
 
                         <div className="space-y-4">
                           <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-1.5">Relatório Final (PDF) *</label>
-                            <input ref={inputPdfRef} type="file" accept=".pdf" disabled={!submissaoDesbloqueada}
-                              onChange={(e) => setArquivoPdf(e.target.files?.[0] ?? null)} className="hidden" />
-                            <button type="button" disabled={!submissaoDesbloqueada} onClick={() => inputPdfRef.current?.click()}
+                            <label className="block text-sm font-medium text-slate-700 mb-1.5">Relatório Final (PDF)</label>
+                            <input ref={inputPdfRef} type="file" accept=".pdf" disabled={!relatorioDisponivel}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0] ?? null;
+                                setArquivoPdf(file);
+                                if (file) {
+                                  setArquivoBanner(null);
+                                  setLinkYoutube("");
+                                }
+                              }} className="hidden" />
+                            <button type="button" disabled={!relatorioDisponivel} onClick={() => inputPdfRef.current?.click()}
                               className={`w-full border-2 border-dashed rounded-xl p-4 flex flex-col items-center gap-2 transition-colors
-                ${submissaoDesbloqueada ? "border-slate-200 hover:border-sectec-400 hover:bg-sectec-50 cursor-pointer" : "border-slate-100 bg-slate-50 cursor-not-allowed opacity-60"}`}>
+                ${relatorioDisponivel ? "border-slate-200 hover:border-sectec-400 hover:bg-sectec-50 cursor-pointer" : "border-slate-100 bg-slate-50 cursor-not-allowed opacity-60"}`}>
                               {arquivoPdf
                                 ? <><FileText size={20} className="text-sectec-600" /><span className="text-xs font-medium text-sectec-700 break-all">{arquivoPdf.name}</span></>
-                                : <><Upload size={20} className="text-slate-400" /><span className="text-xs text-slate-500">{submissaoDesbloqueada ? "Toque para selecionar o PDF" : "Campo bloqueado"}</span></>
+                                : <><Upload size={20} className="text-slate-400" /><span className="text-xs text-slate-500">{!precisaRelatorio ? "Relatório já enviado" : relatorioDisponivel ? "Toque para selecionar o PDF" : "Campo bloqueado"}</span></>
                               }
                             </button>
                           </div>
 
                           <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-1.5">Banner (PDF) *</label>
-                            <input ref={inputBannerRef} type="file" accept=".pdf" disabled={!submissaoDesbloqueada}
-                              onChange={(e) => setArquivoBanner(e.target.files?.[0] ?? null)} className="hidden" />
-                            <button type="button" disabled={!submissaoDesbloqueada} onClick={() => inputBannerRef.current?.click()}
+                            <label className="block text-sm font-medium text-slate-700 mb-1.5">Banner (PDF)</label>
+                            <input ref={inputBannerRef} type="file" accept=".pdf" disabled={!bannerDisponivel}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0] ?? null;
+                                setArquivoBanner(file);
+                                if (file) {
+                                  setArquivoPdf(null);
+                                  setLinkYoutube("");
+                                }
+                              }} className="hidden" />
+                            <button type="button" disabled={!bannerDisponivel} onClick={() => inputBannerRef.current?.click()}
                               className={`w-full border-2 border-dashed rounded-xl p-4 flex flex-col items-center gap-2 transition-colors
-                ${submissaoDesbloqueada ? "border-slate-200 hover:border-sectec-400 hover:bg-sectec-50 cursor-pointer" : "border-slate-100 bg-slate-50 cursor-not-allowed opacity-60"}`}>
+                ${bannerDisponivel ? "border-slate-200 hover:border-sectec-400 hover:bg-sectec-50 cursor-pointer" : "border-slate-100 bg-slate-50 cursor-not-allowed opacity-60"}`}>
                               {arquivoBanner
                                 ? <><FileText size={20} className="text-sectec-600" /><span className="text-xs font-medium text-sectec-700 break-all">{arquivoBanner.name}</span></>
-                                : <><Upload size={20} className="text-slate-400" /><span className="text-xs text-slate-500">{submissaoDesbloqueada ? "Toque para selecionar o banner" : "Campo bloqueado"}</span></>
+                                : <><Upload size={20} className="text-slate-400" /><span className="text-xs text-slate-500">{!precisaBanner ? "Banner já enviado" : bannerDisponivel ? "Toque para selecionar o banner" : "Campo bloqueado"}</span></>
                               }
                             </button>
                           </div>
 
                           <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-1.5">Link do YouTube *</label>
+                            <label className="block text-sm font-medium text-slate-700 mb-1.5">Link do YouTube</label>
                             <div className="relative">
-                              <Video size={14} className={`absolute left-3 top-3 ${submissaoDesbloqueada ? "text-red-500" : "text-slate-300"}`} />
-                              <input type="url" inputMode="url" disabled={!submissaoDesbloqueada} value={linkYoutube}
-                                onChange={(e) => setLinkYoutube(e.target.value)} placeholder="https://youtube.com/watch?v=..."
+                              <Video size={14} className={`absolute left-3 top-3 ${linkDisponivel ? "text-red-500" : "text-slate-300"}`} />
+                              <input type="url" inputMode="url" disabled={!linkDisponivel} value={linkYoutube}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  setLinkYoutube(value);
+                                  if (value.trim()) {
+                                    setArquivoPdf(null);
+                                    setArquivoBanner(null);
+                                  }
+                                }} placeholder={!precisaLink ? "Vídeo já enviado" : "https://youtube.com/watch?v=..."}
                                 className={`w-full pl-9 pr-3 py-2.5 border rounded-lg text-sm transition
-                  ${!submissaoDesbloqueada ? "bg-slate-50 border-slate-100 text-slate-400 cursor-not-allowed"
+                  ${!linkDisponivel ? "bg-slate-50 border-slate-100 text-slate-400 cursor-not-allowed"
                                     : !youtubeValido && linkYoutube ? "border-red-300 focus:outline-none focus:ring-2 focus:ring-red-100"
                                       : "border-slate-200 focus:outline-none focus:border-sectec-600 focus:ring-2 focus:ring-sectec-100"}`} />
                             </div>
@@ -1208,7 +1294,10 @@ function Dashboard() {
                       <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
                         <h3 className="text-sm font-semibold text-slate-900 mb-4">Materiais Enviados</h3>
                         <div className="space-y-3">
-                          {materiais.map((m) => (
+                          {materiais.map((m) => {
+                            const cancelavel = ehAutor && podeCancelarMaterial(m, agoraMs);
+                            const cancelando = cancelandoMaterialId === m.id;
+                            return (
                             <div key={m.id} className={`rounded-xl border p-4 ${m.status === 'aprovado' ? 'border-green-200 bg-green-50'
                               : m.status === 'recusado' ? 'border-orange-200 bg-orange-50'
                                 : 'border-slate-200 bg-slate-50'
@@ -1249,6 +1338,17 @@ function Dashboard() {
                               ) : (
                                 <p className="text-xs text-slate-500 mb-2 italic">{getMaterialLabel(m.tipo)} enviado — link indisponível</p>
                               )}
+                              {cancelavel && (
+                                <button
+                                  type="button"
+                                  disabled={cancelando}
+                                  onClick={() => handleCancelarMaterial(m)}
+                                  className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  <Trash2 size={12} />
+                                  {cancelando ? "Cancelando..." : "Cancelar envio"}
+                                </button>
+                              )}
                               {(m.status === 'aprovado' || m.status === 'recusado') && m.opiniao && (
                                 <div className={`rounded-lg px-3 py-2 text-xs mt-2 ${m.status === 'aprovado' ? 'bg-green-100 text-green-800'
                                   : 'bg-red-100 text-red-800'
@@ -1264,7 +1364,8 @@ function Dashboard() {
                                 Enviado em {new Date(m.criadoEm).toLocaleDateString('pt-BR')}
                               </p>
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     )}
