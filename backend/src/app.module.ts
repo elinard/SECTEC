@@ -1,9 +1,7 @@
-// src/app.module.ts
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
-import { join } from 'path';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -32,8 +30,6 @@ import { RelatorioModule } from './relatorio/relatorio.module';
       synchronize: true,
     }),
     ScheduleModule.forRoot(),
-
-  
     CommonModule,
     UsersModule,
     AuthModule,
@@ -41,8 +37,6 @@ import { RelatorioModule } from './relatorio/relatorio.module';
     ProjetosModule,
     EventoModule,
     PdfModule,
-
-    // ── MÓDULOS DO ORIENTADOR ──
     OrientacoesModule,
     MateriaisModule,
     RelatorioModule,
