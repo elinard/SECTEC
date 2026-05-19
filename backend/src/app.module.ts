@@ -1,8 +1,10 @@
+// src/app.module.ts
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
-
+import { join } from 'path';
+import { ServeStaticModule } from '@nestjs/serve-static';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ProjetosModule } from './projetos/projetos.module';
@@ -30,6 +32,15 @@ import { RelatorioModule } from './relatorio/relatorio.module';
       synchronize: true,
     }),
     ScheduleModule.forRoot(),
+
+  
+    // ── CONFIGURAÇÃO PARA SERVIR O REACT ──
+    ServeStaticModule.forRoot({
+      rootPath: '/app/frontend/dist',
+      exclude: ['/api'],
+    }),
+
+
     CommonModule,
     UsersModule,
     AuthModule,
@@ -37,6 +48,8 @@ import { RelatorioModule } from './relatorio/relatorio.module';
     ProjetosModule,
     EventoModule,
     PdfModule,
+
+    // ── MÓDULOS DO ORIENTADOR ──
     OrientacoesModule,
     MateriaisModule,
     RelatorioModule,
