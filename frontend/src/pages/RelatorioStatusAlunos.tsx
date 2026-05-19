@@ -82,6 +82,12 @@ type ReportState<T> = {
   loaded: boolean;
 };
 
+type ExportData = {
+  titulo: string;
+  headers: string[];
+  rows: (string | number | null | undefined)[][];
+};
+
 const realReports = {
   "alunos-sem-projeto": "/relatorio/alunos-sem-projeto",
   "comissao-por-evento": "/relatorio/comissao-por-evento",
@@ -257,7 +263,7 @@ function escaparHtml(value: string | number | null | undefined) {
     .replace(/'/g, "&#039;");
 }
 
-function abrirPdfImpressao(titulo: string, linhas: string[]) {
+function abrirPdfImpressao(dados: ExportData) {
   const iframe = document.createElement("iframe");
   iframe.style.position = "fixed";
   iframe.style.right = "0";
@@ -274,19 +280,44 @@ function abrirPdfImpressao(titulo: string, linhas: string[]) {
   }
 
   documento.open();
+  const dataGeracao = new Date().toLocaleString("pt-BR");
+  const linhasTabela = dados.rows.length
+    ? dados.rows
+        .map((row) => `<tr>${row.map((cell) => `<td>${escaparHtml(cell)}</td>`).join("")}</tr>`)
+        .join("")
+    : `<tr><td colspan="${dados.headers.length || 1}">Nenhum dado disponível para exportação.</td></tr>`;
+
   documento.write(`
     <html>
       <head>
-        <title>${titulo}</title>
+        <title>${escaparHtml(dados.titulo)}</title>
         <style>
-          body { font-family: Arial, sans-serif; padding: 24px; color: #0f172a; }
-          h1 { font-size: 22px; margin-bottom: 16px; }
-          li { margin: 8px 0; font-size: 13px; }
+          * { box-sizing: border-box; }
+          body { font-family: Arial, sans-serif; margin: 0; padding: 32px; color: #0f172a; background: #fff; }
+          header { border-bottom: 3px solid #047857; padding-bottom: 16px; margin-bottom: 22px; }
+          .eyebrow { color: #047857; font-size: 11px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; margin: 0 0 8px; }
+          h1 { font-size: 24px; margin: 0; }
+          .meta { color: #64748b; font-size: 12px; font-weight: 700; margin-top: 8px; }
+          table { width: 100%; border-collapse: collapse; font-size: 12px; }
+          th { background: #f1f5f9; color: #334155; font-size: 10px; letter-spacing: .12em; text-align: left; text-transform: uppercase; }
+          th, td { border: 1px solid #e2e8f0; padding: 10px; vertical-align: top; }
+          tr:nth-child(even) td { background: #f8fafc; }
+          footer { margin-top: 22px; color: #94a3b8; font-size: 11px; font-weight: 700; }
         </style>
       </head>
       <body>
-        <h1>${titulo}</h1>
-        <ul>${linhas.map((linha) => `<li>${escaparHtml(linha)}</li>`).join("")}</ul>
+        <header>
+          <p class="eyebrow">SECTEC · Coordenação</p>
+          <h1>${escaparHtml(dados.titulo)}</h1>
+          <p class="meta">Gerado em ${escaparHtml(dataGeracao)} · ${dados.rows.length} registro(s)</p>
+        </header>
+        <table>
+          <thead>
+            <tr>${dados.headers.map((header) => `<th>${escaparHtml(header)}</th>`).join("")}</tr>
+          </thead>
+          <tbody>${linhasTabela}</tbody>
+        </table>
+        <footer>Relatório gerado pelo painel da coordenação.</footer>
       </body>
     </html>
   `);
@@ -533,12 +564,12 @@ function RelatorioStatusAlunos() {
   function dadosExportacaoAtual() {
     if (abaAtiva === "alunos-sem-projeto") {
       const rows = alunosFiltrados.flatMap(([grupo, alunos]) =>
-        alunos.map((aluno) => [formatarGrupoTurma(grupo, alunos), aluno.nome, aluno.email, aluno.turma, aluno.ano]),
+        alunos.map((aluno) => [formatarGrupoTurma(grupo, alunos), aluno.nome, aluno.email]),
       );
       return {
         titulo: "Alunos sem projeto",
-        csv: linhasParaCsv(["Grupo", "Nome", "Email", "Turma", "Ano"], rows),
-        linhas: rows.map((row) => `${row[0]} - ${row[1]} - ${row[2]}`),
+        headers: ["Turma", "Nome", "Email"],
+        rows,
       };
     }
 
@@ -548,8 +579,8 @@ function RelatorioStatusAlunos() {
       );
       return {
         titulo: "Comissão por evento",
-        csv: linhasParaCsv(["Evento", "Nome", "Email", "Turma", "Ano"], rows),
-        linhas: rows.map((row) => `${row[0]} - ${row[1]} - ${row[2]}`),
+        headers: ["Evento", "Nome", "Email", "Turma", "Ano"],
+        rows,
       };
     }
 
@@ -559,8 +590,8 @@ function RelatorioStatusAlunos() {
       );
       return {
         titulo: "Eixos temáticos",
-        csv: linhasParaCsv(["Evento", "Eixo", "Total", "Pendentes", "Aceitos"], rows),
-        linhas: rows.map((row) => `${row[0]} - ${row[1]}: total ${row[2]}, pendentes ${row[3]}, aceitos ${row[4]}`),
+        headers: ["Evento", "Eixo", "Total", "Pendentes", "Aceitos"],
+        rows,
       };
     }
 
@@ -573,8 +604,8 @@ function RelatorioStatusAlunos() {
       ]);
       return {
         titulo: "Projetos por orientador",
-        csv: linhasParaCsv(["Orientador", "Email", "Projetos aceitos", "Projetos"], rows),
-        linhas: rows.map((row) => `${row[0]} - ${row[2]} projeto(s): ${row[3]}`),
+        headers: ["Orientador", "Email", "Projetos aceitos", "Projetos"],
+        rows,
       };
     }
 
@@ -582,8 +613,8 @@ function RelatorioStatusAlunos() {
       const rows = turmasFiltradas.map((turma) => [turma.turma, turma.ano, turma.totalCriados, turma.totalAprovados]);
       return {
         titulo: "Projetos por turma",
-        csv: linhasParaCsv(["Turma", "Ano", "Criados", "Aprovados"], rows),
-        linhas: rows.map((row) => `${row[0]} ${row[1]}º ano - criados ${row[2]}, aprovados ${row[3]}`),
+        headers: ["Turma", "Ano", "Criados", "Aprovados"],
+        rows,
       };
     }
 
@@ -599,19 +630,19 @@ function RelatorioStatusAlunos() {
     ];
     return {
       titulo: "Visão geral dos relatórios",
-      csv: linhasParaCsv(["Indicador", "Valor"], linhas),
-      linhas: linhas.map((row) => `${row[0]}: ${row[1]}`),
+      headers: ["Indicador", "Valor"],
+      rows: linhas,
     };
   }
 
   function exportarCsv() {
     const dados = dadosExportacaoAtual();
-    baixarArquivo(["\ufeff", dados.csv], `${abaAtiva}.csv`, "text/csv;charset=utf-8");
+    baixarArquivo(["\ufeff", linhasParaCsv(dados.headers, dados.rows)], `${abaAtiva}.csv`, "text/csv;charset=utf-8");
   }
 
   function exportarPdf() {
     const dados = dadosExportacaoAtual();
-    abrirPdfImpressao(dados.titulo, dados.linhas.length ? dados.linhas : ["Nenhum dado disponível para exportação."]);
+    abrirPdfImpressao(dados);
   }
 
   function renderVisaoGeral() {
@@ -706,12 +737,11 @@ function RelatorioStatusAlunos() {
             </div>
             <div className="mt-4 grid gap-2">
               {dados.alunos.map((aluno) => (
-                <div key={aluno.id} className="flex flex-col gap-2 rounded-2xl border border-slate-100 p-3 transition hover:bg-emerald-50/40 sm:flex-row sm:items-center sm:justify-between">
+                <div key={aluno.id} className="rounded-2xl border border-slate-100 p-3 transition hover:bg-emerald-50/40">
                   <div>
                     <p className="font-black text-slate-900">{aluno.nome}</p>
                     <p className="text-sm font-semibold text-slate-500">{aluno.email}</p>
                   </div>
-                  <span className="text-sm font-bold text-slate-600">{nomeTurma(aluno.turma, aluno.ano)}</span>
                 </div>
               ))}
             </div>

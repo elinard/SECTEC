@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   PiArrowUpRight,
@@ -145,7 +145,6 @@ type CreateEventoPayload = {
   prazoInicial: string;
   prazoFinal: string;
   inscricao?: PeriodoEventoApi;
-  aceitacao?: PeriodoEventoApi;
   submissao?: PeriodoEventoApi;
   avaliacao?: PeriodoEventoApi;
 };
@@ -158,7 +157,6 @@ type EventoApi = {
   prazoFinal: string;
   status?: "ativo" | "inativo" | string;
   inscricao?: PeriodoEventoApi | null;
-  aceitacao?: PeriodoEventoApi | null;
   submissao?: PeriodoEventoApi | null;
   avaliacao?: PeriodoEventoApi | null;
   temas?: TemaEventoApi[];
@@ -531,7 +529,6 @@ function temasRestantes(temas?: TemaEventoApi[]) {
 function getFasesEvento(evento: EventoApi) {
   return [
     { label: "Inscrição", periodo: evento.inscricao },
-    { label: "Aceitação", periodo: evento.aceitacao },
     { label: "Submissão", periodo: evento.submissao },
     { label: "Avaliação", periodo: evento.avaliacao },
   ];
@@ -605,7 +602,6 @@ function getFaseAtual(evento: EventoApi | null) {
 
   const fases = [
     { label: "Inscrição", periodo: evento.inscricao },
-    { label: "Aceitação", periodo: evento.aceitacao },
     { label: "Submissão", periodo: evento.submissao },
     { label: "Avaliação", periodo: evento.avaliacao },
   ];
@@ -753,8 +749,6 @@ function EventosCoordenacao() {
     prazoFinal: "",
     inscricaoInicio: "",
     inscricaoFim: "",
-    aceitacaoInicio: "",
-    aceitacaoFim: "",
     submissaoInicio: "",
     submissaoFim: "",
     avaliacaoInicio: "",
@@ -834,8 +828,6 @@ function EventosCoordenacao() {
       prazoFinal: toDateInput(evento.prazoFinal),
       inscricaoInicio: toDateInput(evento.inscricao?.inicio),
       inscricaoFim: toDateInput(evento.inscricao?.fim),
-      aceitacaoInicio: toDateInput(evento.aceitacao?.inicio),
-      aceitacaoFim: toDateInput(evento.aceitacao?.fim),
       submissaoInicio: toDateInput(evento.submissao?.inicio),
       submissaoFim: toDateInput(evento.submissao?.fim),
       avaliacaoInicio: toDateInput(evento.avaliacao?.inicio),
@@ -907,8 +899,6 @@ function EventosCoordenacao() {
       prazoFinal: "",
       inscricaoInicio: "",
       inscricaoFim: "",
-      aceitacaoInicio: "",
-      aceitacaoFim: "",
       submissaoInicio: "",
       submissaoFim: "",
       avaliacaoInicio: "",
@@ -955,7 +945,6 @@ function EventosCoordenacao() {
     } else if (step === 3) {
       const fases = [
         { label: "Inscrição", inicio: formData.inscricaoInicio, fim: formData.inscricaoFim },
-        { label: "Aceitação", inicio: formData.aceitacaoInicio, fim: formData.aceitacaoFim },
         { label: "Submissão", inicio: formData.submissaoInicio, fim: formData.submissaoFim },
         { label: "Avaliação", inicio: formData.avaliacaoInicio, fim: formData.avaliacaoFim },
       ];
@@ -1006,7 +995,6 @@ function EventosCoordenacao() {
 
     const fases = [
       { label: "Inscrição", inicio: formData.inscricaoInicio, fim: formData.inscricaoFim },
-      { label: "Aceitação", inicio: formData.aceitacaoInicio, fim: formData.aceitacaoFim },
       { label: "Submissão", inicio: formData.submissaoInicio, fim: formData.submissaoFim },
       { label: "Avaliação", inicio: formData.avaliacaoInicio, fim: formData.avaliacaoFim },
     ];
@@ -1031,7 +1019,6 @@ function EventosCoordenacao() {
         prazoInicial: toIsoDate(formData.prazoInicial)!,
         prazoFinal: toIsoDate(formData.prazoFinal)!,
         inscricao: montarPeriodo(formData.inscricaoInicio, formData.inscricaoFim),
-        aceitacao: montarPeriodo(formData.aceitacaoInicio, formData.aceitacaoFim),
         submissao: montarPeriodo(formData.submissaoInicio, formData.submissaoFim),
         avaliacao: montarPeriodo(formData.avaliacaoInicio, formData.avaliacaoFim),
       };
@@ -1154,7 +1141,6 @@ function EventosCoordenacao() {
   const progresso = ((step - 1) / (etapas.length - 1)) * 100;
   const fasesFormulario = [
     { label: "Inscrição", inicio: "inscricaoInicio", fim: "inscricaoFim" },
-    { label: "Aceitação", inicio: "aceitacaoInicio", fim: "aceitacaoFim" },
     { label: "Submissão", inicio: "submissaoInicio", fim: "submissaoFim" },
     { label: "Avaliação", inicio: "avaliacaoInicio", fim: "avaliacaoFim" },
   ] as const;
@@ -1164,7 +1150,7 @@ function EventosCoordenacao() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
           
-          <div ref={formularioEventoRef} className={`rounded-3xl border bg-white p-5 shadow-sm sm:p-6 flex flex-col ${isEditing ? "border-emerald-200 ring-4 ring-emerald-50" : "border-slate-200"}`}>
+          <div ref={formularioEventoRef} className={`rounded-3xl border bg-white p-5 shadow-sm sm:p-6 flex flex-col ${isEditing ? "border-amber-200 ring-4 ring-amber-100" : "border-slate-200"}`}>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <PanelTitle
                 icon={<PiCalendarBlank size={20} />}
@@ -1184,7 +1170,7 @@ function EventosCoordenacao() {
             </div>
 
             {isEditing && (
-              <div className="mt-5 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">
+              <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800">
                 Você está editando um evento existente. As alterações só serão aplicadas ao clicar em “Salvar alterações”.
               </div>
             )}
@@ -1289,7 +1275,6 @@ function EventosCoordenacao() {
                         <li><strong className="text-slate-900">Descrição:</strong> {formData.descricao || "Nenhum"}</li>
                         <li><strong className="text-slate-900">Período geral:</strong> {formatarPeriodo(montarPeriodo(formData.prazoInicial, formData.prazoFinal))}</li>
                         <li><strong className="text-slate-900">Inscrição:</strong> {formatarPeriodo(montarPeriodo(formData.inscricaoInicio, formData.inscricaoFim))}</li>
-                        <li><strong className="text-slate-900">Aceitação:</strong> {formatarPeriodo(montarPeriodo(formData.aceitacaoInicio, formData.aceitacaoFim))}</li>
                         <li><strong className="text-slate-900">Submissão:</strong> {formatarPeriodo(montarPeriodo(formData.submissaoInicio, formData.submissaoFim))}</li>
                         <li><strong className="text-slate-900">Avaliação:</strong> {formatarPeriodo(montarPeriodo(formData.avaliacaoInicio, formData.avaliacaoFim))}</li>
                       </ul>
@@ -1559,6 +1544,15 @@ type UsuarioCoordenacao = {
   ano?: number;
 };
 
+type CadastroUsuarioForm = {
+  tipo: "aluno" | "orientador";
+  nome: string;
+  email: string;
+  senha: string;
+  turma: "informatica" | "enfermagem" | "contabilidade";
+  ano: string;
+};
+
 function UsuariosCoordenacao() {
   const [abaAtiva, setAbaAtiva] = useState<"alunos" | "orientadores" | "comissao">("alunos");
   const [busca, setBusca] = useState("");
@@ -1575,6 +1569,16 @@ function UsuariosCoordenacao() {
   const [erro, setErro] = useState("");
   const [erroTecnico, setErroTecnico] = useState("");
   const [importandoTipo, setImportandoTipo] = useState<"alunos" | "orientadores" | null>(null);
+  const [cadastroAberto, setCadastroAberto] = useState(false);
+  const [salvandoCadastro, setSalvandoCadastro] = useState(false);
+  const [cadastroForm, setCadastroForm] = useState<CadastroUsuarioForm>({
+    tipo: "aluno",
+    nome: "",
+    email: "",
+    senha: "",
+    turma: "informatica",
+    ano: "1",
+  });
   const inputAlunosRef = useRef<HTMLInputElement>(null);
   const inputOrientadoresRef = useRef<HTMLInputElement>(null);
 
@@ -1686,6 +1690,79 @@ function UsuariosCoordenacao() {
       setImportandoTipo(null);
       if (tipo === "alunos" && inputAlunosRef.current) inputAlunosRef.current.value = "";
       if (tipo === "orientadores" && inputOrientadoresRef.current) inputOrientadoresRef.current.value = "";
+    }
+  }
+
+  function abrirCadastro(tipo: CadastroUsuarioForm["tipo"]) {
+    setCadastroForm({
+      tipo,
+      nome: "",
+      email: "",
+      senha: "",
+      turma: "informatica",
+      ano: "1",
+    });
+    setCadastroAberto(true);
+  }
+
+  async function salvarCadastroIndividual(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const nome = cadastroForm.nome.trim();
+    const email = cadastroForm.email.trim();
+
+    if (!nome || !email) {
+      await Swal.fire({
+        icon: "warning",
+        title: "Preencha nome e email",
+        confirmButtonColor: "#15803d",
+      });
+      return;
+    }
+
+    const payload =
+      cadastroForm.tipo === "aluno"
+        ? {
+            nome,
+            email_institucional: email,
+            role_cargo: "aluno",
+            turma: cadastroForm.turma,
+            ano: Number(cadastroForm.ano),
+          }
+        : {
+            nome,
+            email_institucional: email,
+            role_cargo: "orientador",
+            ...(cadastroForm.senha.trim() ? { senha: cadastroForm.senha.trim() } : {}),
+          };
+
+    setSalvandoCadastro(true);
+    try {
+      await apiRequest("/users", {
+        method: "POST",
+        body: payload,
+      });
+
+      await Swal.fire({
+        icon: "success",
+        title: cadastroForm.tipo === "aluno" ? "Aluno cadastrado" : "Orientador cadastrado",
+        showConfirmButton: false,
+        timer: 1300,
+        timerProgressBar: true,
+      });
+
+      setCadastroAberto(false);
+      setAbaAtiva(cadastroForm.tipo === "aluno" ? "alunos" : "orientadores");
+      await carregarUsuarios();
+    } catch (error) {
+      await Swal.fire({
+        icon: "error",
+        title: "Erro ao cadastrar usuário",
+        text: error instanceof Error ? error.message : "Tente novamente.",
+        confirmButtonColor: "#15803d",
+      });
+    } finally {
+      setSalvandoCadastro(false);
     }
   }
 
@@ -1830,8 +1907,8 @@ function UsuariosCoordenacao() {
     <AdminPageShell>
       <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <PanelTitle icon={<PiUsersThree size={20} />} title="Usuarios" subtitle="Cadastro via CSV e comissão real carregada do backend." />
-          <div className="grid w-full gap-2 sm:grid-cols-2 lg:w-auto lg:grid-cols-1 xl:grid-cols-2">
+          <PanelTitle icon={<PiUsersThree size={20} />} title="Usuarios" subtitle="Cadastro individual, CSV e comissão real carregada do backend." />
+          <div className="grid w-full gap-2 sm:grid-cols-2 lg:w-auto xl:grid-cols-2">
             <input
               ref={inputAlunosRef}
               type="file"
@@ -1846,6 +1923,22 @@ function UsuariosCoordenacao() {
               className="hidden"
               onChange={(event) => handleUploadCsv("orientadores", event.target.files?.[0])}
             />
+            <button
+              type="button"
+              onClick={() => abrirCadastro("aluno")}
+              className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-950 px-4 py-3 text-sm font-black text-white transition hover:bg-slate-800"
+            >
+              <PiPlus size={18} />
+              Cadastrar aluno
+            </button>
+            <button
+              type="button"
+              onClick={() => abrirCadastro("orientador")}
+              className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 transition hover:bg-slate-50"
+            >
+              <PiPlus size={18} />
+              Cadastrar orientador
+            </button>
             <button
               type="button"
               onClick={() => inputAlunosRef.current?.click()}
@@ -2126,6 +2219,86 @@ function UsuariosCoordenacao() {
         ) : (
           <div className="text-sm text-slate-500">Carregando...</div>
         )}
+      </PainelDetalhes>
+
+      <PainelDetalhes aberto={cadastroAberto} titulo={cadastroForm.tipo === "aluno" ? "Cadastrar aluno" : "Cadastrar orientador"} onClose={() => setCadastroAberto(false)}>
+        <form className="space-y-4" onSubmit={salvarCadastroIndividual}>
+          <div>
+            <label className="text-xs font-black uppercase tracking-widest text-slate-400">Nome</label>
+            <input
+              value={cadastroForm.nome}
+              onChange={(event) => setCadastroForm((prev) => ({ ...prev, nome: event.target.value }))}
+              className="mt-2 h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 outline-none transition focus:border-sectec-500 focus:ring-2 focus:ring-sectec-100"
+              placeholder="Nome completo"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-black uppercase tracking-widest text-slate-400">Email institucional</label>
+            <input
+              type="email"
+              value={cadastroForm.email}
+              onChange={(event) => setCadastroForm((prev) => ({ ...prev, email: event.target.value }))}
+              className="mt-2 h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 outline-none transition focus:border-sectec-500 focus:ring-2 focus:ring-sectec-100"
+              placeholder="usuario@escola.com"
+            />
+          </div>
+
+          {cadastroForm.tipo === "aluno" ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="text-xs font-black uppercase tracking-widest text-slate-400">Turma</label>
+                <select
+                  value={cadastroForm.turma}
+                  onChange={(event) => setCadastroForm((prev) => ({ ...prev, turma: event.target.value as CadastroUsuarioForm["turma"] }))}
+                  className="mt-2 h-11 w-full cursor-pointer rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 outline-none transition focus:border-sectec-500 focus:ring-2 focus:ring-sectec-100"
+                >
+                  <option value="informatica">Informática</option>
+                  <option value="enfermagem">Enfermagem</option>
+                  <option value="contabilidade">Contabilidade</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-black uppercase tracking-widest text-slate-400">Ano</label>
+                <select
+                  value={cadastroForm.ano}
+                  onChange={(event) => setCadastroForm((prev) => ({ ...prev, ano: event.target.value }))}
+                  className="mt-2 h-11 w-full cursor-pointer rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 outline-none transition focus:border-sectec-500 focus:ring-2 focus:ring-sectec-100"
+                >
+                  <option value="1">1º ano</option>
+                  <option value="2">2º ano</option>
+                  <option value="3">3º ano</option>
+                </select>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <label className="text-xs font-black uppercase tracking-widest text-slate-400">Senha inicial</label>
+              <input
+                type="password"
+                value={cadastroForm.senha}
+                onChange={(event) => setCadastroForm((prev) => ({ ...prev, senha: event.target.value }))}
+                className="mt-2 h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 outline-none transition focus:border-sectec-500 focus:ring-2 focus:ring-sectec-100"
+                placeholder="Opcional. Se vazio, usa o email."
+              />
+            </div>
+          )}
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs font-semibold leading-5 text-slate-500">
+            {cadastroForm.tipo === "aluno"
+              ? "Para alunos, o backend usa o email institucional como senha inicial."
+              : "Para orientadores, a senha informada é opcional. Sem senha, o backend usa o email institucional."}
+          </div>
+
+          <button
+            type="submit"
+            disabled={salvandoCadastro}
+            className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-sectec-700 px-5 py-3 text-sm font-black text-white transition hover:bg-sectec-800 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {salvandoCadastro ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
+            {salvandoCadastro ? "Salvando..." : "Salvar cadastro"}
+          </button>
+        </form>
       </PainelDetalhes>
     </AdminPageShell>
   );
