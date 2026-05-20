@@ -423,8 +423,6 @@ console.log('ID do Autor no Banco:', typeof material.projeto.alunoAutor.id, mate
       throw new NotFoundException(`Material com ID ${materialId} não foi encontrado.`);
     }
 
-    // 2. Só permite avaliar materiais que estão atualmente pendentes (Em análise)
-    this.validarPeriodoAberto(material.projeto?.evento?.avaliacao, 'avaliacao');
 
     if (material.status !== StatusMaterial.EM_ANALISE) {
       throw new ConflictException(
