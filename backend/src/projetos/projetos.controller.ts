@@ -18,6 +18,7 @@ import { ProjetosService } from './projetos.service';
 import { CreateProjetoDto } from './dto/create-projeto.dto';
 import { UpdateProjetoDto } from './dto/update-projeto.dto';
 import { EnviarSolicitacaoDto } from './dto/enviar-solicitacao.dto';
+import { AddIntegrantesProjetoDto } from './dto/add-integrantes-projeto.dto';
 
 // Auth & Guards
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -163,6 +164,30 @@ export class ProjetosController {
   // ===========================================================================
   // ROTAS DE ATUALIZAÇÃO E EXCLUSÃO
   // ===========================================================================
+
+  @Post(':id/integrantes')
+  @ApiOperation({ summary: 'Adiciona alunos integrantes a um projeto' })
+  @ApiResponse({ status: 201, description: 'Integrantes adicionados com sucesso.' })
+  async addIntegrantes(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AddIntegrantesProjetoDto,
+    @GetUser('userId') userId: number,
+    @GetUser('role') role: string,
+  ) {
+    return this.projetosService.addIntegrantes(id, dto.alunosIds, userId, role);
+  }
+
+  @Delete(':id/integrantes/:alunoId')
+  @ApiOperation({ summary: 'Remove um aluno integrante de um projeto' })
+  @ApiResponse({ status: 200, description: 'Integrante removido com sucesso.' })
+  async removeIntegrante(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('alunoId', ParseIntPipe) alunoId: number,
+    @GetUser('userId') userId: number,
+    @GetUser('role') role: string,
+  ) {
+    return this.projetosService.removeIntegrante(id, alunoId, userId, role);
+  }
 
   @Patch(':id')
   @ApiOperation({ summary: 'Atualiza informações do projeto' })

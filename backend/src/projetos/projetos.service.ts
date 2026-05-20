@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, QueryRunner, Repository, Between } from 'typeorm';
+import { DataSource, QueryRunner, Repository, Between, In } from 'typeorm';
 
 import { AuditoriaService } from 'src/auditoria/auditoria.service';
 import { Evento, EventoStatus } from 'src/evento/entities/evento.entity';
@@ -310,6 +310,96 @@ export class ProjetosService {
     );
   }     
 
+  async addIntegrantes(
+    id: number,
+    alunosIds: number[],
+    userId: number,
+    role: string,
+  ): Promise<Projeto> {
+    const projeto = await this.findOne(id);
+    this.validarPermissaoEdicaoProjeto(projeto, userId, role);
+
+    const idsNovos = [...new Set(alunosIds.filter((alunoId) => Number.isFinite(alunoId)))]
+      .filter((alunoId) => alunoId !== projeto.alunoAutor.id);
+
+    if (idsNovos.length === 0) {
+      throw new BadRequestException('Informe pelo menos um aluno integrante valido.');
+    }
+
+    await this.ensureUsersAreActiveStudents(idsNovos);
+
+    const atuaisIds = this.getIntegrantesIds(projeto);
+    const proximosIds = [...new Set([...atuaisIds, ...idsNovos])];
+
+    this.validateGroupSize(proximosIds);
+    await this.ensureAlunosAreAvailable(
+      projeto.evento.id,
+      [...proximosIds, projeto.alunoAutor.id],
+      projeto.id,
+    );
+
+    const idsParaInserir = idsNovos.filter((alunoId) => !atuaisIds.includes(alunoId));
+
+    if (idsParaInserir.length === 0) {
+      throw new BadRequestException('Todos os alunos informados ja fazem parte deste projeto.');
+    }
+
+    const vinculos = idsParaInserir.map((alunoId) =>
+      this.projetoAlunoRepository.create({
+        projeto: { id: projeto.id },
+        aluno: { id: alunoId },
+      }),
+    );
+
+    await this.projetoAlunoRepository.save(vinculos);
+
+    await this.auditoriaService.registrar(
+      userId,
+      'PROJETO_INTEGRANTES_ADICIONADOS',
+      `Integrantes [${idsParaInserir.join(', ')}] adicionados ao projeto #${id} por usuario com cargo "${role}".`,
+      id,
+    );
+
+    return this.findOne(id);
+  }
+
+  async removeIntegrante(
+    id: number,
+    alunoId: number,
+    userId: number,
+    role: string,
+  ): Promise<Projeto> {
+    const projeto = await this.findOne(id);
+    this.validarPermissaoEdicaoProjeto(projeto, userId, role);
+
+    if (alunoId === projeto.alunoAutor.id) {
+      throw new BadRequestException('O aluno autor do projeto nao pode ser removido como integrante.');
+    }
+
+    const atuaisIds = this.getIntegrantesIds(projeto);
+
+    if (!atuaisIds.includes(alunoId)) {
+      throw new NotFoundException('Este aluno nao esta cadastrado como integrante deste projeto.');
+    }
+
+    const proximosIds = atuaisIds.filter((idAtual) => idAtual !== alunoId);
+    this.validateGroupSize(proximosIds);
+
+    await this.projetoAlunoRepository.delete({
+      projeto: { id: projeto.id },
+      aluno: { id: alunoId },
+    });
+
+    await this.auditoriaService.registrar(
+      userId,
+      'PROJETO_INTEGRANTE_REMOVIDO',
+      `Integrante #${alunoId} removido do projeto #${id} por usuario com cargo "${role}".`,
+      id,
+    );
+
+    return this.findOne(id);
+  }
+
   // =========================================================================
   // GESTÃO DE SOLICITAÇÕES DE ORIENTAÇÃO
   // =========================================================================
@@ -454,6 +544,38 @@ export class ProjetosService {
     const total = alunosIds.length + 1; // Soma 1 para contar com o Aluno Autor
     if (total < 3 || total > 7) {
       throw new BadRequestException('O grupo deve ter entre 3 e 7 integrantes.');
+    }
+  }
+
+  private validarPermissaoEdicaoProjeto(projeto: Projeto, userId: number, role: string) {
+    if (role !== 'coordenador' && projeto.alunoAutor.id !== userId) {
+      throw new ForbiddenException('Sem permissao para editar este projeto.');
+    }
+  }
+
+  private getIntegrantesIds(projeto: Projeto) {
+    return (projeto.projetoAlunos ?? [])
+      .map((vinculo) => vinculo.aluno?.id)
+      .filter((id): id is number => Number.isFinite(id));
+  }
+
+  private async ensureUsersAreActiveStudents(alunosIds: number[]) {
+    const idsUnicos = [...new Set(alunosIds.filter((id) => Number.isFinite(id)))];
+    if (idsUnicos.length === 0) return;
+
+    const alunos = await this.userRepository.find({
+      where: {
+        id: In(idsUnicos),
+        role_cargo: UserRole.ALUNO,
+        ativo: true,
+      },
+      select: ['id'],
+    });
+    const encontrados = new Set(alunos.map((aluno) => aluno.id));
+    const invalidos = idsUnicos.filter((id) => !encontrados.has(id));
+
+    if (invalidos.length > 0) {
+      throw new BadRequestException(`Alunos invalidos ou inativos: ${invalidos.join(', ')}`);
     }
   }
 
