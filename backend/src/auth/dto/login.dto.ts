@@ -8,4 +8,3 @@ export class LoginDto {
   @ApiProperty({ example: '123456', description: 'Senha de acesso' })
   password!: string;
 }
-  
