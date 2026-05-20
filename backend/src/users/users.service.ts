@@ -2,10 +2,10 @@ import {
   BadRequestException,
   Injectable,
   InternalServerErrorException,
-  NotFoundException,
+  NotFoundException
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
+import { Repository, Between, In } from 'typeorm';
 import { User, UserTurma, UserRole } from './entities/user.entity';
 import { Evento, EventoStatus } from 'src/evento/entities/evento.entity';
 import { ComissaoEvento } from 'src/evento/entities/comissao-evento.entity';
@@ -85,7 +85,7 @@ export class UsersService {
     return orientadores.filter((o) => (countMap.get(o.id) ?? 0) < 4);
   }
 
-  async processarCsv(file: Express.Multer.File, tipo: UserRole) {
+    async processarCsv(file: Express.Multer.File, tipo: UserRole) {
     if (!file || !file.buffer) {
       throw new BadRequestException('Arquivo não enviado ou corrompido.');
     }
@@ -107,16 +107,55 @@ export class UsersService {
       throw new BadRequestException('Erro ao formatar CSV. Verifique o cabeçalho.');
     }
 
+    // 1. Coleta e normaliza todos os e-mails vindos do arquivo CSV
+    const emailsNoCsv = registros
+      .map((reg) => {
+        const emailBruto = reg.email || reg['email gsuite'] || reg['email_gsuite'] || reg['e-mail'];
+        return emailBruto ? String(emailBruto).trim().toLowerCase() : null;
+      })
+      .filter(Boolean) as string[];
+
+    // 2. Busca no banco quais desses e-mails já estão cadastrados
+    const usuariosExistentes = await this.usersRepository.find({
+      where: { email_institucional: In(emailsNoCsv) },
+      select: ['email_institucional'],
+    });
+
+    // Criamos um Set para uma busca instantânea de alta performance O(1)
+    const emailsExistentesSet = new Set(
+      usuariosExistentes.map((u) => u.email_institucional.toLowerCase()),
+    );
+
+    // 3. Filtra os registros removendo quem já existe no banco
+    const registrosFiltrados = registros.filter((reg) => {
+      const emailBruto = reg.email || reg['email gsuite'] || reg['email_gsuite'] || reg['e-mail'];
+      if (!emailBruto) return false;
+      return !emailsExistentesSet.has(String(emailBruto).trim().toLowerCase());
+    });
+
+    const totalIgnorados = registros.length - registrosFiltrados.length;
+
+    // Se após filtrar, todos os e-mails já existirem, encerra sem dar erro
+    if (registrosFiltrados.length === 0) {
+      return {
+        filename: file.originalname,
+        totalCadastrados: 0,
+        totalIgnorados: totalIgnorados,
+        tipo: tipo,
+        mensagem: 'Todos os e-mails do CSV já constavam no sistema.',
+      };
+    }
+
     const mapaTurmas: Record<string, UserTurma> = {
       INFO: UserTurma.INFORMATICA,
       CONT: UserTurma.CONTABILIDADE,
       ENF: UserTurma.ENFERMAGEM,
     };
 
+    // 4. Mapeia e gera o hash de senha APENAS para os novos registros filtrados
     const dadosFormatados = await Promise.all(
-      registros.map(async (reg, index) => {
-        const emailBruto =
-          reg.email || reg['email gsuite'] || reg['email_gsuite'] || reg['e-mail'];
+      registrosFiltrados.map(async (reg, index) => {
+        const emailBruto = reg.email || reg['email gsuite'] || reg['email_gsuite'] || reg['e-mail'];
         const nomeBruto = reg.nome;
 
         if (!nomeBruto || !emailBruto) {
@@ -165,19 +204,25 @@ export class UsersService {
     );
 
     try {
+      // 5. Salva apenas os novos usuários
       await this.usersRepository.save(dadosFormatados);
+      
       return {
         filename: file.originalname,
-        total: dadosFormatados.length,
+        totalCadastrados: dadosFormatados.length,
+        totalIgnorados: totalIgnorados,
         tipo: tipo,
       };
     } catch (error) {
       if (error.code === 'ER_DUP_ENTRY' || error.errno === 1062) {
-        throw new BadRequestException('Um ou mais e-mails do CSV já estão cadastrados.');
+        throw new BadRequestException(
+          'O arquivo enviado possui linhas com e-mails repetidos entre si.',
+        );
       }
-      throw new InternalServerErrorException('Erro ao salvar usuários no banco de dados.');
+      throw new InternalServerErrorException('Erro ao salvar novos usuários no banco de dados.');
     }
   }
+
 
   async promoteToComissao(id: number): Promise<User> {
     const user = await this.usersRepository.findOne({ where: { id } });

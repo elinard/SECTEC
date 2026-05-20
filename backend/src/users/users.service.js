@@ -133,7 +133,7 @@ var UsersService = /** @class */ (function () {
     };
     UsersService.prototype.processarCsv = function (file, tipo) {
         return __awaiter(this, void 0, void 0, function () {
-            var csvString, registros, mapaTurmas, dadosFormatados, error_1;
+            var csvString, registros, emailsNoCsv, usuariosExistentes, emailsExistentesSet, registrosFiltrados, totalIgnorados, mapaTurmas, dadosFormatados, error_1;
             var _this = this;
             return __generator(this, function (_a) {
                 switch (_a.label) {
@@ -156,12 +156,42 @@ var UsersService = /** @class */ (function () {
                         catch (e) {
                             throw new common_1.BadRequestException('Erro ao formatar CSV. Verifique o cabeçalho.');
                         }
+                        emailsNoCsv = registros
+                            .map(function (reg) {
+                            var emailBruto = reg.email || reg['email gsuite'] || reg['email_gsuite'] || reg['e-mail'];
+                            return emailBruto ? String(emailBruto).trim().toLowerCase() : null;
+                        })
+                            .filter(Boolean);
+                        return [4 /*yield*/, this.usersRepository.find({
+                                where: { email_institucional: (0, typeorm_2.In)(emailsNoCsv) },
+                                select: ['email_institucional'],
+                            })];
+                    case 1:
+                        usuariosExistentes = _a.sent();
+                        emailsExistentesSet = new Set(usuariosExistentes.map(function (u) { return u.email_institucional.toLowerCase(); }));
+                        registrosFiltrados = registros.filter(function (reg) {
+                            var emailBruto = reg.email || reg['email gsuite'] || reg['email_gsuite'] || reg['e-mail'];
+                            if (!emailBruto)
+                                return false;
+                            return !emailsExistentesSet.has(String(emailBruto).trim().toLowerCase());
+                        });
+                        totalIgnorados = registros.length - registrosFiltrados.length;
+                        // Se após filtrar, todos os e-mails já existirem, encerra sem dar erro
+                        if (registrosFiltrados.length === 0) {
+                            return [2 /*return*/, {
+                                    filename: file.originalname,
+                                    totalCadastrados: 0,
+                                    totalIgnorados: totalIgnorados,
+                                    tipo: tipo,
+                                    mensagem: 'Todos os e-mails do CSV já constavam no sistema.',
+                                }];
+                        }
                         mapaTurmas = {
                             INFO: user_entity_1.UserTurma.INFORMATICA,
                             CONT: user_entity_1.UserTurma.CONTABILIDADE,
                             ENF: user_entity_1.UserTurma.ENFERMAGEM,
                         };
-                        return [4 /*yield*/, Promise.all(registros.map(function (reg, index) { return __awaiter(_this, void 0, void 0, function () {
+                        return [4 /*yield*/, Promise.all(registrosFiltrados.map(function (reg, index) { return __awaiter(_this, void 0, void 0, function () {
                                 var emailBruto, nomeBruto, primeiroNome, primeiroEmail, primeiraTurma, primeiroAnoStr, senhaFinal, turmaFinal, roleFinal, anoFinal, chaveBusca, primeiraSenha, senhaHasheada;
                                 return __generator(this, function (_a) {
                                     switch (_a.label) {
@@ -206,26 +236,29 @@ var UsersService = /** @class */ (function () {
                                     }
                                 });
                             }); }))];
-                    case 1:
-                        dadosFormatados = _a.sent();
-                        _a.label = 2;
                     case 2:
-                        _a.trys.push([2, 4, , 5]);
-                        return [4 /*yield*/, this.usersRepository.save(dadosFormatados)];
+                        dadosFormatados = _a.sent();
+                        _a.label = 3;
                     case 3:
+                        _a.trys.push([3, 5, , 6]);
+                        // 5. Salva apenas os novos usuários
+                        return [4 /*yield*/, this.usersRepository.save(dadosFormatados)];
+                    case 4:
+                        // 5. Salva apenas os novos usuários
                         _a.sent();
                         return [2 /*return*/, {
                                 filename: file.originalname,
-                                total: dadosFormatados.length,
+                                totalCadastrados: dadosFormatados.length,
+                                totalIgnorados: totalIgnorados,
                                 tipo: tipo,
                             }];
-                    case 4:
+                    case 5:
                         error_1 = _a.sent();
                         if (error_1.code === 'ER_DUP_ENTRY' || error_1.errno === 1062) {
-                            throw new common_1.BadRequestException('Um ou mais e-mails do CSV já estão cadastrados.');
+                            throw new common_1.BadRequestException('O arquivo enviado possui linhas com e-mails repetidos entre si.');
                         }
-                        throw new common_1.InternalServerErrorException('Erro ao salvar usuários no banco de dados.');
-                    case 5: return [2 /*return*/];
+                        throw new common_1.InternalServerErrorException('Erro ao salvar novos usuários no banco de dados.');
+                    case 6: return [2 /*return*/];
                 }
             });
         });
