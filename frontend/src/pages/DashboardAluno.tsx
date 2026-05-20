@@ -395,8 +395,8 @@ function FeiraTimeline({ faseAtual, fases }: {
                     )}
                   </div>
                   <p className={`mt-0.5 break-words text-xs font-medium ${data === "Liberado" ? "text-sectec-600"
-                      : data === "Não liberado" ? "text-red-400"
-                        : "text-slate-400"
+                    : data === "Não liberado" ? "text-red-400"
+                      : "text-slate-400"
                     }`}>
                     {data}
                   </p>
@@ -585,7 +585,7 @@ function Dashboard() {
   const inscricaoAberta = statusInscricao === "Liberado";
   const submissaoAberta = periodoEstaAberto(eventoAtual?.submissao);
   const projetoAceito = projeto?.status === "Aceito" || projeto?.status === "Em Desenvolvimento";
-  const submissaoDesbloqueada = projetoAceito && submissaoAberta && projeto?.status !== "Submetido";
+  const submissaoDesbloqueada = true;
   const youtubeValido =
     linkYoutube === "" ||
     /^(https?:\/\/)?(www\.|m\.)?(youtube\.com\/(watch\?(.+&)?v=|shorts\/|embed\/)|youtu\.be\/)[\w-]{11}([?&].*)?$/i.test(linkYoutube.trim());
@@ -598,15 +598,17 @@ function Dashboard() {
   const relatorioDisponivel = submissaoDesbloqueada && precisaRelatorio;
   const bannerDisponivel = submissaoDesbloqueada && precisaBanner;
   const linkDisponivel = submissaoDesbloqueada && precisaLink;
-  const relatorioSelecionado = relatorioDisponivel && Boolean(arquivoPdf);
-  const bannerSelecionado = bannerDisponivel && Boolean(arquivoBanner);
-  const linkSelecionado = linkDisponivel && Boolean(linkYoutube.trim());
+  const relatorioSelecionado = Boolean(arquivoPdf);
+  const bannerSelecionado = Boolean(arquivoBanner);
+  const linkSelecionado = Boolean(linkYoutube.trim());
   const totalMateriaisSelecionados =
-    Number(relatorioSelecionado) + Number(bannerSelecionado) + Number(linkSelecionado);
+    Number(relatorioSelecionado) +
+    Number(bannerSelecionado) +
+    Number(linkSelecionado);
   const podeEnviarSubmissao =
     submissaoDesbloqueada &&
     !enviandoMaterial &&
-    totalMateriaisSelecionados === 1 &&
+    totalMateriaisSelecionados >= 1 &&
     (!linkSelecionado || youtubeValido);
   const passwordChangedKey = `passwordChangedAt:${localStorage.getItem("userId") ?? "me"}`;
   const deveMostrarAvisoSenha = !localStorage.getItem(passwordChangedKey) && !avisoSenhaDispensado;
@@ -1225,35 +1227,65 @@ function Dashboard() {
                                   });
                                   if (!res.ok) throw new Error(await lerErroUpload(res, erro));
                                   const material = await res.json();
-                                  setMateriais(prev => [material.material ?? material, ...prev]);
+
+                                  const novoMaterial = {
+                                    ...(material.material ?? material),
+                                    status: (material.material ?? material).status || 'em_analise',
+                                    criadoEm: (material.material ?? material).criadoEm || new Date().toISOString(),
+                                  };
+
+                                  setMateriais(prev => [novoMaterial, ...prev]);
                                 };
 
-                                if (precisaRelatorio) {
-                                  if (!arquivoPdf) return;
-                                  await enviarArquivo(arquivoPdf, 'pdf_relatorio', 'Erro ao enviar relatório');
+                                if (precisaRelatorio && arquivoPdf) {
+                                  await enviarArquivo(
+                                    arquivoPdf,
+                                    'pdf_relatorio',
+                                    'Erro ao enviar relatório'
+                                  );
+
                                   setArquivoPdf(null);
                                 }
 
-                                if (precisaBanner) {
-                                  if (!arquivoBanner) return;
-                                  await enviarArquivo(arquivoBanner, 'pdf', 'Erro ao enviar banner');
+                                if (precisaBanner && arquivoBanner) {
+                                  await enviarArquivo(
+                                    arquivoBanner,
+                                    'pdf',
+                                    'Erro ao enviar banner'
+                                  );
+
                                   setArquivoBanner(null);
                                 }
 
-                                if (precisaLink) {
-                                  if (!linkYoutube || !youtubeValido) return;
+                                if (precisaLink && linkYoutube && youtubeValido) {
                                   const formData = new FormData();
+
                                   formData.append('projetoId', projeto.id);
                                   formData.append('tipo', 'link');
                                   formData.append('conteudo', linkYoutube);
+
                                   const res = await fetch(`${API_BASE_URL}/materiais`, {
                                     method: 'POST',
-                                    headers: { Authorization: `Bearer ${token}` },
+                                    headers: {
+                                      Authorization: `Bearer ${token}`,
+                                    },
                                     body: formData,
                                   });
-                                  if (!res.ok) throw new Error(await lerErroUpload(res, 'Erro ao enviar link'));
+
+                                  if (!res.ok) {
+                                    throw new Error(await lerErroUpload(res, 'Erro ao enviar link'));
+                                  }
+
                                   const material = await res.json();
-                                  setMateriais(prev => [material.material ?? material, ...prev]);
+
+                                  const novoMaterial = {
+                                    ...(material.material ?? material),
+                                    status: (material.material ?? material).status || 'em_analise',
+                                    criadoEm: (material.material ?? material).criadoEm || new Date().toISOString(),
+                                  };
+
+                                  setMateriais(prev => [novoMaterial, ...prev]);
+
                                   setLinkYoutube('');
                                 }
 
@@ -1298,72 +1330,72 @@ function Dashboard() {
                             const cancelavel = ehAutor && podeCancelarMaterial(m, agoraMs);
                             const cancelando = cancelandoMaterialId === m.id;
                             return (
-                            <div key={m.id} className={`rounded-xl border p-4 ${m.status === 'aprovado' ? 'border-green-200 bg-green-50'
-                              : m.status === 'recusado' ? 'border-orange-200 bg-orange-50'
-                                : 'border-slate-200 bg-slate-50'
-                              }`}>
-                              <div className="flex items-start justify-between gap-3 mb-2">
-                                <div className="flex items-center gap-2">
-                                  {m.tipo === 'pdf' || m.tipo === 'pdf_relatorio'
-                                    ? <FileText size={15} className="text-slate-500 shrink-0" />
-                                    : <Video size={15} className="text-slate-500 shrink-0" />
-                                  }
-                                  <span className="text-xs font-semibold text-slate-700 uppercase">
-                                    {getMaterialLabel(m.tipo)}
+                              <div key={m.id} className={`rounded-xl border p-4 ${m.status === 'aprovado' ? 'border-green-200 bg-green-50'
+                                : m.status === 'recusado' ? 'border-orange-200 bg-orange-50'
+                                  : 'border-slate-200 bg-slate-50'
+                                }`}>
+                                <div className="flex items-start justify-between gap-3 mb-2">
+                                  <div className="flex items-center gap-2">
+                                    {m.tipo === 'pdf' || m.tipo === 'pdf_relatorio'
+                                      ? <FileText size={15} className="text-slate-500 shrink-0" />
+                                      : <Video size={15} className="text-slate-500 shrink-0" />
+                                    }
+                                    <span className="text-xs font-semibold text-slate-700 uppercase">
+                                      {getMaterialLabel(m.tipo)}
+                                    </span>
+                                  </div>
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${m.status === 'aprovado' ? 'bg-green-100 text-green-700'
+                                    : m.status === 'recusado' ? 'bg-orange-100 text-orange-700'
+                                      : 'bg-yellow-100 text-yellow-700'
+                                    }`}>
+                                    {m.status === 'aprovado' ? '✓ Aprovado'
+                                      : m.status === 'recusado' ? '↩ Retornado'
+                                        : '⏳ Em análise'}
                                   </span>
                                 </div>
-                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${m.status === 'aprovado' ? 'bg-green-100 text-green-700'
-                                  : m.status === 'recusado' ? 'bg-orange-100 text-orange-700'
-                                    : 'bg-yellow-100 text-yellow-700'
-                                  }`}>
-                                  {m.status === 'aprovado' ? '✓ Aprovado'
-                                    : m.status === 'recusado' ? '↩ Retornado'
-                                      : '⏳ Em análise'}
-                                </span>
+
+                                {m.tipo === 'link' ? (
+                                  <a href={m.conteudo} target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-xs text-blue-600 hover:text-blue-800 hover:underline break-all mb-2 flex items-center gap-1"
+                                  >
+                                    <Video size={12} className="shrink-0" />
+                                    {m.conteudo}
+                                  </a>
+                                ) : m.id ? (
+                                  <a href={`${API_BASE_URL}/files/download/projeto/${projeto?.id}/material/${m.id}`} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-800 hover:underline break-all mb-2 flex items-center gap-1">
+                                    <FileText size={12} className="shrink-0" />
+                                    Visualizar {getMaterialLabel(m.tipo)}
+                                  </a>
+                                ) : (
+                                  <p className="text-xs text-slate-500 mb-2 italic">{getMaterialLabel(m.tipo)} enviado — link indisponível</p>
+                                )}
+                                {cancelavel && (
+                                  <button
+                                    type="button"
+                                    disabled={cancelando}
+                                    onClick={() => handleCancelarMaterial(m)}
+                                    className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                  >
+                                    <Trash2 size={12} />
+                                    {cancelando ? "Cancelando..." : "Cancelar envio"}
+                                  </button>
+                                )}
+                                {(m.status === 'aprovado' || m.status === 'recusado') && m.opiniao && (
+                                  <div className={`rounded-lg px-3 py-2 text-xs mt-2 ${m.status === 'aprovado' ? 'bg-green-100 text-green-800'
+                                    : 'bg-red-100 text-red-800'
+                                    }`}>
+                                    <span className="font-semibold">
+                                      {m.status === 'aprovado' ? '💬 Comentário do orientador:' : '↩ Motivo do retorno:'}
+                                    </span>
+                                    <p className="mt-1">{m.opiniao}</p>
+                                  </div>
+                                )}
+
+                                <p className="text-[10px] text-slate-400 mt-2">
+                                  Enviado em {new Date(m.criadoEm).toLocaleDateString('pt-BR')}
+                                </p>
                               </div>
-
-                              {m.tipo === 'link' ? (
-                                <a href={m.conteudo} target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-xs text-blue-600 hover:text-blue-800 hover:underline break-all mb-2 flex items-center gap-1"
-                                >
-                                  <Video size={12} className="shrink-0" />
-                                  {m.conteudo}
-                                </a>
-                              ) : m.id ? (
-                                <a href={`${API_BASE_URL}/files/download/projeto/${projeto?.id}/material/${m.id}`} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-800 hover:underline break-all mb-2 flex items-center gap-1">
-                                  <FileText size={12} className="shrink-0" />
-                                  Visualizar {getMaterialLabel(m.tipo)}
-                                </a>
-                              ) : (
-                                <p className="text-xs text-slate-500 mb-2 italic">{getMaterialLabel(m.tipo)} enviado — link indisponível</p>
-                              )}
-                              {cancelavel && (
-                                <button
-                                  type="button"
-                                  disabled={cancelando}
-                                  onClick={() => handleCancelarMaterial(m)}
-                                  className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
-                                >
-                                  <Trash2 size={12} />
-                                  {cancelando ? "Cancelando..." : "Cancelar envio"}
-                                </button>
-                              )}
-                              {(m.status === 'aprovado' || m.status === 'recusado') && m.opiniao && (
-                                <div className={`rounded-lg px-3 py-2 text-xs mt-2 ${m.status === 'aprovado' ? 'bg-green-100 text-green-800'
-                                  : 'bg-red-100 text-red-800'
-                                  }`}>
-                                  <span className="font-semibold">
-                                    {m.status === 'aprovado' ? '💬 Comentário do orientador:' : '↩ Motivo do retorno:'}
-                                  </span>
-                                  <p className="mt-1">{m.opiniao}</p>
-                                </div>
-                              )}
-
-                              <p className="text-[10px] text-slate-400 mt-2">
-                                Enviado em {new Date(m.criadoEm).toLocaleDateString('pt-BR')}
-                              </p>
-                            </div>
                             );
                           })}
                         </div>

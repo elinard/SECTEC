@@ -6,16 +6,13 @@ import {
   PiBuildings,
   PiCalendarBlank,
   PiCheckCircle,
-  PiFilePdf,
   PiFunnel,
   PiMagnifyingGlass,
   PiNotebook,
   PiPlus,
-  PiTextAlignLeft,
   PiUsersThree,
   PiWarningCircle,
   PiUploadSimple,
-  PiYoutubeLogo,
 } from "react-icons/pi";
 import {
   AlertTriangle,
@@ -39,16 +36,6 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { MainLayout } from "../componentes/SideBarUniversal";
 import Swal from "sweetalert2";
 import { apiRequest, API_BASE_URL, type UsuarioApi } from "../lib/api";
-
-type StatusProjeto =
-  | "Rascunho"
-  | "Pendente de Orientação"
-  | "Aceito"
-  | "Em Desenvolvimento"
-  | "Sob Revisão"
-  | "Aprovado para Avaliação"
-  | "Avaliado";
-type Prioridade = "baixa" | "media" | "alta";
 
 type AlunoRelatorio = {
   id: number;
@@ -99,23 +86,6 @@ type ProjetosPorTurmaResponse = Record<
     totalAprovados: number;
   }
 >;
-
-type ProjetoAdmin = {
-  id: number;
-  titulo: string;
-  eixo: string;
-  autor: string;
-  turma: string;
-  orientador: string;
-  status: StatusProjeto;
-  prioridade: Prioridade;
-  atualizadoEm: string;
-  materiais: {
-    pdf: boolean;
-    youtube: boolean;
-    resumo: boolean;
-  };
-};
 
 type TurmaAdmin = {
   id: number;
@@ -219,57 +189,6 @@ type ProjetoCoordenacaoListagem = ProjetoCoordenacaoApi & {
   eventoId?: number;
 };
 
-const projetosMock: ProjetoAdmin[] = [
-  {
-    id: 1,
-    titulo: "Monitoramento Ambiental com IoT",
-    eixo: "Tecnologia e Sustentabilidade",
-    autor: "João Felipe",
-    turma: "3º Informática",
-    orientador: "Prof. Marcos Lima",
-    status: "Sob Revisão",
-    prioridade: "alta",
-    atualizadoEm: "Hoje, 09:40",
-    materiais: { pdf: true, youtube: true, resumo: true },
-  },
-  {
-    id: 2,
-    titulo: "Biblioteca Digital Escolar",
-    eixo: "Gestão e Cultura Digital",
-    autor: "Ana Beatriz",
-    turma: "2º Informática",
-    orientador: "Prof. Carla Nunes",
-    status: "Em Desenvolvimento",
-    prioridade: "media",
-    atualizadoEm: "Ontem, 16:12",
-    materiais: { pdf: true, youtube: false, resumo: true },
-  },
-  {
-    id: 3,
-    titulo: "Filtro Inteligente de Água",
-    eixo: "Ciências Aplicadas",
-    autor: "Lucas Pereira",
-    turma: "3º Enfermagem",
-    orientador: "Sem orientador",
-    status: "Pendente de Orientação",
-    prioridade: "alta",
-    atualizadoEm: "Segunda, 11:03",
-    materiais: { pdf: false, youtube: false, resumo: true },
-  },
-  {
-    id: 4,
-    titulo: "Sistema de Registro de Frequência",
-    eixo: "Automação Escolar",
-    autor: "Maria Eduarda",
-    turma: "1º Informática",
-    orientador: "Prof. Renato Alves",
-    status: "Aprovado para Avaliação",
-    prioridade: "baixa",
-    atualizadoEm: "08/05/2026",
-    materiais: { pdf: true, youtube: true, resumo: true },
-  },
-];
-
 const turmasMock: TurmaAdmin[] = [
   {
     id: 1,
@@ -305,22 +224,6 @@ const turmasMock: TurmaAdmin[] = [
     status: "Ativa",
   },
 ];
-
-const statusStyle: Record<StatusProjeto, string> = {
-  Rascunho: "bg-slate-100 text-slate-600 ring-slate-200",
-  "Pendente de Orientação": "bg-amber-50 text-amber-700 ring-amber-200",
-  Aceito: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  "Em Desenvolvimento": "bg-sky-50 text-sky-700 ring-sky-200",
-  "Sob Revisão": "bg-indigo-50 text-indigo-700 ring-indigo-200",
-  "Aprovado para Avaliação": "bg-sectec-50 text-sectec-700 ring-sectec-200",
-  Avaliado: "bg-slate-900 text-white ring-slate-900",
-};
-
-const prioridadeStyle: Record<Prioridade, string> = {
-  baixa: "border-slate-200 text-slate-500",
-  media: "border-amber-200 text-amber-700",
-  alta: "border-red-200 text-red-700",
-};
 
 function handleAcaoIndisponivel(acao: string) {
   window.alert(`${acao} depende dos endpoints do backend. A interface já está pronta para ligar na API.`);
@@ -474,40 +377,6 @@ function FrequenciaCoordenacao() {
     </AdminPageShell>
   );
 }
-
-function NotasCoordenacao() {
-  return (
-    <AdminPageShell>
-      <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
-        <PanelTitle icon={<PiNotebook size={20} />} title="Notas" subtitle="Visão da coordenação sobre situação de avaliação, materiais enviados e prioridades." />
-        <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200">
-          <div className="hidden grid-cols-[1.2fr_0.75fr_0.7fr_0.5fr] bg-slate-50 px-4 py-3 text-[11px] font-black uppercase tracking-widest text-slate-400 lg:grid">
-            <span>Projeto</span><span>Status</span><span>Materiais</span><span>Prioridade</span>
-          </div>
-          <div className="divide-y divide-slate-100">
-            {projetosMock.map((projeto) => (
-              <article key={projeto.id} className="grid gap-4 px-4 py-4 lg:grid-cols-[1.2fr_0.75fr_0.7fr_0.5fr] lg:items-center">
-                <div>
-                  <h3 className="font-black text-slate-900">{projeto.titulo}</h3>
-                  <p className="mt-1 text-sm font-semibold text-slate-500">{projeto.autor} · {projeto.turma}</p>
-                  <p className="mt-1 text-xs text-slate-400">{projeto.orientador} · {projeto.atualizadoEm}</p>
-                </div>
-                <AdminChip className={statusStyle[projeto.status]}>{projeto.status}</AdminChip>
-                <div className="flex gap-2 text-xl">
-                  <span className={projeto.materiais.pdf ? "text-emerald-600" : "text-slate-300"} title="PDF"><PiFilePdf /></span>
-                  <span className={projeto.materiais.youtube ? "text-emerald-600" : "text-slate-300"} title="Vídeo"><PiYoutubeLogo /></span>
-                  <span className={projeto.materiais.resumo ? "text-emerald-600" : "text-slate-300"} title="Resumo"><PiTextAlignLeft /></span>
-                </div>
-                <AdminChip className={prioridadeStyle[projeto.prioridade]}>{projeto.prioridade}</AdminChip>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-    </AdminPageShell>
-  );
-}
-
 
 function escapeHtml(value: string) {
   return value
@@ -1811,6 +1680,51 @@ function UsuariosCoordenacao() {
     }
   }
 
+  async function removerAlunoDaComissao(usuario: UsuarioCoordenacao) {
+    if (usuario.perfil !== "Comissão") {
+      await Swal.fire({
+        icon: "warning",
+        title: "Ação indisponível",
+        text: "Apenas membros da comissão podem voltar para aluno.",
+        confirmButtonColor: "#15803d",
+      });
+      return;
+    }
+
+    const result = await Swal.fire({
+      icon: "question",
+      title: "Remover da comissão?",
+      text: `${usuario.nome} voltará para a lista de alunos.`,
+      showCancelButton: true,
+      confirmButtonText: "Sim, remover",
+      cancelButtonText: "Cancelar",
+      confirmButtonColor: "#15803d",
+      cancelButtonColor: "#64748b",
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+      await apiRequest(`/users/${usuario.id}/demote-comissao`, { method: "PATCH" });
+
+      await Swal.fire({
+        icon: "success",
+        title: "Membro removido da comissão",
+        text: `${usuario.nome} voltou para a lista de alunos.`,
+        confirmButtonColor: "#15803d",
+      });
+
+      await carregarUsuarios();
+    } catch (error) {
+      await Swal.fire({
+        icon: "error",
+        title: "Erro ao remover da comissão",
+        text: error instanceof Error ? error.message : "Não foi possível remover o usuário da comissão.",
+        confirmButtonColor: "#15803d",
+      });
+    }
+  }
+
   useEffect(() => {
     let ativo = true;
 
@@ -1926,7 +1840,7 @@ function UsuariosCoordenacao() {
             <button
               type="button"
               onClick={() => abrirCadastro("aluno")}
-              className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-950 px-4 py-3 text-sm font-black text-white transition hover:bg-slate-800"
+              className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-700 transition hover:bg-emerald-100"
             >
               <PiPlus size={18} />
               Cadastrar aluno
@@ -1934,7 +1848,7 @@ function UsuariosCoordenacao() {
             <button
               type="button"
               onClick={() => abrirCadastro("orientador")}
-              className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 transition hover:bg-slate-50"
+              className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-700 transition hover:bg-emerald-100"
             >
               <PiPlus size={18} />
               Cadastrar orientador
@@ -2138,13 +2052,24 @@ function UsuariosCoordenacao() {
                           {abaAtiva === "alunos" && usuario.perfil === "Aluno" ? (
                             <Tooltip label="Mover aluno para comissão">
                               <button
-                              type="button"
-                              onClick={() => promoverAlunoParaComissao(usuario)}
-                              className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-emerald-100 hover:text-emerald-900"
-                            >
-                              <PiArrowUpRight size={14} />
-                              Tornar comissão
-                            </button>
+                                type="button"
+                                onClick={() => promoverAlunoParaComissao(usuario)}
+                                className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-emerald-100 hover:text-emerald-900"
+                              >
+                                <PiArrowUpRight size={14} />
+                                Tornar comissão
+                              </button>
+                            </Tooltip>
+                          ) : abaAtiva === "comissao" && usuario.perfil === "Comissão" ? (
+                            <Tooltip label="Remover da comissão">
+                              <button
+                                type="button"
+                                onClick={() => removerAlunoDaComissao(usuario)}
+                                className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-amber-100 hover:text-amber-900"
+                              >
+                                <ArrowLeft size={14} />
+                                Voltar aluno
+                              </button>
                             </Tooltip>
                           ) : (
                             <span className="text-xs font-semibold text-slate-400">Sem ações disponíveis</span>
@@ -3152,7 +3077,6 @@ function Administrador() {
 
   if (pathname.endsWith("/turmas")) return <TurmasCoordenacao />;
   if (pathname.endsWith("/frequencia")) return <FrequenciaCoordenacao />;
-  if (pathname.endsWith("/notas")) return <NotasCoordenacao />;
   if (pathname.endsWith("/usuarios")) return <UsuariosCoordenacao />;
   if (pathname.endsWith("/eventos")) return <EventosCoordenacao />;
   if (pathname.endsWith("/projetos")) return <ProjetosCoordenacao />;
@@ -3209,8 +3133,8 @@ function Administrador() {
               onClick={() => irParaRelatorio("alunos-sem-projeto")}
               tooltip="Alunos que ainda não aparecem como autor ou integrante em projeto"
             >
-              <DetailItem label="Fonte" value="/relatorio/alunos-sem-projeto" />
-              <DetailItem label="Ação" value="Ver relatório" />
+              <DetailItem label="Turmas afetadas" value={turmasAfetadasRelatorio} />
+              <DetailItem label="Status" value="Relatório disponível" />
             </DashboardCard>
 
             <DashboardCard
@@ -3222,8 +3146,8 @@ function Administrador() {
               onClick={() => irParaRelatorio("comissao-por-evento")}
               tooltip="Histórico de alunos que participaram da comissão organizadora"
             >
-              <DetailItem label="Histórico" value="Real" />
-              <DetailItem label="Ação" value="Ver histórico" />
+              <DetailItem label="Eventos" value={eventosComComissaoRelatorio} />
+              <DetailItem label="Status" value="Histórico disponível" />
             </DashboardCard>
 
             <DashboardCard
@@ -3250,7 +3174,7 @@ function Administrador() {
               tooltip="Projetos aceitos distribuídos por orientador"
             >
               <DetailItem label="Orientadores" value={relatorioProjetosPorOrientador.length} />
-              <DetailItem label="Ação" value="Ver distribuição" />
+              <DetailItem label="Status" value="Distribuição disponível" />
             </DashboardCard>
 
             <DashboardCard
@@ -3263,7 +3187,7 @@ function Administrador() {
               tooltip="Projetos criados e aprovados por turma"
             >
               <DetailItem label="Turmas" value={Object.keys(relatorioProjetosPorTurma).length} />
-              <DetailItem label="Ação" value="Ver relatório" />
+              <DetailItem label="Status" value="Relatório disponível" />
             </DashboardCard>
           </section>
 
