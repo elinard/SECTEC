@@ -9,7 +9,6 @@ import { UsersSeed } from './users.seed';
 // 🚀 IMPORTANTE: Importe as entidades que o UsersService exige no construtor
 import { Evento } from '../evento/entities/evento.entity'; 
 import { ComissaoEvento } from '../evento/entities/comissao-evento.entity'; 
-import { ProjetoOrientador } from '../orientacoes/entities/projeto-orientador.entity'; 
 
 @Module({
   imports: [
@@ -17,8 +16,7 @@ import { ProjetoOrientador } from '../orientacoes/entities/projeto-orientador.en
     TypeOrmModule.forFeature([
       User, 
       Evento, 
-      ComissaoEvento, 
-      ProjetoOrientador
+      ComissaoEvento
     ]),
   ],
   controllers: [UsersController],

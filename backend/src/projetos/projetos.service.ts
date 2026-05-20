@@ -375,10 +375,6 @@ export class ProjetosService {
   ): Promise<ProjetoOrientador> {
     await this.validarTemaNoEvento(projeto.temaId, projeto.evento.id);
     await this.validarOrientadorSelecionouTema(projeto.temaId, orientadorId);
-    
-    // 🚀 NOVA VALIDAÇÃO: Bloqueia o envio se o professor já atingiu o teto de 4 projetos aceitos
-    await this.validarLimiteDeOrientacoes(orientadorId, projeto.evento.id);
-    
     await this.validarSolicitacaoDuplicada(projeto.id, orientadorId);
 
     const novaSolicitacao = this.projetoOrientadorRepository.create({
@@ -397,26 +393,6 @@ export class ProjetosService {
     );
 
     return solicitacao;
-  }
-
-
-  /**
-   * Verifica se o orientador já atingiu o limite máximo de 4 projetos aceitos no evento atual.
-   */
-  private async validarLimiteDeOrientacoes(orientadorId: number, eventoId: number): Promise<void> {
-    const totalAceitos = await this.projetoOrientadorRepository.count({
-      where: {
-        orientador: { id: orientadorId },
-        status: 'aceito',
-        projeto: { evento: { id: eventoId } },
-      },
-    });
-
-    if (totalAceitos >= 4) {
-      throw new BadRequestException(
-        'Este orientador já atingiu o limite máximo de 4 projetos orientados para este evento.'
-      );
-    }
   }
 
 
