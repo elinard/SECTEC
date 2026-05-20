@@ -392,6 +392,22 @@ export class UsersService {
       throw new InternalServerErrorException('Erro ao salvar o usuário individual no banco de dados.');
     }
   }
+
+  async removeUser(id: number) {
+    const user = await this.usersRepository.findOne({ where: { id } });
+
+    if (!user) {
+      throw new NotFoundException(`Usuário com ID ${id} não encontrado.`);
+    }
+
+    user.ativo = false;
+    await this.usersRepository.save(user);
+
+    return {
+      message: 'Usuário excluído com sucesso.',
+      id: user.id,
+    };
+  }
   
   
   

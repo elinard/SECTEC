@@ -11,6 +11,7 @@ import {
   Patch,
   Param,
   Body,
+  Delete,
   ParseIntPipe
 } from '@nestjs/common';
 import { UsersService } from './users.service';
@@ -146,6 +147,14 @@ async createIndividual(@Body() createUserDto: CreateUserDto) {
   @ApiResponse({ status: 404, description: 'Usuário não encontrado.' })
   async demote(@Param('id', ParseIntPipe) id: number) {
     return this.usersService.demoteFromComissao(id);
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Excluir usuário do sistema' })
+  @ApiResponse({ status: 200, description: 'Usuário excluído com sucesso.' })
+  @ApiResponse({ status: 404, description: 'Usuário não encontrado.' })
+  async remove(@Param('id', ParseIntPipe) id: number) {
+    return this.usersService.removeUser(id);
   }
 
 

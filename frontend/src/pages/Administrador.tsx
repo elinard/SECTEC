@@ -1725,6 +1725,44 @@ function UsuariosCoordenacao() {
     }
   }
 
+  async function excluirUsuario(usuario: UsuarioCoordenacao) {
+    const result = await Swal.fire({
+      icon: "warning",
+      title: "Excluir usuário?",
+      text: `${usuario.nome} será removido da lista de usuários ativos do sistema.`,
+      showCancelButton: true,
+      confirmButtonText: "Sim, excluir",
+      cancelButtonText: "Cancelar",
+      confirmButtonColor: "#dc2626",
+      cancelButtonColor: "#64748b",
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+      await apiRequest(`/users/${usuario.id}`, { method: "DELETE" });
+
+      await Swal.fire({
+        icon: "success",
+        title: "Usuário excluído",
+        text: `${usuario.nome} foi removido da lista de usuários ativos.`,
+        showConfirmButton: false,
+        timer: 1300,
+        timerProgressBar: true,
+      });
+
+      fecharDetalhesUsuario();
+      await carregarUsuarios();
+    } catch (error) {
+      await Swal.fire({
+        icon: "error",
+        title: "Erro ao excluir usuário",
+        text: error instanceof Error ? error.message : "Não foi possível excluir o usuário.",
+        confirmButtonColor: "#15803d",
+      });
+    }
+  }
+
   useEffect(() => {
     let ativo = true;
 
@@ -2119,6 +2157,15 @@ function UsuariosCoordenacao() {
               <p className="mt-1 text-xs text-slate-500">Perfil: <strong className="text-slate-700">{usuarioSelecionado.perfil}</strong></p>
               <p className="mt-1 text-xs text-slate-500">Turma: {usuarioSelecionado.turma || "-"}{usuarioSelecionado.ano ? ` · ${usuarioSelecionado.ano}` : ""}</p>
             </div>
+
+            <button
+              type="button"
+              onClick={() => excluirUsuario(usuarioSelecionado)}
+              className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-black text-red-700 transition hover:bg-red-100 sm:w-auto"
+            >
+              <Trash2 size={16} />
+              Excluir usuário
+            </button>
 
             <div>
               <h4 className="text-sm font-black text-slate-900">Projetos vinculados</h4>
