@@ -833,6 +833,26 @@ function Notice({ message }: { message: string }) {
   );
 }
 
+function mostrarAvisoOrientador({
+  tipo,
+  titulo,
+  texto,
+}: {
+  tipo: "success" | "error" | "warning";
+  titulo: string;
+  texto?: string;
+}) {
+  void Swal.fire({
+    icon: tipo,
+    title: titulo,
+    text: texto,
+    confirmButtonColor: "#15803d",
+    showConfirmButton: tipo !== "success",
+    timer: tipo === "success" ? 1500 : undefined,
+    timerProgressBar: tipo === "success",
+  });
+}
+
 async function solicitarJustificativaReprovacao(titulo: string, texto: string) {
   const resultado = await Swal.fire({
     title: titulo,
@@ -1298,7 +1318,6 @@ function DashboardOrientador() {
   const [turmaFiltro, setTurmaFiltro] = useState("todas");
   const [temaFiltro, setTemaFiltro] = useState<number | "todos">("todos");
   const [filtroSolicitacao, setFiltroSolicitacao] = useState<FiltroSolicitacao>("pendentes");
-  const [, setAviso] = useState("");
   const [projetoDetalhe, setProjetoDetalhe] = useState<ProjetoApi | null>(null);
   const [carregandoDetalhe, setCarregandoDetalhe] = useState(false);
   const [erroDetalhe, setErroDetalhe] = useState("");
@@ -1363,10 +1382,6 @@ function DashboardOrientador() {
       ? "Você precisa selecionar no mínimo 1 eixo temático para orientar."
       : "";
 
-  function mostrarAviso(mensagem: string) {
-    setAviso(mensagem);
-  }
-
   async function atualizarProjeto(id: string, status: StatusProjeto) {
     const projeto = projetosData.find((item) => item.id === id);
     let motivoRecusa: string | undefined;
@@ -1385,23 +1400,46 @@ function DashboardOrientador() {
       if (!projeto) return;
       await backend.responderProjeto(projeto, status, motivoRecusa);
 
-      mostrarAviso(status === "aprovado" ? "Projeto aprovado." : "Projeto marcado para ajustes.");
+      mostrarAvisoOrientador({
+        tipo: "success",
+        titulo: status === "aprovado" ? "Solicitação aceita" : "Solicitação recusada",
+        texto:
+          status === "aprovado"
+            ? "Você agora orienta este projeto."
+            : "A equipe poderá visualizar o motivo da recusa.",
+      });
     } catch (error) {
-      mostrarAviso(error instanceof Error ? error.message : "Não foi possível atualizar o projeto.");
+      mostrarAvisoOrientador({
+        tipo: "error",
+        titulo: "Não foi possível responder",
+        texto: error instanceof Error ? error.message : "Não foi possível atualizar o projeto.",
+      });
     }
   }
 
   async function salvarTemas() {
     if (temasBackend.temas.length > 0 && temasBackend.selecionadosIds.length === 0) {
-      mostrarAviso("Selecione pelo menos 1 eixo temático para orientar.");
+      mostrarAvisoOrientador({
+        tipo: "warning",
+        titulo: "Selecione um eixo",
+        texto: "Selecione pelo menos 1 eixo temático para orientar.",
+      });
       return;
     }
 
     try {
       await temasBackend.salvar(temasBackend.selecionadosIds);
-      mostrarAviso("Temas do orientador salvos.");
+      mostrarAvisoOrientador({
+        tipo: "success",
+        titulo: "Temas salvos",
+        texto: "Seus eixos de orientação foram atualizados.",
+      });
     } catch (error) {
-      mostrarAviso(error instanceof Error ? error.message : "Não foi possível salvar os temas do orientador.");
+      mostrarAvisoOrientador({
+        tipo: "error",
+        titulo: "Não foi possível salvar",
+        texto: error instanceof Error ? error.message : "Não foi possível salvar os temas do orientador.",
+      });
     }
   }
 
@@ -1766,7 +1804,6 @@ export function EntregasOrientador() {
   const entregasBackend = useEntregasBackendData(backend.orientacoes, backend.carregando);
   const [filtro, setFiltro] = useState<"todas" | StatusEntrega>("todas");
   const [gruposAbertos, setGruposAbertos] = useState<string[]>([]);
-  const [, setAviso] = useState("");
   const entregasData = entregasBackend.entregas;
 
   const entregasFiltradas = useMemo(() => {
@@ -1831,9 +1868,20 @@ export function EntregasOrientador() {
 
     try {
       await entregasBackend.revisarEntrega(entrega, status, opiniao);
-      setAviso(status === "aprovado" ? "Entrega aprovada no backend." : "Entrega reprovada no backend.");
+      mostrarAvisoOrientador({
+        tipo: "success",
+        titulo: status === "aprovado" ? "Material aprovado" : "Material recusado",
+        texto:
+          status === "aprovado"
+            ? "A equipe poderá acompanhar a aprovação do material."
+            : "A equipe poderá visualizar a orientação de correção.",
+      });
     } catch (error) {
-      setAviso(error instanceof Error ? error.message : "Não foi possível avaliar a entrega.");
+      mostrarAvisoOrientador({
+        tipo: "error",
+        titulo: "Não foi possível avaliar",
+        texto: error instanceof Error ? error.message : "Não foi possível avaliar a entrega.",
+      });
     }
   }
 
