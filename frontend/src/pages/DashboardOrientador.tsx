@@ -152,6 +152,8 @@ type EventoAtualApi = {
 };
 
 const eixosProjeto = EIXOS_LIST.filter((eixo): eixo is EixoProjeto => eixo !== "todos");
+const MIN_TEMAS_ORIENTADOR = 4;
+
 function cx(...classes: Array<string | false | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
@@ -989,9 +991,10 @@ function TemasChecklist({
   onSave: () => void;
 }) {
   const [modalAberto, setModalAberto] = useState(false);
+  const precisaMaisTemas = temas.length > 0 && selecionadosIds.length < MIN_TEMAS_ORIENTADOR;
 
   function toggleTema(temaId: number) {
-    if (selecionadosIds.includes(temaId) && selecionadosIds.length === 1) return;
+    if (selecionadosIds.includes(temaId) && selecionadosIds.length <= MIN_TEMAS_ORIENTADOR) return;
 
     onChange(
       selecionadosIds.includes(temaId)
@@ -1009,7 +1012,7 @@ function TemasChecklist({
             {selecionadosIds.length} eixo(s) ativo(s)
           </h2>
           <p className="mt-1 text-sm font-medium text-slate-500">
-            {eventoTitulo ? `Evento atual: ${eventoTitulo}` : "Eixos carregados pelo evento atual."} Desmarque os eixos que não deseja orientar.
+            {eventoTitulo ? `Evento atual: ${eventoTitulo}` : "Eixos carregados pelo evento atual."} Selecione no mínimo {MIN_TEMAS_ORIENTADOR} eixos para orientar.
           </p>
         </div>
 
@@ -1071,7 +1074,7 @@ function TemasChecklist({
                           <input
                             type="checkbox"
                             checked={ativo}
-                            disabled={ativo && selecionadosIds.length === 1}
+                            disabled={ativo && selecionadosIds.length <= MIN_TEMAS_ORIENTADOR}
                             onChange={() => toggleTema(tema.id)}
                             className="h-4 w-4 shrink-0 accent-sectec-700"
                           />
@@ -1088,6 +1091,11 @@ function TemasChecklist({
                     </div>
                   )}
                 </div>
+                {precisaMaisTemas ? (
+                  <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-700">
+                    Selecione pelo menos {MIN_TEMAS_ORIENTADOR} eixos temáticos para salvar.
+                  </p>
+                ) : null}
               </div>
 
               <div className="flex flex-col gap-2 border-t border-slate-100 p-5 sm:flex-row sm:justify-end">
@@ -1097,9 +1105,9 @@ function TemasChecklist({
                 <Button
                   onClick={() => {
                     onSave();
-                    if (selecionadosIds.length > 0) setModalAberto(false);
+                    if (!precisaMaisTemas) setModalAberto(false);
                   }}
-                  disabled={carregando || salvando || temas.length === 0 || selecionadosIds.length === 0}
+                  disabled={carregando || salvando || temas.length === 0 || precisaMaisTemas}
                 >
                   <Save size={16} />
                   {salvando ? "Salvando" : "Salvar temas"}
@@ -1378,8 +1386,8 @@ function DashboardOrientador() {
       ? `${temasBackend.selecionadosIds.length} eixo(s) selecionado(s)`
       : "nenhum eixo selecionado";
   const avisoEixos =
-    !temasBackend.carregando && temasBackend.temas.length > 0 && temasBackend.selecionadosIds.length === 0
-      ? "Você precisa selecionar no mínimo 1 eixo temático para orientar."
+    !temasBackend.carregando && temasBackend.temas.length > 0 && temasBackend.selecionadosIds.length < MIN_TEMAS_ORIENTADOR
+      ? `Você precisa selecionar no mínimo ${MIN_TEMAS_ORIENTADOR} eixos temáticos para orientar.`
       : "";
 
   async function atualizarProjeto(id: string, status: StatusProjeto) {
@@ -1418,11 +1426,11 @@ function DashboardOrientador() {
   }
 
   async function salvarTemas() {
-    if (temasBackend.temas.length > 0 && temasBackend.selecionadosIds.length === 0) {
+    if (temasBackend.temas.length > 0 && temasBackend.selecionadosIds.length < MIN_TEMAS_ORIENTADOR) {
       mostrarAvisoOrientador({
         tipo: "warning",
-        titulo: "Selecione um eixo",
-        texto: "Selecione pelo menos 1 eixo temático para orientar.",
+        titulo: "Selecione mais eixos",
+        texto: `Selecione pelo menos ${MIN_TEMAS_ORIENTADOR} eixos temáticos para orientar.`,
       });
       return;
     }
