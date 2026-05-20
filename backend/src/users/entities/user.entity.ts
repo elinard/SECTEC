@@ -41,6 +41,9 @@ export class User {
   @Column({ default: 1})
   ano!: number;
 
+  @Column({ type: 'int', nullable: true })
+  ano_progressao_processado!: number | null;
+
   @Column({type: 'enum', enum: UserTurma, nullable: true})
   turma!: UserTurma | null;
   

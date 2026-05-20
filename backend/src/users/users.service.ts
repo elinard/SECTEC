@@ -2,8 +2,10 @@ import {
   BadRequestException,
   Injectable,
   InternalServerErrorException,
+  Logger,
   NotFoundException
 } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, In } from 'typeorm';
 import { User, UserTurma, UserRole } from './entities/user.entity';
@@ -25,6 +27,8 @@ interface ICsvRow {
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     @InjectRepository(User)
     private usersRepository: Repository<User>,
@@ -41,11 +45,75 @@ export class UsersService {
     private projetoOrientadorRepository: Repository<ProjetoOrientador>,
   ) { }
 
+  async onApplicationBootstrap() {
+    await this.executarSmartCheckAnoAlunos('startup');
+  }
+
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT, {
+    timeZone: 'America/Fortaleza',
+  })
+  async executarSmartCheckAnoAlunosDiario() {
+    await this.executarSmartCheckAnoAlunos('cron');
+  }
+
+  async executarSmartCheckAnoAlunos(origem = 'manual') {
+    const anoAtual = new Date().getFullYear();
+    const alunos = await this.usersRepository.find({
+      where: { role_cargo: UserRole.ALUNO },
+      select: ['id', 'ano', 'ativo', 'criado_em', 'ano_progressao_processado'],
+    });
+    const alunosParaSalvar: User[] = [];
+    let incrementados = 0;
+    let desativados = 0;
+
+    for (const aluno of alunos) {
+      const anoProcessado = aluno.ano_progressao_processado ?? aluno.criado_em?.getFullYear() ?? anoAtual;
+      let mudou = false;
+
+      if (aluno.ativo && anoAtual > anoProcessado) {
+        const anosPassados = anoAtual - anoProcessado;
+        aluno.ano = Math.min(aluno.ano + anosPassados, 4);
+        aluno.ano_progressao_processado = anoAtual;
+        incrementados += 1;
+        mudou = true;
+      } else if (aluno.ano_progressao_processado === null) {
+        aluno.ano_progressao_processado = anoAtual;
+        mudou = true;
+      }
+
+      if (aluno.ativo && aluno.ano >= 4) {
+        aluno.ativo = false;
+        aluno.ano = 4;
+        aluno.ano_progressao_processado = anoAtual;
+        desativados += 1;
+        mudou = true;
+      }
+
+      if (mudou) alunosParaSalvar.push(aluno);
+    }
+
+    if (alunosParaSalvar.length > 0) {
+      await this.usersRepository.save(alunosParaSalvar);
+    }
+
+    this.logger.log(
+      `Smart check de anos (${origem}): ${incrementados} aluno(s) progredido(s), ${desativados} aluno(s) desativado(s).`,
+    );
+
+    return {
+      anoAtual,
+      incrementados,
+      desativados,
+      atualizados: alunosParaSalvar.length,
+    };
+  }
+
   async findOneByEmail(email: string): Promise<User | null> {
     return this.usersRepository
       .createQueryBuilder('user')
       .addSelect('user.senha')
       .where('user.email_institucional = :email', { email })
+      .andWhere('user.ativo = :ativo', { ativo: true })
       .getOne();
   }
 
@@ -196,9 +264,10 @@ export class UsersService {
           email_institucional: primeiroEmail,
           senha: senhaHasheada,
           turma: turmaFinal,
-          ano: anoFinal,
+          ano: Math.min(anoFinal, 4),
           role_cargo: roleFinal,
-          ativo: true,
+          ativo: roleFinal !== UserRole.ALUNO || anoFinal < 4,
+          ano_progressao_processado: new Date().getFullYear(),
         };
       }),
     );
@@ -307,8 +376,9 @@ export class UsersService {
       senha: senhaHasheada,
       role_cargo,
       turma: turmaFinal,
-      ano: anoFinal,
-      ativo: true,
+      ano: Math.min(anoFinal, 4),
+      ativo: role_cargo !== UserRole.ALUNO || anoFinal < 4,
+      ano_progressao_processado: new Date().getFullYear(),
     });
 
     try {
