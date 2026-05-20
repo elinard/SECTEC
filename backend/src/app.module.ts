@@ -33,7 +33,7 @@ import { RelatorioModule } from './relatorio/relatorio.module';
     }),
     ScheduleModule.forRoot(),
 
-  
+  //noq mexa aqui!!!!
     // ── CONFIGURAÇÃO PARA SERVIR O REACT ──
     ServeStaticModule.forRoot({
       rootPath: join(process.cwd(), 'frontend', 'dist'),
