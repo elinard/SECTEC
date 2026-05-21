@@ -122,7 +122,7 @@ export function getRoleRedirect(role: BackendRole) {
     aluno: "/dashboard/aluno",
     orientador: "/dashboard/orientador",
     coordenador: "/dashboard/coordenacao",
-    comissao: "/dashboard/coordenacao",
+    comissao: "/dashboard/comissao",
   };
 
   return routes[role];

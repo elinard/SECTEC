@@ -5,9 +5,10 @@
   import Dashboard from './pages/DashboardAluno';
   import Administrador from './pages/Administrador';
   import NotasAluno from './pages/Notas';
-  import RelatoriosAluno from './pages/Relatoriosaluno';
-  import RelatorioStatusAlunos from './pages/RelatorioStatusAlunos';
-  import ConfigAluno from './componentes/configurações/config';
+import RelatoriosAluno from './pages/Relatoriosaluno';
+import RelatorioStatusAlunos from './pages/RelatorioStatusAlunos';
+import Comissao from './pages/Comissao';
+import ConfigAluno from './componentes/configurações/config';
   import ProtectedRoute from './componentes/ProtectedRoute';
   import { getRoleRedirect, type BackendRole } from './lib/api';
   import DashboardOrientador, {
@@ -125,9 +126,17 @@
             }
           />
           <Route
+            path="/dashboard/comissao"
+            element={
+              <ProtectedRoute allowedRoles={["comissao"]}>
+                <Comissao />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/dashboard/coordenacao"
             element={
-              <ProtectedRoute allowedRoles={["coordenador", "comissao"]}>
+              <ProtectedRoute allowedRoles={["coordenador"]}>
                 <Administrador />
               </ProtectedRoute>
             }
@@ -135,7 +144,7 @@
           <Route
             path="/dashboard/coordenacao/turmas"
             element={
-              <ProtectedRoute allowedRoles={["coordenador", "comissao"]}>
+              <ProtectedRoute allowedRoles={["coordenador"]}>
                 <Administrador />
               </ProtectedRoute>
             }
@@ -151,7 +160,7 @@
         <Route
           path="/dashboard/coordenacao/usuarios"
             element={
-              <ProtectedRoute allowedRoles={["coordenador", "comissao"]}>
+              <ProtectedRoute allowedRoles={["coordenador"]}>
                 <Administrador />
               </ProtectedRoute>
             }
@@ -159,7 +168,7 @@
           <Route
             path="/dashboard/coordenacao/eventos"
             element={
-              <ProtectedRoute allowedRoles={["coordenador", "comissao"]}>
+              <ProtectedRoute allowedRoles={["coordenador"]}>
                 <Administrador />
               </ProtectedRoute>
             }
@@ -167,7 +176,7 @@
           <Route
             path="/dashboard/coordenacao/projetos"
             element={
-              <ProtectedRoute allowedRoles={["coordenador", "comissao"]}>
+              <ProtectedRoute allowedRoles={["coordenador"]}>
                 <Administrador />
               </ProtectedRoute>
             }
@@ -175,15 +184,15 @@
           <Route
             path="/dashboard/coordenacao/configuracoes"
             element={
-              <ProtectedRoute allowedRoles={["coordenador", "comissao"]}>
-                <ConfigAluno userRole={backendRole === "comissao" ? "comissao" : "coordenador"} />
+              <ProtectedRoute allowedRoles={["coordenador"]}>
+                <ConfigAluno userRole="coordenador" />
               </ProtectedRoute>
             }
           />
           <Route
             path="/dashboard/coordenacao/relatorio-alunos"
             element={
-              <ProtectedRoute allowedRoles={["coordenador", "comissao"]}>
+              <ProtectedRoute allowedRoles={["coordenador"]}>
                 <RelatorioStatusAlunos />
               </ProtectedRoute>
             }
