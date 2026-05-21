@@ -33,14 +33,12 @@ import { RelatorioModule } from './relatorio/relatorio.module';
     }),
     ScheduleModule.forRoot(),
 
-  //noq mexa aqui!!!!
     // ── CONFIGURAÇÃO PARA SERVIR O REACT ──
     ServeStaticModule.forRoot({
-      // Exemplo se o código estiver dentro de backend/src/main.ts
-      join(__dirname, '..', '..', 'frontend', 'dist'),
+      // Adicionado o 'rootPath:' para corrigir a sintaxe do objeto
+      rootPath: join(__dirname, '..', '..', 'frontend', 'dist'),
       exclude: ['/api'],
     }),
-
 
     CommonModule,
     UsersModule,
