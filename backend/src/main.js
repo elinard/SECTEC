@@ -53,7 +53,7 @@ function bootstrap() {
                     app = _b.sent();
                     app.setGlobalPrefix('api');
                     // Serve arquivos estáticos
-                    app.useStaticAssets((0, path_1.join)(process.cwd(), '..', 'frontend', 'dist'));
+                    app.useStaticAssets((0, path_1.join)(process.cwd(), 'frontend', 'dist'));
                     seedService = app.select(users_module_1.UsersModule).get(users_seed_1.UsersSeed);
                     return [4 /*yield*/, seedService.run()];
                 case 2:

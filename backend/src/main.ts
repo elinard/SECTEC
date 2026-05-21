@@ -12,7 +12,7 @@ async function bootstrap() {
   app.setGlobalPrefix('api');
 
   // Serve arquivos estáticos
-  app.useStaticAssets(join(process.cwd(), '..', 'frontend', 'dist'));
+  app.useStaticAssets(join(process.cwd(), 'frontend', 'dist'));
 
   const seedService = app.select(UsersModule).get(UsersSeed);
   await seedService.run();
