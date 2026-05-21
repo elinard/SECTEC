@@ -26,7 +26,7 @@ import { RelatorioModule } from './relatorio/relatorio.module';
       host: process.env.DB_HOST,
       port: 3306,
       username: process.env.DB_USER,
-      password: process.env.DB_PASSWORD,
+      password: process.env.DB_PASS,
       database: process.env.DB_NAME,
       autoLoadEntities: true,
       synchronize: true,
@@ -56,4 +56,4 @@ import { RelatorioModule } from './relatorio/relatorio.module';
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule { }
