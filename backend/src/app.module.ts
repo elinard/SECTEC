@@ -37,8 +37,7 @@ import { RelatorioModule } from './relatorio/relatorio.module';
     // ── CONFIGURAÇÃO PARA SERVIR O REACT ──
     ServeStaticModule.forRoot({
       // Exemplo se o código estiver dentro de backend/src/main.ts
-join(__dirname, '..', '..', 'frontend', 'dist')
-
+      join(__dirname, '..', '..', 'frontend', 'dist'),
       exclude: ['/api'],
     }),
 
